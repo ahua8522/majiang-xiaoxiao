@@ -61,9 +61,10 @@ function loop(now: number): void {
   requestAnimationFrame(loop);
 }
 const at = (e: PointerEvent): [number, number] => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-canvas.addEventListener('pointerdown', e => { if (!frame) return; canvas.setPointerCapture(e.pointerId); controller.down(frame, ...at(e)); dirty = true; });
-canvas.addEventListener('pointermove', e => { if (!frame || !e.buttons) return; controller.move(frame, ...at(e)); dirty = true; });
-canvas.addEventListener('pointerup', e => { if (!frame) return; controller.up(frame, ...at(e)); dirty = true; });
-canvas.addEventListener('pointercancel', () => { controller.cancel(); dirty = true; });
+let pointer: number | null = null;
+canvas.addEventListener('pointerdown', e => { if (!frame || pointer !== null) return; pointer = e.pointerId; canvas.setPointerCapture(e.pointerId); controller.down(frame, ...at(e)); dirty = true; });
+canvas.addEventListener('pointermove', e => { if (!frame || e.pointerId !== pointer) return; controller.move(frame, ...at(e)); dirty = true; });
+canvas.addEventListener('pointerup', e => { if (!frame || e.pointerId !== pointer) return; pointer = null; controller.up(frame, ...at(e)); dirty = true; });
+canvas.addEventListener('pointercancel', e => { if (e.pointerId !== pointer) return; pointer = null; controller.cancel(); dirty = true; });
 addEventListener('resize', () => { dirty = true; });
 requestAnimationFrame(loop);
