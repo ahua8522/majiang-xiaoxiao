@@ -7,10 +7,18 @@
     "build:core": "tsc assets/scripts/core/*.ts --outDir .test/core --target ES2020 --module commonjs --strict",
     "build:view": "tsc assets/scripts/view/*.ts --outDir .view-test/view --target ES2020 --module commonjs --strict",
     "test": "npm run build:core && node --test tests/core.test.cjs tests/generation.test.cjs tests/session.test.cjs",
-    "test:all": "npm run build:core && npm run build:view && node --test tests/",
-    "test:legacy": "node ../demo/verify.cjs"
+    "test:all": "npm run build:core && npm run build:view && node --test tests/ && npm run check:cocos",
+    "test:legacy": "node ../demo/verify.cjs",
+    "check:cocos": "tsc -p tsconfig.check.json",
+    "preview:build": "esbuild preview/main.ts --bundle --format=iife --target=es2020 --tsconfig=tsconfig.check.json --outfile=preview/dist/main.js",
+    "preview": "npm run preview:build && esbuild preview/main.ts --bundle --format=iife --target=es2020 --tsconfig=tsconfig.check.json --outdir=preview/dist --servedir=preview --serve=8080"
   },
   "devDependencies": {
+    "@cocos/creator-types": "^3.8.6",
+    "esbuild": "^0.24.2",
     "typescript": "^5.2.2"
+  },
+  "creator": {
+    "version": "3.8.6"
   }
 }

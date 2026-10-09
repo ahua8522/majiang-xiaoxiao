@@ -56,6 +56,9 @@ export class Session {
     this.message=near.length>1?'有不止一个搭子，点你想消的那张。':'拖动这一行或这一列，把搭子推到旁边。';
     this.revision++;
   }
+  /** Feedback for gestures that cannot become an action (locked rail, wood block, hole). */
+  notice(text:string){if(this.modal!=='none')return;this.selected=null;this.message=text;if(this.vibration){try{this.platform.feedback();}catch{/* Optional haptics. */}}this.revision++;}
+  get levelNames():string[]{return LEVELS.map(l=>l.name);}
   slide(run:number,step:number):boolean{return this.apply({kind:'slide',run,step});}
   undo():boolean{
     if(this.modal!=='none'&&this.modal!=='win')return false;
@@ -91,6 +94,7 @@ export class Session {
       if(open==='restart'&&id==='confirm-restart'){this.reset();return;}
       if(open==='win'&&id==='next'){this.reset((this.levelIndex+1)%5);return;}
       if(open==='win'&&id==='replay'){this.reset();return;}
+      if(open==='win'&&id==='levels'){this.modal='levels';this.revision++;return;}
       if(open==='levels'&&id.startsWith('level:')){const i=Number(id.slice(6));if(Number.isInteger(i)&&i>=0&&i<=this.maxLevel)this.reset(i);return;}
       return;
     }
