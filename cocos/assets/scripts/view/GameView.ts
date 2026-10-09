@@ -13,6 +13,8 @@ export interface ViewModel {
   selected: Pos | null; hint: Action[]; message: string; modal: string;
   reducedMotion: boolean; vibration: boolean; lastChain: number;
   drag?: Drag | null; effect?: Effect | null; levelNames?: string[]; levelCount?: number;
+  levelName?: string; chapter?: string; difficulty?: number; par?: number; hintsLeft?: number; shufflesLeft?: number;
+  canUndo?: boolean; rating?: number; stars?: Record<string, number>; levelPage?: number;
 }
 export interface Hit {id: string; x: number; y: number; w: number; h: number}
 export interface Board {x: number; y: number; cols: number; rows: number; cellW: number; cellH: number}
@@ -20,7 +22,7 @@ export interface Frame {width: number; height: number; modal: string; commands: 
 
 export const palette = {
   ...colors,
-  felt: '#2F7A60', slot: '#286A53', slotEdge: '#1F5A46', hole: '#CBE7DC', holeEdge: '#B3D6C8',
+  felt: '#235B48', slot: '#1D503F', slotEdge: '#174535', hole: '#183F34', holeEdge: '#30664F',
   ivorySide: '#F2DFB8', grassEdge: '#5E8C4C', grassDark: '#6C9A57', shadow: '#1E4A3F44',
   gold: '#FFC94A', goldEdge: '#E0A526', navy: '#1F3A5F', brass: '#D99A4E', brassEdge: '#9C6430',
   plum: '#8C5A9E', sky: '#4F8FB0', inkSoft: '#24594ECC', backdrop: '#24594EB8', glow: '#FFE7A8'
@@ -93,9 +95,9 @@ function layout(m: ViewModel, w: number, h: number): Layout {
   const s = w > 0 && Number.isFinite(w) ? w / DESIGN_W : 1;
   const H = h > 0 && Number.isFinite(h) ? h / s : 1334;
   const top = 60 / s + 14;
-  const msgY = top + 92 + 12;
-  const boardTop = Math.max(200, msgY + 72 + 36);
-  const toolY = H - Math.max(24, 34 / s) - 100;
+  const msgY = top + 142;
+  const boardTop = Math.max(200, msgY + 66 + 32);
+  const toolY = H - Math.max(24, 34 / s) - 118;
   const rows = m.grid.length, cols = rows ? m.grid[0].length : 0;
   const availW = DESIGN_W - SIDE * 2, availH = Math.max(0, toolY - 20 - boardTop);
   let cw = 0, ch = 0;
@@ -255,33 +257,42 @@ function gear(d: Drawing, cx: number, cy: number, r: number, color: string): voi
 }
 function background(d: Drawing, H: number): void {
   d.rect(0, 0, DESIGN_W, H, 0, palette.table);
-  for (const [x, y, r] of [[96, 360, 120], [660, 260, 90], [640, H * .78, 140], [110, H * .9, 90]]) d.circle(x, y, Math.min(r, x, DESIGN_W - x), alpha(palette.white, .35));
-  for (let x = 30; x < DESIGN_W; x += 120) d.circle(x, H - 18, 6, alpha(palette.grass, .45));
+  for (let y = 24; y < H; y += 32) for (let x = 24; x < DESIGN_W; x += 32) d.circle(x, y, .7, alpha(palette.woodEdge, .12));
+  d.line([[24, H - 16], [726, H - 16]], alpha(palette.woodEdge, .2), 1);
 }
 function header(p: Painter, m: ViewModel, L: Layout): void {
   const d = p.d, y = L.top;
-  p.button('levels', 24, y, 150, 92, `第${clamp(m.levelIndex, 0, 98) + 1}关`, 'wood', 28, '选关');
-  p.button('help', 538, y, 92, 92, '?', 'paper', 40);
-  p.button('settings', 634, y, 92, 92, '', 'paper');
-  gear(d, 680, y + 42, 22, palette.woodEdge);
-  const name = m.levelNames?.[m.levelIndex] ?? `第 ${m.levelIndex + 1} 关`;
-  d.text(name, 356, y + 8, 34, palette.ink, 'center', true, 330, 'serif');
+  p.button('home', 24, y, 90, 88, '‹', 'paper', 40);
+  p.button('levels', 120, y, 136, 88, `第${m.levelIndex + 1}关`, 'green', 26, '章节地图');
+  p.button('help', 634, y, 92, 88, '?', 'paper', 34);
+  const name = m.chapter ?? m.levelNames?.[m.levelIndex] ?? '麻将小茶馆';
+  d.text(name, 442, y + 8, 33, palette.ink, 'center', true, 354, 'serif');
+  d.text(`难度 ${'●'.repeat(clamp(m.difficulty ?? 1, 1, 6))}`, 442, y + 50, 20, palette.muted, 'center', false, 340);
   const left = tileTotal(m.grid);
-  const stats = `剩 ${left}/${finite(m.total)} 张 · 推了 ${finite(m.moves)} 步` + (m.lastChain > 1 ? ` · 连消×${m.lastChain}` : '');
-  d.text(stats, 356, y + 54, 22, palette.muted, 'center', false, 340);
+  d.text(`剩余 ${left} / ${finite(m.total)} 张`, 30, y + 102, 23, palette.ink, 'left', true, 230);
+  d.text(`${finite(m.moves)} 步  ·  三星 ≤ ${finite(m.par ?? 30)} 步`, 720, y + 102, 23, palette.ink, 'right', false, 380);
+  d.rect(30, y + 133, 690, 5, 2, alpha(palette.green, .15));
+  if (m.total > left) d.rect(30, y + 133, 690 * clamp(1 - left / m.total, 0, 1), 5, 2, palette.green);
 }
 function message(d: Drawing, m: ViewModel, L: Layout): void {
   const y = L.msgY;
-  d.rect(24, y + 4, 702, 72, 24, alpha(palette.ink, .12));
-  d.rect(24, y, 702, 72, 24, palette.cream, palette.wood, 2);
-  d.circle(64, y + 36, 26, palette.orange, palette.orangeEdge, 2);
-  d.text('掌', 64, y + 23, 26, palette.white, 'center', true);
-  d.paragraph(String(m.message ?? ''), 104, y + 8, 604, 23, 2, palette.ink, 31);
+  d.rect(24, y, 702, 66, 16, palette.cream);
+  d.rect(24, y + 12, 4, 42, 2, palette.orange);
+  const run = m.drag ? m.runs[m.drag.run] : null, step = m.drag ? Math.round(m.drag.offset) : 0;
+  const preview = run && step ? `正在向${run.axis === 'row' ? step > 0 ? '右' : '左' : step > 0 ? '下' : '上'}推 ${Math.abs(step)} 格 · 松手消除亮起的对子` : m.message;
+  d.paragraph(String(preview ?? ''), 44, y + 8, 662, 22, 2, palette.ink, 27);
 }
-function toolbar(p: Painter, L: Layout): void {
-  const w = (702 - 3 * 14) / 4, tools: [string, string, Tone][] = [['hint', '提示', 'orange'], ['shuffle', '洗牌', 'green'], ['undo', '撤销', 'blue'], ['restart', '重开', 'red']];
-  p.d.rect(12, L.toolY - 10, 726, 120, 30, alpha(palette.wood, .55));
-  tools.forEach(([id, label, tone], i) => p.button(id, 24 + i * (w + 14), L.toolY, w, 100, label, tone, 32));
+function toolbar(p: Painter, m: ViewModel, L: Layout): void {
+  const w = (702 - 3 * 14) / 4;
+  const tools: [string, string, string, boolean][] = [
+    ['hint', '提示', `免费 ${m.hintsLeft ?? 3} 次`, (m.hintsLeft ?? 3) > 0 || !!m.hint.length],
+    ['shuffle', '洗牌', `免费 ${m.shufflesLeft ?? 2} 次`, (m.shufflesLeft ?? 2) > 0],
+    ['undo', '撤销', '退回整步', m.canUndo !== false], ['restart', '重开', '重新发牌', true]
+  ];
+  p.d.text('轻点配对  /  横竖拖动整段  /  辅助最多两星', 375, L.toolY - 33, 20, palette.muted, 'center', false, 690);
+  tools.forEach(([id, label, sub, enabled], i) => {
+    p.button(enabled ? id : null, 24 + i * (w + 14), L.toolY, w, 100, label, enabled && i === 0 ? 'green' : 'paper', 28, enabled ? sub : '已用完');
+  });
 }
 
 /* ── Board ── */
@@ -312,7 +323,8 @@ function board(p: Painter, m: ViewModel, L: Layout): void {
   const selected = m.modal === 'none' && !drag ? m.selected : null;
   const selFace = selected ? topOf(grid, selected) : null;
 
-  d.rect(bx - 16, by - 16, cw * cols + 32, ch * rows + 32, 28, palette.wood, palette.woodEdge, 3);
+  d.rect(bx - 17, by - 8, cw * cols + 34, ch * rows + 34, 28, alpha(palette.ink, .2));
+  d.rect(bx - 16, by - 16, cw * cols + 32, ch * rows + 32, 28, '#BA9263', palette.woodEdge, 3);
   d.rect(bx - 6, by - 6, cw * cols + 12, ch * rows + 12, 20, palette.felt);
   for (const seg of lockedSegments(m.grid, runs)) {
     const a = seg.cells[0], b = seg.cells[seg.cells.length - 1];
@@ -347,9 +359,10 @@ function board(p: Painter, m: ViewModel, L: Layout): void {
       d.rect(t.x + t.w * .3, t.y + t.h - 9, t.w * .4, 6, 3, palette.orange);
     }
   }
-  if (hintRun) {
-    const first = hintRun.cells[0], last = hintRun.cells[hintRun.cells.length - 1], step = hint?.kind === 'slide' ? hint.step : 0;
-    if (hintRun.axis === 'row') {
+  const arrowRun = hintRun ?? drag?.run;
+  if (arrowRun) {
+    const first = arrowRun.cells[0], last = arrowRun.cells[arrowRun.cells.length - 1], step = hint?.kind === 'slide' ? hint.step : drag?.step ?? 0;
+    if (arrowRun.axis === 'row') {
       const cy = by + (first.r + .5) * ch, dir = step > 0 ? 'right' : 'left';
       chevron(d, bx + first.c * cw - 22, cy, dir, 26, palette.orange);
       chevron(d, bx + (last.c + 1) * cw + 22, cy, dir, 26, palette.orange);
@@ -386,15 +399,40 @@ function card(p: Painter, L: Layout, height: number, title: string): number {
   d.text(title, 375, y + 26, 40, palette.white, 'center', true, 560, 'serif');
   return y + 120;
 }
+const CHAPTER_NAMES = ['茶馆初学', '庭院进阶', '掌柜试炼'];
+function star(d: Drawing, x: number, y: number, radius: number, earned: boolean): void {
+  const color = earned ? palette.goldEdge : '#B6B7A7';
+  const points = Array.from({length: 11}, (_, i) => {
+    const a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? radius * .45 : radius;
+    return [x + Math.cos(a) * r, y + Math.sin(a) * r];
+  });
+  d.line(points, color, earned ? 6 : 3);
+}
+function home(p: Painter, m: ViewModel, L: Layout): void {
+  const d = p.d, y = Math.max(L.top, (L.H - 920) / 2);
+  d.text('一 方 牌 桌  ·  一 盏 清 茶', 375, y + 24, 22, palette.muted, 'center');
+  d.text('麻将小茶馆', 375, y + 78, 64, palette.ink, 'center', true, 660, 'serif');
+  d.text('推 一 推 ， 碰 个 对', 375, y + 164, 28, palette.muted, 'center');
+  d.rect(116, y + 230, 518, 238, 44, '#BA9263', palette.woodEdge, 3);
+  d.rect(128, y + 242, 494, 212, 32, palette.felt);
+  drawStack(d, ['1s'], 181, y + 270, 126, 161);
+  drawStack(d, ['5p'], 311, y + 260, 126, 161);
+  drawStack(d, ['z5'], 441, y + 270, 126, 161);
+  const cleared = Object.keys(m.stars ?? {}).length, collected = Object.values(m.stars ?? {}).reduce((a, b) => a + b, 0);
+  d.text(`${cleared} 关已清台    /    ${collected} 颗茶星`, 375, y + 500, 25, palette.ink, 'center');
+  p.button('continue', 96, y + 562, 558, 106, `继续 · 第 ${m.levelIndex + 1} 关`, 'green', 32, m.chapter ?? '从第一盏茶开始');
+  p.button('levels', 96, y + 694, 558, 94, '三章闯关 · 18 局层层进阶', 'paper', 27);
+  p.button('help', 96, y + 814, 264, 88, '玩法说明', 'paper', 26);
+  p.button('settings', 390, y + 814, 264, 88, '设置', 'paper', 26);
+}
 function modal(p: Painter, m: ViewModel, L: Layout): void {
-  const d = p.d, levels = Math.max(1, Math.min(20, Math.floor(finite(m.levelCount ?? 5, 5))));
-  const last = m.levelIndex >= levels - 1;
+  const d = p.d, levels = Math.max(1, Math.floor(finite(m.levelCount ?? 18, 18)));
   switch (m.modal) {
     case 'help': {
-      const y = card(p, L, 600, '怎么玩');
-      const lines = ['· 相同的牌上下左右挨着，点一下就消。', '· 按住一行横拖、一列竖拖，整段循环滑动。', '· 拖动时发光的牌，松手就会自动消掉。', '· 木块挡路，锁轨推不动；叠牌先消上层。', '· 卡住了？提示、撤销、洗牌都不限次数。'];
-      lines.forEach((t, i) => d.text(t, 92, y + i * 54, 26, palette.ink, 'left', false, 566));
-      p.button('close', 225, y + 5 * 54 + 30, 300, 100, '知道了', 'orange', 32);
+      const y = card(p, L, 730, '推一推，碰个对');
+      const lines = ['01  同牌上下左右相邻，轻点即可消除。', '02  横拖一行、竖拖一列；整段首尾循环。', '03  松手消掉发光对子，叠牌只消最上层。', '04  木桩和空洞截断轨道；金色锁轨不能推。', '05  点消 / 推动各算一步；连消只算一步。', '06  每关免费提示 3 次、洗牌 2 次，撤销不限。', '07  目标步数内、无提示洗牌清台可获三星。', '08  没有倒计时，超出目标仍可继续清台。'];
+      lines.forEach((t, i) => d.text(t, 92, y + i * 52, 24, palette.ink, 'left', false, 566));
+      p.button('close', 225, y + 446, 300, 100, '来一局', 'green', 32);
       return;
     }
     case 'settings': {
@@ -412,27 +450,32 @@ function modal(p: Painter, m: ViewModel, L: Layout): void {
       return;
     }
     case 'win': {
-      const y = card(p, L, 520, '清台啦！');
-      for (let i = 0; i < 3; i++) d.circle(295 + i * 80, y + 40, 30, palette.gold, palette.goldEdge, 3);
-      d.text(`第 ${m.levelIndex + 1} 关 · 推了 ${finite(m.moves)} 步`, 375, y + 96, 28, palette.ink, 'center', true, 560);
-      if (last) {
-        d.text('五关全清，你就是茶馆掌柜！', 375, y + 140, 24, palette.muted, 'center', false, 560);
-        p.button('levels', 96, y + 190, 264, 100, '选关', 'wood', 30);
-      } else p.button('next', 96, y + 190, 264, 100, '下一关', 'orange', 30);
-      p.button('replay', 390, y + 190, 264, 100, '再来一盘', 'green', 30);
-      p.button('close', 225, y + 310, 300, 96, '看看牌桌', 'paper', 26);
+      const y = card(p, L, 660, '这一盏，清台了');
+      const rating = m.rating ?? 3;
+      for (let i = 0; i < 3; i++) star(d, 275 + i * 100, y + 46, 36, i < rating);
+      d.text(`第 ${m.levelIndex + 1} 关  ·  ${finite(m.moves)} 步清台`, 375, y + 116, 30, palette.ink, 'center', true, 560);
+      d.text(rating === 3 ? '不借助辅助，好一手漂亮的牌！' : `三星目标 ≤ ${m.par ?? 30} 步，且不使用提示或洗牌`, 375, y + 164, 24, palette.muted, 'center', false, 560);
+      const last = m.levelIndex >= levels - 1;
+      d.text(last ? '三章通关！重玩关卡，挑战全三星。' : '下一盏茶，藏着新的挑战。', 375, y + 206, 24, palette.muted, 'center', false, 560);
+      p.button(last ? 'home' : 'next', 96, y + 270, 558, 100, last ? '回茶馆' : '下一关', 'green', 32);
+      p.button('replay', 96, y + 400, 264, 100, '再冲三星', 'paper', 28);
+      p.button('levels', 390, y + 400, 264, 100, '章节地图', 'paper', 28);
       return;
     }
     case 'levels': {
-      const y = card(p, L, 120 + Math.ceil((levels + 1) / 2) * 124 + 30, '选关');
-      const max = clamp(Math.floor(finite(m.maxLevel)), 0, levels - 1);
-      for (let i = 0; i < levels; i++) {
-        const x = 96 + (i % 2) * 290, by = y + Math.floor(i / 2) * 124, name = m.levelNames?.[i] ?? `第 ${i + 1} 关`;
-        if (i <= max) p.button(`level:${i}`, x, by, 268, 108, `${i + 1}. ${name}`, i === m.levelIndex ? 'orange' : 'wood', 26);
-        else p.button(null, x, by, 268, 108, `${i + 1}. 未解锁`, 'paper', 26);
+      const page = clamp(m.levelPage ?? Math.floor(m.levelIndex / 6), 0, Math.ceil(levels / 6) - 1);
+      const start = page * 6, name = CHAPTER_NAMES[page] ?? '章节地图';
+      const y = card(p, L, 700, name);
+      d.text(`第 ${start + 1}–${Math.min(start + 6, levels)} 关  ·  逐关解锁，重玩收集茶星`, 375, y, 22, palette.muted, 'center', false, 560);
+      for (let i = start; i < Math.min(start + 6, levels); i++) {
+        const slot = i - start, x = 96 + slot % 2 * 294, by = y + 50 + Math.floor(slot / 2) * 130;
+        const unlocked = i <= m.maxLevel, earned = m.stars?.[i] ?? 0;
+        p.button(unlocked ? `level:${i}` : null, x, by, 264, 110, `${i + 1}`, unlocked ? i === m.levelIndex ? 'green' : 'paper' : 'wood', 29,
+          unlocked ? earned ? `${earned} 星清台` : '待挑战' : '尚未解锁');
       }
-      const ci = levels, cx = 96 + (ci % 2) * 290, cy = y + Math.floor(ci / 2) * 124;
-      p.button('close', cx, cy, 268, 108, '返回', 'paper', 28);
+      if (page > 0) p.button('page-prev', 96, y + 468, 170, 92, '上一章', 'paper', 24);
+      p.button('close', 290, y + 468, 170, 92, '返回', 'paper', 26);
+      if (page < Math.ceil(levels / 6) - 1) p.button('page-next', 484, y + 468, 170, 92, '下一章', 'paper', 24);
       return;
     }
   }
@@ -452,14 +495,19 @@ function tidy<T>(v: T): T {
 export function render(m: ViewModel, w: number, h: number): Frame {
   const L = layout(m, w, h), p = new Painter(L.s), open = m.modal && m.modal !== 'none' ? m.modal : 'none';
   background(p.d, L.H);
+  if (open === 'home') {
+    home(p, m, L);
+    return tidy({width: finite(w), height: finite(h), modal: open, commands: p.d.commands, hits: p.hits,
+      board: {x: 0, y: 0, cols: 0, rows: 0, cellW: 0, cellH: 0}});
+  }
   const blocked = open !== 'none';
   const base = new Painter(L.s);
   header(blocked ? base : p, m, L);
   if (blocked) p.d.commands.push(...base.d.commands);
   message(p.d, m, L);
   board(p, m, L);
-  if (blocked) { const t = new Painter(L.s); toolbar(t, L); p.d.commands.push(...t.d.commands); modal(p, m, L); }
-  else toolbar(p, L);
+  if (blocked) { const t = new Painter(L.s); toolbar(t, m, L); p.d.commands.push(...t.d.commands); modal(p, m, L); }
+  else toolbar(p, m, L);
   const board_: Board = {x: L.bx * L.s, y: L.by * L.s, cols: L.cols, rows: L.rows, cellW: L.cw * L.s, cellH: L.ch * L.s};
   return tidy({width: finite(w), height: finite(h), modal: open, commands: p.d.commands, hits: p.hits, board: board_});
 }

@@ -28,7 +28,7 @@ function model(overrides = {}) {
   const grid = overrides.grid || Array.from({length: 7}, (_, r) => Array.from({length: 9}, (_, c) => [(r + c) % 9 + 1 + 'p']));
   return {grid, runs: overrides.runs || runsFor(grid), levelIndex: 3, maxLevel: 4, total: 100, moves: 12,
     selected: null, hint: [], message: '慢慢来，好牌总会相逢', modal: 'none', reducedMotion: false,
-    vibration: true, lastChain: 0, ...overrides};
+    vibration: true, lastChain: 0, levelCount: 18, ...overrides};
 }
 function render(m = model(), w = 750, h = 1334) {
   assert.equal(typeof V.render, 'function', '缺少 render 绘图函数');
@@ -94,7 +94,7 @@ for (const [w, h] of screens) {
 }
 test('按钮 IDs 和独立命中，棋盘不会与按钮重叠', () => {
   const f = render();
-  assert.deepEqual(f.hits.map(h => h.id).sort(), ['settings', 'help', 'levels', 'hint', 'shuffle', 'undo', 'restart'].sort());
+  assert.deepEqual(f.hits.map(h => h.id).sort(), ['home', 'help', 'levels', 'hint', 'shuffle', 'undo', 'restart'].sort());
   for (const hit of f.hits) assert.equal(V.cellAt(f, hit.x + hit.w / 2, hit.y + hit.h / 2), null);
   assert.equal(V.hitTest(f, 0, 0), null);
   assert.equal(V.hitTest(f, NaN, 10), null);
@@ -113,7 +113,8 @@ test('cellAt 左上坐标、半开边界，空格、木块和孔洞仍返回位�
 });
 const modalActions = {
   help: ['close'], settings: ['close', 'toggle-motion', 'toggle-vibration'], restart: ['close', 'confirm-restart'],
-  win: ['close', 'next', 'replay'], levels: ['close', 'level:0', 'level:1', 'level:2', 'level:3', 'level:4']
+  win: ['next', 'replay', 'levels'], levels: ['close', 'level:0', 'level:1', 'level:2', 'level:3', 'level:4', 'page-next'],
+  home: ['continue', 'levels', 'help', 'settings']
 };
 for (const [modal, ids] of Object.entries(modalActions)) test(`${modal} 弹框只命中自身操作并阻断棋盘，序列化后也有效`, () => {
   for (const [w, h] of screens) {
@@ -129,9 +130,9 @@ for (const [modal, ids] of Object.entries(modalActions)) test(`${modal} 弹框�
 });
 test('选关按最高已解锁索引提供操作，终关胜利不生成越界 next', () => {
   const f = render(model({modal: 'levels', maxLevel: 2}));
-  assert.deepEqual(f.hits.map(h => h.id).sort(), ['close', 'level:0', 'level:1', 'level:2'].sort());
-  const last = render(model({modal: 'win', levelIndex: 4}));
-  assert.deepEqual(last.hits.map(h => h.id).sort(), ['close', 'levels', 'replay'].sort());
+  assert.deepEqual(f.hits.map(h => h.id).sort(), ['close', 'level:0', 'level:1', 'level:2', 'page-next'].sort());
+  const last = render(model({modal: 'win', levelIndex: 17}));
+  assert.deepEqual(last.hits.map(h => h.id).sort(), ['home', 'levels', 'replay'].sort());
 });
 test('真实筒条万字牌面不同，筒子和竹条不是普通数字文本', () => {
   const faces = [...Array.from({length: 9}, (_, i) => `${i + 1}p`), ...Array.from({length: 9}, (_, i) => `${i + 1}s`), ...Array.from({length: 9}, (_, i) => `${i + 1}m`), ...Array.from({length: 7}, (_, i) => `${i + 1}z`)];
@@ -233,4 +234,18 @@ test('长文案及极端计数不会溢出，空棋盘几何有效', () => {
     validate(f, 750, 1334);
     assert.equal(V.cellAt(f, f.board.x, f.board.y), null);
   }
+});
+test('三章分页只显示六关，首页与各章在所有屏幕尺寸不越界',()=>{
+  for(const [w,h]of screens)for(let page=0;page<3;page++){
+    const f=render(model({modal:'levels',levelPage:page,maxLevel:17}),w,h);
+    validate(f,w,h);assert.equal(f.hits.filter(h=>h.id.startsWith('level:')).length,6);
+    assert.ok(f.hits.some(h=>h.id===`level:${page*6}`));
+    validate(render(model({modal:'home'}),w,h),w,h);
+  }
+});
+test('辅助耗尽和无撤销历史时禁用按钮，结算只画实际星级',()=>{
+  const f=render(model({hintsLeft:0,shufflesLeft:0,canUndo:false}));
+  assert.ok(!f.hits.some(h=>['hint','shuffle','undo'].includes(h.id)));
+  const win=render(model({modal:'win',rating:1}));
+  assert.ok(win.commands.some(c=>c.type==='text'&&c.text.includes('三星目标')));
 });

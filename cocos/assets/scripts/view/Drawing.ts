@@ -5,8 +5,8 @@ export type Command =
   | { type: 'text'; x: number; y: number; text: string; size: number; color: string; align: 'left' | 'center' | 'right'; bold?: boolean; font?: string };
 
 export const colors = {
-  table: '#D9F0E8', ink: '#24594E', muted: '#567F70', paper: '#FFF9E9',
-  cream: '#FFF3D8', orange: '#F49A56', orangeEdge: '#C9753E', grass: '#81AF68',
+  table: '#F1EBDD', ink: '#254D41', muted: '#798375', paper: '#FFF9E9',
+  cream: '#FAF5E9', orange: '#BE743D', orangeEdge: '#98542A', grass: '#81AF68',
   green: '#368568', blue: '#356B81', red: '#C95144', wood: '#E7BA80', woodEdge: '#95663F',
   clear: '#00000000', white: '#FFFFFF'
 };

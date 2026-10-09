@@ -6,6 +6,8 @@ export interface Game {
   selected: Pos | null; hint: Action[]; message: string; modal: string;
   reducedMotion: boolean; vibration: boolean; lastChain: number; revision: number;
   lastErased: {a: Pos; b: Pos}[]; levelNames?: string[];
+  levelCount?: number; levelName?: string; chapter?: string; difficulty?: number; par?: number;
+  hintsLeft?: number; shufflesLeft?: number; canUndo?: boolean; rating?: number; stars?: Record<string, number>; levelPage?: number;
   tap(p: Pos): void; slide(run: number, step: number): boolean; command(id: string): void; notice(text: string): void;
 }
 export interface Haptics {tick(): void}
@@ -28,7 +30,9 @@ export class Controller {
       grid: g.grid, runs: g.runs, levelIndex: g.levelIndex, maxLevel: g.maxLevel, total: g.total, moves: g.moves,
       selected: g.selected, hint: g.hint, message: g.message, modal: g.modal, reducedMotion: g.reducedMotion,
       vibration: g.vibration, lastChain: g.lastChain, drag: g.modal === 'none' ? this.drag : null, effect: this.effect,
-      levelNames: g.levelNames, levelCount: g.levelNames?.length
+      levelNames: g.levelNames, levelCount: g.levelCount ?? g.levelNames?.length, levelName: g.levelName, chapter: g.chapter,
+      difficulty: g.difficulty, par: g.par, hintsLeft: g.hintsLeft, shufflesLeft: g.shufflesLeft,
+      canUndo: g.canUndo, rating: g.rating, stars: g.stars, levelPage: g.levelPage
     };
   }
 
@@ -64,6 +68,7 @@ export class Controller {
   }
 
   up(f: Frame, x: number, y: number): void {
+    this.move(f, x, y);
     const p = this.press, drag = this.drag;
     this.press = null; this.drag = null; this.lastStep = 0;
     if (!p) return;
@@ -72,7 +77,10 @@ export class Controller {
     else if (drag) {
       const len = this.game.runs[drag.run].cells.length, k = ((Math.round(drag.offset) % len) + len) % len;
       if (k) this.game.slide(drag.run, k > len / 2 ? k - len : k);
-    } else if (p.cell && !p.blocked && !p.axis) this.game.tap(p.cell);
+    } else if (p.cell && !p.blocked && !p.axis) {
+      const end = cellAt(f, x, y);
+      if (end?.r === p.cell.r && end.c === p.cell.c) this.game.tap(p.cell);
+    }
     if (this.game.revision !== before) this.afterAction();
   }
 

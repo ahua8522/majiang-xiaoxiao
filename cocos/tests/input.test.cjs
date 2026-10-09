@@ -43,3 +43,8 @@ test('清台页选关可用，解锁的关卡能进入',()=>{
   f=frame(c);assert.equal(f.hits.filter(h=>h.id.startsWith('level:')).length,5);[x,y]=button(f,'level:1');c.down(f,x,y);c.up(f,x,y);
   assert.equal(s.modal,'none');assert.equal(s.levelIndex,1);
 });
+test('只有释放事件仍按最终位置滑动，取消拖动不改棋盘',()=>{
+  const {s,c}=setup([[['1p'],['2p'],['1p'],['3p']]]);let f=frame(c);
+  const [x,y]=center(f,{r:0,c:0});c.down(f,x,y);c.up(f,x+f.board.cellW,y);assert.equal(s.moves,1);
+  const before=JSON.stringify(s.grid);f=frame(c);c.down(f,...center(f,{r:0,c:0}));c.move(f,x+f.board.cellW,y);c.cancel();assert.equal(JSON.stringify(s.grid),before);assert.equal(c.drag,null);
+});

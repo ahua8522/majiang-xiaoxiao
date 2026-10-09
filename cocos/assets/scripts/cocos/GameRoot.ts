@@ -38,6 +38,7 @@ export class GameRoot extends Component {
   private graphicsPool: Graphics[] = [];
   private labelPool: Label[] = [];
   private color = new Color();
+  private touchId: number | null = null;
 
   onLoad(): void {
     this.session = new Session(this.seed || (Date.now() >>> 0), storage);
@@ -78,6 +79,11 @@ export class GameRoot extends Component {
 
   private onTouch(event: EventTouch): void {
     if (!this.frame) return;
+    const id = event.getID();
+    if (event.type === Input.EventType.TOUCH_START) {
+      if (this.touchId !== null) return;
+      this.touchId = id;
+    } else if (id !== this.touchId) return;
     const ui = event.getUILocation();
     const local = this.node.getComponent(UITransform)!.convertToNodeSpaceAR(new Vec3(ui.x, ui.y, 0));
     const x = local.x + this.size.w / 2, y = this.size.h / 2 - local.y;
@@ -87,6 +93,7 @@ export class GameRoot extends Component {
       case Input.EventType.TOUCH_END: this.controller.up(this.frame, x, y); break;
       default: this.controller.cancel();
     }
+    if (event.type === Input.EventType.TOUCH_END || event.type === Input.EventType.TOUCH_CANCEL) this.touchId = null;
     this.dirty = true;
   }
 
