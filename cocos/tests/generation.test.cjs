@@ -1,7 +1,7 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');
 const R=require('../.test/core/Rules.js');
 const G=fs.existsSync(__dirname+'/../.test/core/Generator.js')?require('../.test/core/Generator.js'):{};
-test('五关每个随机开局证书都由真实转换完整清台，绝不返回未证明兜底',()=>{
+test('18关每个随机开局证书都由真实转换完整清台，绝不返回未证明兜底',()=>{
   assert.equal(typeof G.generate,'function','缺少可证生成器');
   for(let level=0;level<18;level++)for(let seed=1;seed<=12;seed++){
     const d=G.generate(level,seed);let g=d.grid;const n=R.count(g);
@@ -26,6 +26,16 @@ test('同种子可复现；洗牌保留剩余牌种和数量，返回真实清�
 test('洗牌收到奇数同牌时拒绝，不破坏原棋盘',()=>{
   assert.equal(typeof G.redeal,'function');const g=[[['1p']]],before=JSON.stringify(g);
   assert.equal(G.redeal(0,g,1),null);assert.equal(JSON.stringify(g),before);
+});
+test('后期完整打乱失败时逐步构造，不退回铺满现成对子的简单牌局',()=>{
+  for(const [level,seeds] of [[7,[1,10,31]],[13,[4,8,26]],[17,[4,13,27]]])for(const seed of seeds){
+    const d=G.generate(level,seed);
+    assert.equal(d.fallback,false,`level ${level} seed ${seed}`);
+    assert.ok(R.pairs(d.grid).length<=Math.floor(R.count(d.grid)/6),'初始直接对子保持少量，不退回整盘即消');
+    let g=d.grid;
+    for(const action of d.solution){const next=R.transition(g,d.runs,action);assert.ok(next.changed);g=next.grid;}
+    assert.equal(R.count(g),0);
+  }
 });
 test('18关棋盘逐步扩大、牌量与机制分阶段提高，而非五关循环',()=>{
   assert.equal(G.LEVELS.length,18);

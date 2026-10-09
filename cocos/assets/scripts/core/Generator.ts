@@ -76,8 +76,21 @@ function construct(index:number,seed:number,tokens?:string[]):Deal|null{
     }
   }
   if(best)return best;
-  const solution=certify(base,runs,removals);
-  return solution?{grid:base,runs,solution,seed,fallback:true}:null;
+  const solution=certify(base,runs,removals);if(!solution)return null;
+  let current:Deal={grid:base,runs,solution,seed,fallback:true};
+  best=current;bestScore=pairs(base).length;
+  // Grow a verified route incrementally when a full scramble breaks the certificate.
+  for(let j=0;j<level.scramble*4&&runs.length;j++){
+    const ri=Math.floor(random()*runs.length),step=random()<0.5?-1:1;
+    const grid=rotate(current.grid,runs[ri],step);
+    const route=certify(grid,runs,[{kind:'slide',run:ri,step:-step},...current.solution]);
+    if(!route)continue;
+    const candidate={grid,runs,solution:route,seed,fallback:false},score=pairs(grid).length;
+    if(score<=pairs(current.grid).length||random()<.1)current=candidate;
+    if(score<bestScore){best=candidate;bestScore=score;}
+    if(bestScore<=Math.max(1,Math.floor(faces.length/12)))break;
+  }
+  return best;
 }
 export function generate(index:number,seed:number):Deal{
   if(!Number.isInteger(index)||index<0||index>=CAMPAIGN_LEVELS)throw new Error('关卡索引越界');

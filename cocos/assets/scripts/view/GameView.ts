@@ -257,7 +257,7 @@ function gear(d: Drawing, cx: number, cy: number, r: number, color: string): voi
 }
 function background(d: Drawing, H: number): void {
   d.rect(0, 0, DESIGN_W, H, 0, palette.table);
-  for (let y = 24; y < H; y += 32) for (let x = 24; x < DESIGN_W; x += 32) d.circle(x, y, .7, alpha(palette.woodEdge, .12));
+  for (let y = 24; y < H; y += 32) d.line([[24, y], [726, y]], alpha(palette.woodEdge, .04), 1);
   d.line([[24, H - 16], [726, H - 16]], alpha(palette.woodEdge, .2), 1);
 }
 function header(p: Painter, m: ViewModel, L: Layout): void {
