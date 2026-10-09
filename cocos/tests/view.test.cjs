@@ -26,7 +26,7 @@ function runsFor(grid, lockR = [], lockC = []) {
 }
 function model(overrides = {}) {
   const grid = overrides.grid || Array.from({length: 7}, (_, r) => Array.from({length: 9}, (_, c) => [(r + c) % 9 + 1 + 'p']));
-  return {grid, runs: runsFor(grid), levelIndex: 3, maxLevel: 4, total: 100, moves: 12,
+  return {grid, runs: overrides.runs || runsFor(grid), levelIndex: 3, maxLevel: 4, total: 100, moves: 12,
     selected: null, hint: [], message: '慢慢来，好牌总会相逢', modal: 'none', reducedMotion: false,
     vibration: true, lastChain: 0, ...overrides};
 }
