@@ -1,0 +1,16 @@
+{
+  "name": "majiang-xiaoxiao",
+  "version": "0.1.0",
+  "private": true,
+  "description": "麻将小茶馆 · Cocos Creator 微信小游戏（核心规则引擎与卡通绘图层）",
+  "scripts": {
+    "build:core": "tsc assets/scripts/core/*.ts --outDir .test/core --target ES2020 --module commonjs --strict",
+    "build:view": "tsc assets/scripts/view/*.ts --outDir .view-test/view --target ES2020 --module commonjs --strict",
+    "test": "npm run build:core && node --test tests/core.test.cjs tests/generation.test.cjs tests/session.test.cjs",
+    "test:all": "npm run build:core && npm run build:view && node --test tests/",
+    "test:legacy": "node ../demo/verify.cjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2"
+  }
+}

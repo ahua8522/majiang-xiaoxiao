@@ -1,0 +1,19 @@
+# Cocos Creator 生成目录（由编辑器重建，不入库）
+cocos/library/
+cocos/temp/
+cocos/build/
+cocos/local/
+cocos/profiles/
+cocos/native/
+
+# 测试编译产物（npm test 会自动生成）
+cocos/.test/
+cocos/.view-test/
+node_modules/
+
+# 旧原型的抽取缓存
+demo/.verify/
+
+# 系统 / 编辑器杂项
+.DS_Store
+*.log

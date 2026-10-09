@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>麻将牌墙 · 滑动对子消除 · 试玩原型</title>
+<style>
+  :root{
+    --felt:#0d3b33; --felt-hi:#155046; --felt-lo:#06201b;
+    --wood:#7a4a22; --wood-lo:#4a2c14; --wood-hi:#a4682f;
+    --ivory:#f3ecd8; --gold:#d9a441; --red:#b3271e; --blue:#1d4e89; --green:#17714a;
+    --ink:#e9e2cf; --ink-dim:#9db3ab;
+    --ui:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    --kai:"Kaiti SC","STKaiti","KaiTi","Songti SC",serif;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--felt-lo);color:var(--ink);font-family:var(--ui);overflow:hidden}
+  #app{position:fixed;inset:0;display:flex;flex-direction:column;
+       background:radial-gradient(120% 80% at 50% 8%,var(--felt-hi),var(--felt) 45%,var(--felt-lo) 100%)}
+
+  /* ── 顶部 HUD ───────────────────────────── */
+  header{flex:none;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;
+         border-bottom:1px solid rgba(217,164,65,.28)}
+  .lv{font-family:var(--kai);font-size:20px;letter-spacing:.06em;color:var(--gold);line-height:1.15}
+  .lv small{font-family:var(--ui);font-size:11px;letter-spacing:.12em;color:var(--ink-dim);margin-left:8px}
+  .stats{display:flex;gap:14px;margin-top:6px;flex-wrap:wrap}
+  .st{display:flex;flex-direction:column;gap:1px}
+  .st b{font-family:var(--mono);font-size:16px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--ivory)}
+  .st span{font-size:10px;letter-spacing:.1em;color:var(--ink-dim)}
+  .st.hot b{color:var(--gold)}
+
+  /* ── 牌墙 ───────────────────────────────── */
+  #stage{flex:1;position:relative;min-height:0}
+  canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+
+  /* ── 底部道具条 ─────────────────────────── */
+  footer{flex:none;padding:8px 10px calc(env(safe-area-inset-bottom) + 8px);
+         border-top:1px solid rgba(217,164,65,.28);background:rgba(6,32,27,.6);
+         display:flex;gap:8px;align-items:stretch}
+  button{font:inherit;color:var(--ink);background:linear-gradient(#1c564b,#124038);
+         border:1px solid rgba(217,164,65,.3);border-radius:9px;padding:9px 10px;
+         flex:1;min-width:0;cursor:pointer;line-height:1.25;transition:transform .08s,filter .15s}
+  button:hover{filter:brightness(1.15)}
+  button:active{transform:translateY(1px) scale(.98)}
+  button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  button i{display:block;font-style:normal;font-size:10px;color:var(--ink-dim);letter-spacing:.06em}
+  button[disabled]{opacity:.4;cursor:default;filter:none}
+  button.ghost{flex:0 0 auto;background:transparent;border-color:rgba(157,179,171,.3)}
+
+  /* ── 提示条 / 弹层 ─────────────────────── */
+  #tip{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);
+       font-size:13px;padding:7px 14px;border-radius:999px;background:rgba(6,32,27,.88);
+       border:1px solid rgba(217,164,65,.35);color:var(--ivory);opacity:0;transition:opacity .2s;
+       pointer-events:none;white-space:nowrap;max-width:92%;overflow:hidden;text-overflow:ellipsis}
+  #tip.on{opacity:1}
+  .veil{position:fixed;inset:0;display:none;place-items:center;background:rgba(4,20,17,.84);
+        backdrop-filter:blur(3px);z-index:9;padding:20px}
+  .veil.on{display:grid}
+  .card{width:min(360px,100%);border:1px solid rgba(217,164,65,.4);border-radius:14px;
+        background:linear-gradient(#12403a,#0a2c26);padding:20px;text-align:center}
+  .card h2{font-family:var(--kai);font-size:26px;margin:0 0 6px;color:var(--gold);letter-spacing:.05em}
+  .card p{margin:0 0 16px;font-size:13px;line-height:1.7;color:var(--ink-dim)}
+  .card .row{display:flex;gap:8px;flex-wrap:wrap}
+  .card button{flex:1 1 44%}
+  .card .ad{background:linear-gradient(#8a2f26,#5f1f19);border-color:rgba(217,164,65,.5)}
+  .card .pri{background:linear-gradient(#a4682f,#7a4a22);border-color:var(--gold);color:#fff8e6}
+  .count{font-family:var(--mono);font-size:44px;color:var(--gold);margin:8px 0 14px}
+  .fine{font-size:11px;color:#7f968e;margin-top:12px!important;line-height:1.6}
+
+  /* ── 调试抽屉 ───────────────────────────── */
+  #dbg{position:absolute;left:8px;right:8px;bottom:8px;z-index:8;display:none;
+       font-family:var(--mono);font-size:11px;line-height:1.65;color:#cfe6df;
+       background:rgba(4,20,17,.92);border:1px solid rgba(217,164,65,.3);border-radius:9px;padding:9px 11px;
+       max-height:42%;overflow:auto}
+  #dbg.on{display:block}
+  #dbg b{color:var(--gold);font-weight:500}
+  #dbg .r{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dotted rgba(157,179,171,.18)}
+  #dbg .btns{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  #dbg .btns button{flex:0 0 auto;padding:6px 9px;font-size:11px}
+  @media (prefers-reduced-motion:reduce){button{transition:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="lv"><span id="lvName">第一关</span><small id="lvSub">教学 · 点两张相同的牌</small></div>
+    <div class="stats">
+      <div class="st"><b id="sLeft">0</b><span>剩余牌</span></div>
+      <div class="st hot"><b id="sPair">0</b><span>可消对</span></div>
+      <div class="st"><b id="sSlide">0</b><span>滑动次数</span></div>
+      <div class="st"><b id="sAd">0</b><span>广告次数</span></div>
+    </div>
+  </header>
+
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="tip"></div>
+
+    <div class="veil" id="vWin"><div class="card">
+      <h2>清台</h2><p id="winTxt">这盘的牌全消完了。</p>
+      <div class="row"><button class="pri" id="btnNext">下一关</button><button id="btnReplay">重玩本关</button></div>
+      <p class="fine">真实产品里这里挂：结算页 → 插屏广告 → 排行榜 → 下一关</p>
+    </div></div>
+
+    <div class="veil" id="vDead"><div class="card">
+      <h2>无路</h2><p id="deadTxt">场上没有相邻的同牌，滑动也无法让任意两张贴到一起。</p>
+      <div class="row">
+        <button class="ad" id="btnAdShuffle">看视频洗牌</button>
+        <button class="ad" id="btnAdRevive">看视频送 3 提示</button>
+      </div>
+      <div class="row" style="margin-top:8px"><button id="btnRetry">重开本关</button><button class="ghost" id="btnShare" style="flex:1 1 44%">分享解锁</button></div>
+      <p class="fine">砖了个砖的整套变现闭环就压在这一屏上：死局 → 激励视频 → 洗牌/复活</p>
+    </div></div>
+
+    <div class="veil" id="vAd"><div class="card">
+      <h2>激励视频</h2><div class="count" id="adSec">3</div><p>模拟播放，真实产品调用 wx.createRewardedVideoAd</p>
+      <div class="row"><button id="btnAdSkip">跳过（demo）</button></div>
+    </div></div>
+
+    <div class="veil on" id="vIntro"><div class="card">
+      <h2>麻将牌墙</h2>
+      <p style="text-align:left">
+        · 手指横拖一整行 / 竖拖一整列，<b style="color:var(--gold)">整排循环平移</b>，头尾相接<br>
+        · 两张相同的牌<b style="color:var(--gold)">上下左右紧邻</b>时，先点一张、再点另一张即消<br>
+        · 木块、空洞、木槽轨道<b style="color:var(--gold)">推不动</b>，被压住的牌要先把上层清掉<br>
+        · 滑动不限次数，难度全在「够不够得着」
+      </p>
+      <div class="row"><button class="pri" id="btnStart">开始第一关</button></div>
+    </div></div>
+
+    <div id="dbg"></div>
+  </div>
+
+  <footer>
+    <button id="bHint">提示<i id="nHint">免费 1</i></button>
+    <button id="bShuffle">洗牌<i id="nShuffle">免费 1</i></button>
+    <button id="bUndo">撤销<i id="nUndo">免费 1</i></button>
+    <button id="bReset">重开<i>不耗道具</i></button>
+    <button id="bDbg" class="ghost">调试<i>旋钮/数据</i></button>
+  </footer>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   LOGIC —— 纯逻辑，无 DOM。可被 node 抽出单独验证。
+   ══════════════════════════════════════════════════════════════ */
+/*LOGIC-START*/
+const FACES = (()=>{
+  const f=[];
+  for(let i=1;i<=9;i++){f.push(i+'p');f.push(i+'s');f.push(i+'m');}
+  for(let i=1;i<=7;i++)f.push('z'+i);           // z1..z7 = 東南西北中發白
+  return f;                                     // 34 种 × 4 张 = 136
+})();
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function shuf(arr,rnd){for(let i=arr.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;}
+
+/* 关卡模板：'.'=空洞  '#'=木块(切断滑线)  '1'/'2'/'3'=该格牌层数
+   lockR/lockC：该行/列被木槽卡死不可平移；两者交点上的牌永久锁位
+   scramble：构牌完成后随机打乱的滑动步数 = 本关难度主旋钮 */
+const LEVELS=[
+  {name:'第一关',sub:'教学 · 点两张相同的牌',cols:8,rows:5,kinds:12,lockR:[],lockC:[],scramble:2,
+   map:["11111111","11111111","11111111","11111111","11111111"]},
+
+  {name:'第二关',sub:'木块进场 · 行被切断',cols:8,rows:6,kinds:16,lockR:[],lockC:[],scramble:6,
+   map:["11111111","11#11#11","11111111","11111111","1#1111#1","11111111"]},
+
+  {name:'第三关',sub:'双层堆叠 · 先清上层',cols:8,rows:6,kinds:20,lockR:[],lockC:[],scramble:10,
+   map:["..1111..","11122111","11#22#11","11#22#11","11122111","..1111.."]},
+
+  {name:'第四关',sub:'木槽轨道 · 整行卡死',cols:9,rows:6,kinds:24,lockR:[2],lockC:[],scramble:14,
+   map:["111111111","112222211","1#11111#1","111222111","11#111#11","111111111"]},
+
+  {name:'第五关',sub:'听说只有真正的高手能看到这里',cols:9,rows:7,kinds:30,lockR:[1],lockC:[4],scramble:20,
+   map:[".111#111.","111232111","1#11311#1","111323111","1#11311#1","111232111",".111#111."]},
+];
+
+const isCell=v=>Array.isArray(v);
+const isStone=v=>v==='S';
+
+function capsOf(spec){return spec.map.map(row=>[...row].map(ch=>(ch==='.'||ch==='#')?0:+ch));}
+function buildGrid(spec,caps){
+  caps=caps||capsOf(spec);
+  const g=[];
+  for(let r=0;r<spec.rows;r++){const row=[];
+    for(let c=0;c<spec.cols;c++){const ch=spec.map[r][c];
+      row.push(ch==='.'?null:ch==='#'?'S':new Array(caps[r][c]).fill(null));}
+    g.push(row);}
+  return g;
+}
+function cloneGrid(g){return g.map(row=>row.map(v=>Array.isArray(v)?v.slice():v));}
+function tileCount(g){let n=0;g.forEach(row=>row.forEach(v=>{if(Array.isArray(v))n+=v.filter(Boolean).length}));return n;}
+function topOf(g,r,c){const row=g[r];if(!row)return null;const v=row[c];return Array.isArray(v)&&v.length&&v[v.length-1]?v[v.length-1]:null;}
+function stackH(g,r,c){const row=g[r];const v=row?row[c]:null;return Array.isArray(v)?v.filter(Boolean).length:0;}
+function slotsOf(g){const s=[];g.forEach((row,r)=>row.forEach((v,c)=>{if(Array.isArray(v))for(let d=0;d<v.length;d++)if(v[d])s.push({r,c,d,f:v[d]})}));return s;}
+
+/* 可滑线 = 同行(列)上被空洞/木块切断出来的一段连续格，长度≥2 才推得动 */
+function computeRuns(g,spec){
+  const runs=[];
+  for(let r=0;r<spec.rows;r++){
+    if(spec.lockR.includes(r))continue;
+    let seg=[];
+    for(let c=0;c<=spec.cols;c++){
+      if(c<spec.cols&&isCell(g[r][c]))seg.push({r,c});
+      else{if(seg.length>=2)runs.push({axis:'row',i:r,cells:seg.slice()});seg=[];}
+    }
+  }
+  for(let c=0;c<spec.cols;c++){
+    if(spec.lockC.includes(c))continue;
+    let seg=[];
+    for(let r=0;r<=spec.rows;r++){
+      if(r<spec.rows&&isCell(g[r][c]))seg.push({r,c});
+      else{if(seg.length>=2)runs.push({axis:'col',i:c,cells:seg.slice()});seg=[];}
+    }
+  }
+  return runs;
+}
+function applyShift(g,run,k){                          // 段内循环平移 k 格（原地）
+  const L=run.cells.length,m=((k%L)+L)%L;if(!m)return g;
+  const snap=run.cells.map(p=>g[p.r][p.c]);
+  for(let i=0;i<L;i++)g[run.cells[i].r][run.cells[i].c]=snap[(i-m+L)%L];
+  return g;
+}
+function shiftSnapshot(g,run,k){                       // 纯函数版，供搜索用
+  const gg=cloneGrid(g),L=run.cells.length,m=((k%L)+L)%L;
+  if(!m)return gg;
+  const snap=run.cells.map(p=>gg[p.r][p.c]);
+  for(let i=0;i<L;i++)gg[run.cells[i].r][run.cells[i].c]=snap[(i-m+L)%L];
+  return gg;
+}
+function findPairs(g){
+  const out=[],R=g.length,C=g[0].length;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const a=topOf(g,r,c);if(!a)continue;
+    for(const[dr,dc]of[[0,1],[1,0]]){
+      const nr=r+dr,nc=c+dc;if(nr>=R||nc>=C)continue;
+      if(topOf(g,nr,nc)===a)out.push([{r,c},{r:nr,c:nc}]);
+    }
+  }
+  return out;
+}
+function bestSlide(g,runs,rnd){                        // 全量搜索：哪一步平移能让对子贴上
+  let best=null;
+  for(let ri=0;ri<runs.length;ri++){
+    const run=runs[ri],L=run.cells.length;
+    for(let k=1;k<L;k++)for(const s of[k,-k]){
+      const n=findPairs(shiftSnapshot(g,run,s)).length;
+      if(!n)continue;
+      if(!best||n>best.n||(n===best.n&&Math.abs(s)<Math.abs(best.k)))best={run,ri,k:s,n};
+    }
+  }
+  return best;
+}
+function erasePair(g,a,b){g[a.r][a.c].pop();g[b.r][b.c].pop();}
+
+/* 与 (r,c) 顶层同面、且上下左右紧邻的格子 */
+function partnersOf(g,r,c){
+  const f=topOf(g,r,c);if(!f)return[];
+  const out=[];
+  for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){
+    const nr=r+dr,nc=c+dc;
+    if(nr<0||nc<0||nr>=g.length||nc>=g[0].length)continue;
+    if(topOf(g,nr,nc)===f)out.push({r:nr,c:nc});
+  }
+  return out;
+}
+/* 点一张牌：唯一候选直接消，多个候选交给玩家选，没有候选进入选中态 */
+function tapResolve(g,cell){
+  const ps=partnersOf(g,cell.r,cell.c);
+  if(ps.length===1)return{action:'erase',mate:ps[0],partners:ps};
+  return{action:'select',partners:ps};
+}
+/* 滑动后自动收：只收"这次滑动让原本贴不上的花色贴上了"的对子，
+   一层层露出来就一层层收；滑动前就已经能成对的花色留给玩家自己点。 */
+function facePairSet(g){const s=new Set();findPairs(g).forEach(p=>{const f=topOf(g,p[0].r,p[0].c);if(f)s.add(f)});return s;}
+function autoClear(g,opts){
+  opts=opts||{};
+  const lim=opts.cells?new Set(opts.cells.map(p=>p.r+','+p.c)):null;
+  const hit=p=>!lim||lim.has(p.r+','+p.c);
+  const known=opts.newFaces||null;
+  let pairs=0,chain=0;const erased=[];
+  for(;;){
+    const cand=findPairs(g).filter(p=>{
+      if(!(hit(p[0])||hit(p[1])))return false;
+      const f=topOf(g,p[0].r,p[0].c);
+      return !!f&&!(known&&known.has(f));
+    });
+    if(!cand.length)break;
+    chain++;
+    for(const p of cand){
+      const a=topOf(g,p[0].r,p[0].c),b=topOf(g,p[1].r,p[1].c);
+      if(!a||a!==b)continue;
+      erasePair(g,p[0],p[1]);pairs++;erased.push({a:p[0],b:p[1],face:a});
+    }
+  }
+  return{pairs,chain,erased};
+}
+
+/* ── 构牌（反向生成的等价实现）──────────────────────────────────────
+   每对牌都放在"相邻两格"的堆顶，放置顺序即消除顺序的倒序。
+   于是存在一条参考解：先把打乱滑动反向复原，再按放置逆序逐对点掉。
+   —— 可解性由构造保证，不依赖求解器能否搜到。                          */
+function backbone(spec,rnd,opt){
+  opt=opt||{};
+  const caps=opt.caps||capsOf(spec),rows=spec.rows,cols=spec.cols;
+  const pairList=matchPairs(caps,rows,cols,rnd);
+  const h=Array.from({length:rows},()=>new Array(cols).fill(0));
+  const pairs=[];
+  for(const[a,b]of pairList){h[a.r][a.c]++;h[b.r][b.c]++;pairs.push({a,b});}
+  let leftover=0;for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)leftover+=caps[r][c]-h[r][c];
+  const g=buildGrid(spec,h);
+  const tokens=opt.tokens?shuf(opt.tokens.slice(),rnd):dealFaces(pairs.length,spec.kinds,rnd);
+  pairs.forEach((p,i)=>{const f=tokens[i%tokens.length];g[p.a.r][p.a.c][h0(g,p.a)]=f;g[p.b.r][p.b.c][h0(g,p.b)]=f;});
+  return{grid:g,pairs,leftover};
+}
+/* 棋盘是二分图（棋盘格黑白）：黑格出"牌位"，白格出"容量"，一条匹配边 = 一对相邻同牌。
+   用带容量的 Kuhn 增广匹配，把孤格剩余压到理论下限（黑白两侧容量差）。 */
+function matchPairs(caps,rows,cols,rnd){
+  const toks=[],wmap=new Map(),slots=[];
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    if(!caps[r][c])continue;
+    if((r+c)%2===0){for(let k=0;k<caps[r][c];k++)toks.push({r,c});}
+    else{const id=slots.length;wmap.set(r+','+c,id);slots.push({r,c,n:caps[r][c],have:0,own:[],id});}
+  }
+  const match=new Array(toks.length).fill(-1);
+  function tryTok(ti,seen){
+    const t=toks[ti];
+    const cand=[[0,1],[1,0],[0,-1],[-1,0]].map(([dr,dc])=>wmap.get((t.r+dr)+','+(t.c+dc))).filter(v=>v!==undefined);
+    shuf(cand,rnd);
+    for(const id of cand){
+      if(seen.has(id))continue;seen.add(id);
+      const w=slots[id];
+      if(w.have<w.n){w.own.push(ti);w.have++;match[ti]=id;return true;}
+      for(let i=0;i<w.own.length;i++){
+        const o=w.own[i];
+        w.own.splice(i,1);w.have--;match[o]=-1;
+        if(tryTok(o,seen)){w.own.push(ti);w.have++;match[ti]=id;return true;}
+        w.own.splice(i,0,o);w.have++;match[o]=id;
+      }
+    }
+    return false;
+  }
+  const order=toks.map((_,i)=>i);shuf(order,rnd);
+  for(const ti of order)tryTok(ti,new Set());
+  const out=[];
+  for(let ti=0;ti<toks.length;ti++){
+    if(match[ti]<0)continue;
+    const w=slots[match[ti]],t=toks[ti];
+    out.push([{r:t.r,c:t.c},{r:w.r,c:w.c}]);
+  }
+  return shuf(out,rnd);
+}
+function h0(g,p){const v=g[p.r][p.c];let i=0;while(i<v.length&&v[i])i++;return i;}   // 下一个空位（自底向上）
+
+function dealFaces(pairsNeed,kinds,rnd){
+  const usable=Math.min(FACES.length,Math.max(kinds,Math.ceil(pairsNeed/2)));
+  const pool=FACES.slice(0,usable);
+  const toks=shuf(pool.flatMap(f=>[f,f]),rnd);
+  return toks.slice(0,Math.max(pairsNeed,1));
+}
+function scramble(g,runs,spec,rnd,K){
+  const moves=[];
+  for(let i=0;i<K;i++){
+    if(!runs.length)break;
+    const ri=Math.floor(rnd()*runs.length),run=runs[ri],L=run.cells.length;
+    if(L<2)continue;
+    let k=1+Math.floor(rnd()*(L-1));if(rnd()<.5)k=-k;
+    applyShift(g,run,k);moves.push({ri,k});
+  }
+  return moves;
+}
+function genLevel(spec,rnd){
+  const runs=computeRuns(buildGrid(spec),spec);
+  let best=null;
+  for(let t=0;t<16;t++){
+    const b=backbone(spec,rnd);
+    const moves=scramble(b.grid,runs,spec,rnd,spec.scramble);
+    const plan={slides:moves.map(m=>({ri:m.ri,k:-m.k})).reverse(),erases:b.pairs.slice().reverse(),scramble:moves.length};
+    if(replayPlan(b.grid,runs,plan,{auto:true}).ok)               // 自动收规则下自证可解，才收这盘
+      return{grid:b.grid,runs,plan,leftover:b.leftover,tries:t+1};
+    if(!best||b.leftover<best.leftover)best={grid:b.grid,plan,leftover:b.leftover};
+  }
+  return{grid:best.grid,runs,plan:best.plan,leftover:best.leftover,tries:16,unproven:true};
+}
+/* 参考解回放：验证"这一盘确实能清空"。opt.auto=true 时按"滑动后自动收"的新规则回放 */
+function replayPlan(g0,runs,plan,opt){
+  opt=opt||{};
+  const g=cloneGrid(g0);let slides=0,erases=0,skips=0;
+  for(const m of plan.slides){
+    const run=runs[m.ri];
+    const known=opt.auto?facePairSet(g):null;
+    applyShift(g,run,m.k);slides++;
+    if(opt.auto)erases+=autoClear(g,{cells:run.cells,newFaces:known}).pairs;
+  }
+  for(const p of plan.erases){
+    const a=p.a,b=p.b,ta=topOf(g,a.r,a.c),tb=topOf(g,b.r,b.c);
+    if(!ta||!tb){skips++;continue;}                        // 这对已被自动收吃掉
+    if(ta===tb&&Math.abs(a.r-b.r)+Math.abs(a.c-b.c)===1){erasePair(g,a,b);erases++;continue;}
+    if(opt.auto){skips++;continue;}                        // 顺序被自动收改变，跳过
+    if(Math.abs(a.r-b.r)+Math.abs(a.c-b.c)!==1)return{ok:false,reason:'参考解某步两格不相邻'};
+    return{ok:false,reason:'参考解某步不同面或不可点'};
+  }
+  return{ok:tileCount(g)===0,slides,erases,skips,left:tileCount(g)};
+}
+
+/* 残局判据一：可滑线把牌墙连成若干连通块；同面两张牌只要在同一块里，
+   就存在"多步推到位"的解 —— 一步推不上绝不等于无路。 */
+function cellComponents(runs){
+  const par=new Map();
+  const add=k=>{if(!par.has(k))par.set(k,k);return k;};
+  const find=k=>{add(k);let r=k;while(par.get(r)!==r)r=par.get(r);while(par.get(k)!==r){const n=par.get(k);par.set(k,r);k=n;}return r;};
+  const uni=(a,b)=>{a=find(add(a));b=find(add(b));if(a!==b)par.set(a,b);};
+  runs.forEach(run=>{const k0=run.cells[0].r+','+run.cells[0].c;
+    for(let i=1;i<run.cells.length;i++)uni(k0,run.cells[i].r+','+run.cells[i].c);});
+  return{find,nodes:par.size};
+}
+function sameFaceReachable(g,runs){
+  const comp=cellComponents(runs),where={};
+  g.forEach((row,r)=>row.forEach((v,c)=>{if(Array.isArray(v))v.forEach(f=>{if(f)(where[f]||(where[f]=[])).push(r+','+c)})}));
+  for(const f in where){
+    const cells=[...new Set(where[f])];
+    for(let i=0;i<cells.length;i++)for(let j=i+1;j<cells.length;j++)
+      if(comp.find(cells[i])===comp.find(cells[j]))return true;
+  }
+  return false;
+}
+/* 残局判据二：限步数搜一条"推几步就能贴对"的路，给提示用 */
+function deepSlide(g,runs,ply,budget){
+  ply=ply||2;budget=budget||6000;
+  const sig=x=>x.map(row=>row.map(v=>Array.isArray(v)?v.join('.'):'-').join(',')).join('|');
+  let frontier=[{g,steps:[]}];const seen=new Set([sig(g)]);
+  for(let d=0;d<ply;d++){
+    const next=[];
+    for(const st of frontier)for(let ri=0;ri<runs.length;ri++){
+      const run=runs[ri],L=run.cells.length;
+      for(let k=1;k<L;k++)for(const s of[k,-k]){
+        if(--budget<0)return null;
+        const g2=shiftSnapshot(st.g,run,s);
+        if(findPairs(g2).length)return st.steps.concat([{ri,k:s}]);
+        const sg=sig(g2);if(seen.has(sg))continue;seen.add(sg);
+        next.push({g:g2,steps:st.steps.concat([{ri,k:s}])});
+      }
+    }
+    frontier=next;
+    if(!frontier.length)return null;
+  }
+  return null;
+}
+/* ── 贪心求解器：只用来估"这盘有多容易被玩家自己找到"，不是可解性判据 ── */
+function solve(g0,runs,seed,maxSteps){
+  const rnd=mulberry32(seed);let g=cloneGrid(g0),slides=0,clears=0,steps=0;
+  while(tileCount(g)>0){
+    if(++steps>(maxSteps||4000))return{ok:false,reason:'超步数',slides,clears};
+    const ps=findPairs(g);
+    if(ps.length){
+      ps.sort((x,y)=>(stackH(g,y[0].r,y[0].c)+stackH(g,y[1].r,y[1].c))-(stackH(g,x[0].r,x[0].c)+stackH(g,x[1].r,x[1].c))||(rnd()<.5?1:-1));
+      erasePair(g,ps[0][0],ps[0][1]);clears++;continue;
+    }
+    const mv=bestSlide(g,runs,rnd);
+    if(!mv)return{ok:false,reason:'贪心无路',slides,clears};
+    g=shiftSnapshot(g,mv.run,mv.k);slides++;
+  }
+  return{ok:true,slides,clears,steps};
+}
+function solveBest(g0,runs,tries){
+  let best=null;
+  for(let t=0;t<tries;t++){const r=solve(g0,runs,900+t*7919,6000);
+    if(!best||(r.ok&&!best.ok)||(r.ok&&r.slides<best.slides))best=r;if(r.ok&&t>=5)break;}
+  return best||{ok:false,reason:'未解',slides:-1,clears:-1};
+}
+
+/* 洗牌：把剩余牌按同样的"相邻构牌 + 打乱"重排 → 依然构造性可解，且面多重集不变 */
+function reshuffle(g,spec,seed){
+  const rnd=mulberry32(seed),runs=computeRuns(buildGrid(spec),spec);
+  const caps=[],tokens=[],cnt={};
+  g.forEach((row,r)=>row.forEach((v,c)=>{if(Array.isArray(v)){v.forEach(f=>{if(f)cnt[f]=(cnt[f]||0)+1})}}));
+  for(const f in cnt){if(cnt[f]%2)return{grid:g,runs,plan:null,mode:'面数为奇，无法保证'};
+    for(let i=0;i<cnt[f]/2;i++)tokens.push(f);}
+  for(let r=0;r<spec.rows;r++){const row=[];for(let c=0;c<spec.cols;c++)row.push(Array.isArray(g[r][c])?g[r][c].filter(Boolean).length:0);caps.push(row)}
+  for(let t=0;t<12;t++){
+    const b=backbone(spec,rnd,{caps,tokens});
+    if(b.leftover!==0||b.pairs.length!==tokens.length)continue;
+    const moves=scramble(b.grid,runs,spec,rnd,2+Math.floor(rnd()*4));
+    const plan={slides:moves.map(m=>({ri:m.ri,k:-m.k})).reverse(),erases:b.pairs.slice().reverse(),scramble:moves.length};
+    if(!replayPlan(b.grid,runs,plan,{auto:true}).ok)continue;      // 自动收规则下也要自证
+    for(let r=0;r<spec.rows;r++)for(let c=0;c<spec.cols;c++)if(Array.isArray(g[r][c]))g[r][c]=b.grid[r][c];
+    return{grid:g,runs,plan,mode:'构造可解',tries:t+1};
+  }
+  // 剩余牌在棋盘格上的黑白两侧容量不平衡时，无法完美"相邻配对"。
+  // 此时改用随机平移重排位置：平移可逆 → 「原本可解 ⇒ 洗牌后仍可解」，绝不制造耍人的死局。
+  const moves=scramble(g,runs,spec,rnd,4+Math.floor(rnd()*5));
+  return{grid:g,runs,plan:null,mode:'位置重排·保可解',tries:moves.length,
+         rev:moves.map(m=>({ri:m.ri,k:-m.k})).reverse()};   // rev 可把位置还原回洗牌前
+}
+
+function lockedCells(spec){
+  let n=0;
+  for(let r=0;r<spec.rows;r++)for(let c=0;c<spec.cols;c++)
+    if(spec.lockR.includes(r)&&spec.lockC.includes(c)&&spec.map[r][c]!=='.'&&spec.map[r][c]!=='#')n++;
+  return n;
+}
+function knobs(spec,g){
+  let stones=0,holes=0,layers=0;
+  spec.map.forEach(row=>row.split('').forEach(ch=>{if(ch==='#')stones++;else if(ch==='.')holes++;else layers+=+ch}));
+  return{stones,holes,layers,lockR:spec.lockR.length,lockC:spec.lockC.length,locked:lockedCells(spec),scramble:spec.scramble};
+}
+if(typeof module!=='undefined'&&module.exports)module.exports={FACES,LEVELS,mulberry32,shuf,capsOf,buildGrid,slotsOf,cloneGrid,tileCount,topOf,stackH,computeRuns,shiftSnapshot,applyShift,findPairs,bestSlide,erasePair,partnersOf,tapResolve,autoClear,facePairSet,cellComponents,sameFaceReachable,deepSlide,backbone,dealFaces,scramble,genLevel,replayPlan,solve,solveBest,reshuffle,lockedCells,knobs,isCell,isStone};
+/*LOGIC-END*/
+
+/* ══════════════════════════════════════════════════════════════
+   ART —— 牌面绘制，只用传入的 ctx，可被 node 假 ctx 验证
+   ══════════════════════════════════════════════════════════════ */
+/*ART-START*/
+const C={ivory:'#f3ecd8',ivoryLo:'#d6cbad',edge:'#b8ab88',ink:'#26221c',red:'#b3271e',blue:'#1d4e89',
+         green:'#17714a',dark:'#1f3a5f',gold:'#d9a441',wood:'#7a4a22',woodLo:'#4a2c14',woodHi:'#a4682f'};
+const KAI='"Kaiti SC","STKaiti","KaiTi","Songti SC",serif';
+function rr(x,p,c,w,h,r){x.beginPath();r=Math.min(r,w/2,h/2);
+  x.moveTo(p+r,c);x.arcTo(p+w,c,p+w,c+h,r);x.arcTo(p+w,c+h,p,c+h,r);x.arcTo(p,c+h,p,c,r);x.arcTo(p,c,p+w,c,r);x.closePath();}
+
+function tileBase(x,p,c,w,h){
+  const d=Math.max(2,w*.1);
+  x.save();
+  rr(x,p-d,c-d+Math.round(h*.06),w+2*d,h+2*d,w*.18);x.fillStyle='#8b7c56';x.fill();      // 竹背底衬
+  rr(x,p,c,w,h,w*.15);x.fillStyle=C.ivoryLo;x.fill();                                     // 下缘阴影
+  rr(x,p,c-h*.035,w,h,w*.15);
+  const gr=x.createLinearGradient(p,c,p,c+h);gr.addColorStop(0,'#fbf6e8');gr.addColorStop(.62,C.ivory);gr.addColorStop(1,'#e2d7ba');
+  x.fillStyle=gr;x.fill();
+  x.lineWidth=Math.max(1,w*.02);x.strokeStyle='rgba(120,105,70,.5)';x.stroke();
+  x.beginPath();x.moveTo(p+w*.14,c+h*.055);x.lineTo(p+w*.86,c+h*.055);
+  x.strokeStyle='rgba(255,255,255,.75)';x.lineWidth=Math.max(1,w*.03);x.stroke();
+  x.restore();
+}
+function stone(x,p,c,w,h){
+  const r=w*.14;
+  rr(x,p,c,w,h,r);const g=x.createLinearGradient(p,c,p+w,c+h);g.addColorStop(0,C.woodHi);g.addColorStop(.5,C.wood);g.addColorStop(1,C.woodLo);
+  x.fillStyle=g;x.fill();x.strokeStyle='rgba(0,0,0,.45)';x.lineWidth=Math.max(1,w*.02);x.stroke();
+  x.save();rr(x,p,c,w,h,r);x.clip();x.strokeStyle='rgba(50,28,10,.5)';x.lineWidth=Math.max(1,h*.012);
+  for(let i=1;i<5;i++){const y=c+h*i/5;x.beginPath();x.moveTo(p,y);x.bezierCurveTo(p+w*.3,y-h*.06,p+w*.7,y+h*.06,p+w,y);x.stroke();}
+  x.restore();
+  const s=w*.13;[[p+w*.2,c+h*.25],[p+w*.75,c+h*.25],[p+w*.2,c+h*.68],[p+w*.75,c+h*.68]].forEach(([bx,by])=>{
+    x.beginPath();x.arc(bx+s/2,by+s/2,s/2,0,7);x.fillStyle='#c9a56b';x.fill();x.strokeStyle='rgba(0,0,0,.4)';x.lineWidth=1;x.stroke();});
+}
+function dot(x,p,c,cx,cy,r,col){
+  const X=p+cx,Y=c+cy;
+  x.beginPath();x.arc(X,Y,r,0,7);x.fillStyle=col;x.fill();
+  x.beginPath();x.arc(X,Y,r*.56,0,7);x.fillStyle=C.ivory;x.fill();
+  x.beginPath();x.arc(X,Y,r*.3,0,7);x.fillStyle=col;x.fill();
+  x.beginPath();x.arc(X-r*.25,Y-r*.25,r*.16,0,7);x.fillStyle='rgba(255,255,255,.8)';x.fill();
+}
+const DOTS={
+  1:[[.5,.5,.3]],
+  2:[[.5,.28,.19],[.5,.72,.19]],
+  3:[[.26,.24,.16],[.5,.5,.16],[.74,.76,.16]],
+  4:[[.3,.3,.16],[.7,.3,.16],[.3,.7,.16],[.7,.7,.16]],
+  5:[[.28,.28,.15],[.72,.28,.15],[.5,.5,.15],[.28,.72,.15],[.72,.72,.15]],
+  6:[[.3,.24,.14],[.7,.24,.14],[.3,.5,.14],[.7,.5,.14],[.3,.76,.14],[.7,.76,.14]],
+  7:[[.3,.2,.12],[.5,.28,.12],[.7,.36,.12],[.3,.62,.12],[.7,.62,.12],[.3,.85,.12],[.7,.85,.12]],
+  8:[[.35,.2,.12],[.65,.2,.12],[.35,.4,.12],[.65,.4,.12],[.35,.6,.12],[.65,.6,.12],[.35,.8,.12],[.65,.8,.12]],
+  9:[[.26,.26,.13],[.5,.26,.13],[.74,.26,.13],[.26,.5,.13],[.5,.5,.13],[.74,.5,.13],[.26,.74,.13],[.5,.74,.13],[.74,.74,.13]],
+};
+const DCOL=[C.blue,C.green,C.red];
+function stick(x,p,c,cx,cy,w,h,col){
+  const X=p+cx*w,y=c+cy*h,t=w*.09;
+  x.save();rr(x,X-t,y-h*.09,t*2,h*.18,t*.7);x.fillStyle=col;x.fill();
+  x.strokeStyle='rgba(255,255,255,.45)';x.lineWidth=Math.max(.6,t*.28);
+  x.beginPath();x.moveTo(X-t*.5,y-h*.03);x.lineTo(X+t*.5,y-h*.03);x.moveTo(X-t*.5,y+h*.03);x.lineTo(X+t*.5,y+h*.03);x.stroke();
+  x.restore();
+}
+function bird(x,p,c,w,h){
+  x.save();x.translate(p+w*.5,c+h*.52);
+  x.beginPath();x.ellipse(0,h*.06,w*.17,h*.15,0,0,7);x.fillStyle=C.green;x.fill();          // 身
+  x.beginPath();x.arc(w*.1,-h*.16,w*.1,0,7);x.fillStyle=C.green;x.fill();                   // 头
+  x.beginPath();x.moveTo(w*.18,-h*.16);x.lineTo(w*.28,-h*.12);x.lineTo(w*.18,-h*.09);x.closePath();x.fillStyle=C.red;x.fill();  // 喙
+  x.beginPath();x.moveTo(-w*.05,h*.16);x.lineTo(-w*.24,h*.3);x.lineTo(-w*.02,h*.24);x.closePath();x.fillStyle=C.red;x.fill();  // 尾
+  x.beginPath();x.moveTo(-w*.14,h*.02);x.quadraticCurveTo(-w*.3,-h*.12,-w*.06,-h*.18);
+  x.strokeStyle=C.blue;x.lineWidth=Math.max(1,w*.045);x.stroke();                            // 翅
+  x.beginPath();x.arc(w*.13,-h*.18,w*.022,0,7);x.fillStyle=C.ink;x.fill();
+  x.restore();
+}
+const NUM='一二三四五六七八九';
+function faceArt(x,face,p,c,w,h){
+  const hint=/[a-z]/.test(face[0]),n=hint?+face.slice(1):+face[0],s=hint?face[0]:face[1];
+  if(s==='p'){DOTS[n].forEach(([cx,cy,r],i)=>dot(x,p,c,cx*w,cy*h,r*w,DCOL[i%3]));return;}
+  if(s==='s'){
+    if(n===1){bird(x,p,c,w,h);return;}
+    DOTS[n].forEach(([cx,cy],i)=>stick(x,p,c,cx,cy,w,h,i===0||n===5&&cx===.5&&cy===.5?C.red:C.green));return;
+  }
+  if(s==='m'){
+    x.textAlign='center';x.textBaseline='middle';
+    x.fillStyle=C.dark;x.font=`600 ${Math.round(h*.34)}px ${KAI}`;x.fillText(NUM[n-1],p+w/2,c+h*.3);
+    x.fillStyle=C.red;x.font=`600 ${Math.round(h*.4)}px ${KAI}`;x.fillText('萬',p+w/2,c+h*.72);return;
+  }
+  const zi=['東','南','西','北','中','發','白'][n-1];
+  if(n===7){x.strokeStyle=C.blue;x.lineWidth=Math.max(1.5,w*.07);rr(x,p+w*.2,c+h*.2,w*.6,h*.6,w*.08);x.stroke();return;}
+  x.textAlign='center';x.textBaseline='middle';
+  x.fillStyle=n===5?C.red:n===6?C.green:C.dark;
+  x.font=`600 ${Math.round(h*.5)}px ${KAI}`;x.fillText(zi,p+w/2,c+h*.52);
+}
+if(typeof module!=='undefined'&&module.exports)module.exports.C=C;
+/*ART-END*/
+
+/* ══════════════════════════════════════════════════════════════
+   GAME —— 渲染 + 输入 + 广告闭环模拟
+   ══════════════════════════════════════════════════════════════ */
+const $=s=>document.querySelector(s);
+const cv=$('#cv'),ctx=cv.getContext('2d');
+const store={get(k,d){try{return JSON.parse(localStorage.getItem('mjxx.'+k))??d}catch(e){return d}},set(k,v){try{localStorage.setItem('mjxx.'+k,JSON.stringify(v))}catch(e){}}};
+
+let S={lv:0,seed:0,grid:null,runs:null,plan:null,pi:0,ei:0,deviated:false,leftover:0,
+       sel:null,slides:0,ads:0,undo:[],free:{hint:1,shuf:1,undo:1},autoCleared:0,lastChain:0,
+       drag:null,fx:[],hintPair:null,dead:false,solved:false,aiBusy:false};
+const geo={cw:44,ch:58,ox:0,oy:0,x0:0,y0:0,dpr:1,sw:0,sh:0};
+
+function spec(){return LEVELS[S.lv];}
+function resetLevel(lv){
+  S.lv=lv??S.lv;
+  const sp=spec();S.seed=Math.floor(Math.random()*1e9);
+  const rnd=mulberry32(S.seed);
+  const t0=performance.now();
+  const g=genLevel(sp,rnd);
+  S.grid=g.grid;S.runs=g.runs;S.plan=g.plan;S.leftover=g.leftover;S.tries=g.tries;S.unproven=!!g.unproven;
+  S.pi=0;S.ei=0;S.deviated=false;S.ai=null;
+  S.genMs=Math.round(performance.now()-t0);
+  S.sel=null;S.slides=0;S.undo=[];S.free={hint:1,shuf:1,undo:1};S.fx=[];S.hintPair=null;S.dead=false;S.solved=false;S.aiBusy=false;
+  S.autoCleared=0;S.lastChain=0;
+  S.totalPairs=tileCount(S.grid)/2;S.initPairs=findPairs(S.grid).length;
+  const rep=replayPlan(S.grid,S.runs,S.plan);
+  if(!rep.ok)toast('参考解异常：'+rep.reason);
+  $('#lvName').textContent=sp.name;$('#lvSub').textContent=sp.sub;
+  layout();syncHud();draw();
+  toast(sp.kinds<=12?'横拖一行、竖拖一列，把两张相同的牌贴到一起':`本关打乱 ${S.plan.scramble} 步 · 构造性保证可解`);
+}
+function layout(){
+  const dpr=Math.min(2,window.devicePixelRatio||1),st=$('#stage');
+  geo.dpr=dpr;geo.sw=st.clientWidth;geo.sh=st.clientHeight;
+  cv.width=Math.round(geo.sw*dpr);cv.height=Math.round(geo.sh*dpr);
+  const sp=spec(),pad=10*dpr;
+  let cw=Math.min((cv.width-2*pad)/sp.cols,(cv.height-2*pad)/sp.rows*3/4);
+  cw=Math.max(20*dpr,cw);
+  geo.cw=cw;geo.ch=cw*4/3;geo.ox=cw*.115;geo.oy=geo.ch*.095;
+  geo.x0=(cv.width-cw*sp.cols)/2;geo.y0=(cv.height-geo.ch*sp.rows)/2;
+}
+const cellPos=(r,c)=>({x:geo.x0+c*geo.cw,y:geo.y0+r*geo.ch});
+const cellAt=(px,py)=>{const c=Math.floor((px-geo.x0)/geo.cw),r=Math.floor((py-geo.y0)/geo.ch);
+  return(r>=0&&c>=0&&r<spec().rows&&c<spec().cols)?{r,c}:null;};
+
+function syncHud(){
+  $('#sLeft').textContent=tileCount(S.grid);
+  $('#sPair').textContent=findPairs(S.grid).length;
+  $('#sSlide').textContent=S.slides;
+  $('#sAd').textContent=S.ads;
+  $('#nHint').textContent=S.free.hint>0?`免费 ${S.free.hint}`:'看视频';
+  $('#nShuffle').textContent=S.free.shuf>0?`免费 ${S.free.shuf}`:'看视频';
+  $('#nUndo').textContent=S.free.undo>0?`免费 ${S.free.undo}`:'看视频';
+}
+let tipT=0;
+function toast(t){$('#tip').textContent=t;$('#tip').classList.add('on');clearTimeout(tipT);tipT=setTimeout(()=>$('#tip').classList.remove('on'),2200);}
+
+/* ── 绘制 ─────────────────────────────────── */
+function draw(){
+  const dpr=geo.dpr;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle='#0b332c';ctx.fillRect(0,0,cv.width,cv.height);
+  const vg=ctx.createRadialGradient(cv.width/2,cv.height*.42,cv.width*.1,cv.width/2,cv.height*.5,cv.width*.8);
+  vg.addColorStop(0,'rgba(30,100,86,.35)');vg.addColorStop(1,'rgba(0,0,0,.42)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,cv.width,cv.height);
+
+  const sp=spec(),cw=geo.cw,ch=geo.ch,dg=S.drag;
+  // 卡死轨道的底纹
+  ctx.save();ctx.globalAlpha=.5;
+  sp.lockR.forEach(r=>{const y=geo.y0+r*ch;ctx.fillStyle='rgba(122,74,34,.55)';ctx.fillRect(geo.x0-ch*.1,y-ch*.08,cw*sp.cols,ch*1.16);});
+  sp.lockC.forEach(c=>{const x=geo.x0+c*cw;ctx.fillStyle='rgba(122,74,34,.4)';ctx.fillRect(x-cw*.08,geo.y0-ch*.1,cw*1.16,ch*sp.rows);});
+  ctx.restore();
+  if(sp.lockR.length||sp.lockC.length){
+    ctx.fillStyle='rgba(217,164,65,.75)';ctx.font=`500 ${Math.round(10*dpr)}px sans-serif`;
+    ctx.textAlign='left';ctx.textBaseline='bottom';
+    sp.lockR.forEach(r=>ctx.fillText('卡死轨道',geo.x0,geo.y0+r*ch-2*dpr));
+    sp.lockC.forEach(c=>ctx.fillText('卡死',geo.x0+c*cw+4*dpr,geo.y0-2*dpr));
+  }
+
+  const run=dg?dg.run:null,dragSet=new Set();
+  if(run)run.cells.forEach(p=>dragSet.add(p.r+','+p.c));
+  for(let r=0;r<sp.rows;r++)for(let c=0;c<sp.cols;c++){
+    if(dragSet.has(r+','+c))continue;
+    drawCell(r,c,0,0,1);
+  }
+  if(run){
+    const{cells,axis}=run,L=cells.length,f=dg.f,step=axis==='row'?cw:ch;
+    const a0=cellPos(cells[0].r,cells[0].c),a1=cellPos(cells[L-1].r,cells[L-1].c);
+    ctx.save();ctx.beginPath();
+    if(axis==='row')ctx.rect(a0.x-geo.ox*3,a0.y-geo.ch*.3,(a1.x-a0.x)+cw+geo.ox*6,ch*1.7);
+    else ctx.rect(a0.x-cw*.3,a0.y-geo.oy*3,cw*1.7,(a1.y-a0.y)+ch+geo.oy*6);
+    ctx.clip();
+    for(const p of cells)for(const w of[-L,0,L]){
+      const off=(f+w)*step;
+      drawCell(p.r,p.c,axis==='row'?off:0,axis==='row'?0:off,1);
+    }
+    ctx.restore();
+  }
+  // 消除特效
+  const now=performance.now();
+  S.fx=S.fx.filter(e=>now-e.t0<320);
+  S.fx.forEach(e=>{
+    if(now<e.t0)return;                                     // 连消按序弹出
+    const k=(now-e.t0)/320;
+    e.cells.forEach(p=>{
+      const{x,y}=cellPos(p.r,p.c),cx=x+(p.offX||0)+geo.cw/2,cy=y+geo.ch/2;
+      ctx.save();ctx.globalAlpha=1-k;
+      ctx.translate(cx,cy);ctx.rotate(k*.9);ctx.scale(1+k*.5,1+k*.5);
+      ctx.strokeStyle=C.gold;ctx.lineWidth=geo.cw*.05;
+      ctx.beginPath();ctx.arc(0,0,geo.cw*.4,0,7);ctx.stroke();
+      ctx.restore();
+      ctx.save();ctx.globalAlpha=(1-k)*.85;
+      faceArt(ctx,e.face,x+(p.offX||0)+geo.cw*.18,y+geo.ch*.2,geo.cw*.64,geo.ch*.64);ctx.restore();
+    });
+  });
+}
+function drawCell(r,c,offX,offY,alpha){
+  const sp=spec(),v=S.grid[r][c];
+  if(v==='S'){stone(ctx,geo.x0+c*geo.cw+offX,geo.y0+r*geo.ch+offY,geo.cw*.94,geo.ch*.94);return;}
+  if(v===null){
+    const x=geo.x0+c*geo.cw+offX,y=geo.y0+r*geo.ch+offY;
+    ctx.save();ctx.globalAlpha=(alpha??1)*.35;rr(ctx,x+geo.cw*.1,y+geo.ch*.1,geo.cw*.8,geo.ch*.8,geo.cw*.12);
+    ctx.fillStyle='rgba(0,0,0,.3)';ctx.fill();ctx.restore();return;
+  }
+  const n=v.length;
+  for(let d=0;d<n;d++){
+    const f=v[d];if(!f)continue;
+    const lift=(n-1-d);
+    const x=geo.x0+c*geo.cw+offX+lift*geo.ox, y=geo.y0+r*geo.ch+offY+lift*geo.oy;
+    const isTop=d===n-1;
+    ctx.save();ctx.globalAlpha=(alpha??1)*(isTop?1:.92);
+    if(isTop)shadow(x,y);
+    tileBase(ctx,x+geo.cw*.03,y+geo.ch*.03,geo.cw*.9,geo.ch*.9);
+    faceArt(ctx,f,x+geo.cw*.13,y+geo.ch*.12,geo.cw*.74,geo.ch*.72);
+    ctx.restore();
+    if(isTop)markCell(r,c,x+geo.cw*.03,y+geo.ch*.03);
+  }
+  if(n>=2){                                            // 层数角标：一眼看出要先清几层
+    const bx=geo.x0+c*geo.cw+offX+geo.cw*.03,by=geo.y0+r*geo.ch+offY+geo.ch*.03,rad=geo.cw*.135;
+    ctx.save();
+    ctx.beginPath();ctx.arc(bx+rad,by+rad,rad,0,7);
+    ctx.fillStyle='rgba(16,58,50,.94)';ctx.fill();
+    ctx.strokeStyle=C.gold;ctx.lineWidth=Math.max(1,geo.cw*.025);ctx.stroke();
+    ctx.fillStyle='#ffe08a';ctx.font=`600 ${Math.round(rad*1.4)}px sans-serif`;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(String(n),bx+rad,by+rad+rad*.05);
+    ctx.restore();
+  }
+}
+function shadow(x,y){ctx.save();ctx.shadowColor='rgba(0,0,0,.45)';ctx.shadowBlur=geo.cw*.16;ctx.shadowOffsetY=geo.ch*.05;
+  rr(ctx,x+geo.cw*.03,y+geo.ch*.03,geo.cw*.9,geo.ch*.9,geo.cw*.15);ctx.fillStyle='rgba(0,0,0,.001)';ctx.fill();ctx.restore();}
+function markCell(r,c,x,y){
+  const sel=S.sel&&S.sel.r===r&&S.sel.c===c;
+  const part=S.sel&&pairable(S.sel,{r,c});
+  const hp=S.hintPair&&S.hintPair.some(p=>p.r===r&&p.c===c);
+  if(!sel&&!part&&!hp)return;
+  ctx.save();
+  ctx.strokeStyle=sel?'#ffe08a':hp?'#7fe3c0':'rgba(217,164,65,.55)';
+  ctx.lineWidth=geo.cw*(sel?.07:.045);
+  ctx.shadowColor=sel?'rgba(255,224,138,.9)':'rgba(217,164,65,.6)';ctx.shadowBlur=geo.cw*(sel?.3:.16);
+  rr(ctx,x,y,geo.cw*.9,geo.ch*.9,geo.cw*.15);ctx.stroke();
+  ctx.restore();
+}
+function pairable(a,b){
+  if(Math.abs(a.r-b.r)+Math.abs(a.c-b.c)!==1)return false;
+  const fa=topOf(S.grid,a.r,a.c),fb=topOf(S.grid,b.r,b.c);
+  return !!fa&&fa===fb;
+}
+
+/* ── 动作 ─────────────────────────────────── */
+function fxPop(a,b,face,delay){S.fx.push({t0:performance.now()+(delay||0),face,cells:[{...a,offX:0},{...b,offX:0}]});}
+function commitSlide(run,k,byAi){
+  if(!k)return;
+  const known=facePairSet(S.grid);
+  applyShift(S.grid,run,k);
+  const grp=[{type:'slide',run,k:-k}];
+  const ac=autoClear(S.grid,{cells:run.cells,newFaces:known});
+  ac.erased.forEach((e,i)=>{grp.push({type:'erase',a:e.a,b:e.b,face:e.face});fxPop(e.a,e.b,e.face,i*110);});
+  S.undo.push(grp);
+  if(!byAi)S.deviated=true;
+  S.slides++;
+  if(ac.pairs){
+    S.autoCleared+=ac.pairs;S.lastChain=ac.chain;
+    toast(ac.chain>1?`自动收 ${ac.pairs} 对 · 一气连成 ${ac.chain} 层`:`滑到位自动收 ${ac.pairs} 对`);
+  }
+  kick();after();
+}
+function doErase(a,b,byAi){
+  const face=topOf(S.grid,a.r,a.c);
+  S.grid[a.r][a.c].pop();S.grid[b.r][b.c].pop();
+  S.undo.push([{type:'erase',a,b,face}]);
+  fxPop(a,b,face,0);
+  if(!byAi)S.deviated=true;
+  S.sel=null;S.hintPair=null;kick();after();
+}
+function after(){
+  syncHud();draw();
+  if(tileCount(S.grid)===0){S.solved=true;win();return;}
+  const stuck=!findPairs(S.grid).length&&!sameFaceReachable(S.grid,S.runs);
+  S.dead=stuck;
+  $('#vDead').classList.toggle('on',stuck);
+}
+function win(){
+  const sp=spec(),isLast=S.lv>=LEVELS.length-1;
+  $('#winTxt').innerHTML=`滑动 ${S.slides} 次 · 生成器自证可解用时 ${S.genMs}ms<br>`+
+    (isLast?'五关全清。你就是那个高手。':'下一关会更难推。');
+  if(!isLast){const p=store.get('max',0);store.set('max',Math.max(p,S.lv+1));}
+  $('#btnNext').textContent=isLast?'回到第一关':'下一关';
+  $('#vWin').classList.add('on');
+}
+
+/* ── 输入：拖 = 整行/整列平移，点 = 选牌 ───── */
+let pd=null;
+function runAt(axis,cell){
+  return S.runs.find(r=>r.axis===axis&&(axis==='row'
+    ? r.i===cell.r && cell.c>=r.cells[0].c && cell.c<=r.cells[r.cells.length-1].c
+    : r.i===cell.c && cell.r>=r.cells[0].r && cell.r<=r.cells[r.cells.length-1].r));
+}
+function toCanvas(e){const r=cv.getBoundingClientRect();
+  return {x:(e.clientX-r.left)*(cv.width/(r.width||1)),y:(e.clientY-r.top)*(cv.height/(r.height||1))};}
+cv.addEventListener('pointerdown',e=>{
+  if(S.dead||S.solved||S.aiBusy||$('#vIntro').classList.contains('on'))return;
+  try{cv.setPointerCapture(e.pointerId)}catch(err){}
+  const {x,y}=toCanvas(e);
+  const cell=cellAt(x,y);if(!cell){pd=null;return;}
+  const v=S.grid[cell.r][cell.c];
+  if(!Array.isArray(v)||!v.filter(Boolean).length){pd=null;return;}
+  pd={x,y,cell,moved:false,locked:false};
+});
+cv.addEventListener('pointermove',e=>{
+  if(!pd)return;
+  const q=toCanvas(e),dx=q.x-pd.x,dy=q.y-pd.y;
+  if(!pd.moved){
+    if(Math.hypot(dx,dy)<geo.cw*.2)return;
+    const pref=Math.abs(dx)>Math.abs(dy)?'row':'col';
+    const run=runAt(pref,pd.cell)||runAt(pref==='row'?'col':'row',pd.cell);
+    pd.moved=true;
+    if(!run){toast('这条线被木槽卡死了，推不动');S.drag=null;pd.locked=true;return;}
+    S.drag={run,f:0};
+  }
+  if(S.drag){
+    const L=S.drag.run.cells.length;
+    const raw=(S.drag.run.axis==='row'?dx:dy)/(S.drag.run.axis==='row'?geo.cw:geo.ch);
+    S.drag.f=Math.max(-L/2+.01,Math.min(L/2-.01,raw));
+    draw();
+  }
+});
+cv.addEventListener('pointerup',e=>{
+  if(S.drag){
+    const{run,f}=S.drag;S.drag=null;
+    const k=Math.round(f);
+    if(k)commitSlide(run,k);else draw();
+    pd=null;return;
+  }
+  if(!pd){pd=null;return;}
+  if(pd.locked){pd=null;return;}
+  const cell=pd.cell,{r,c}=cell;pd=null;
+  const top=topOf(S.grid,r,c);
+  if(!top){toast('这里没有能点的牌');return;}
+  if(S.sel&&S.sel.r===r&&S.sel.c===c){S.sel=null;draw();return;}
+  if(S.sel&&pairable(S.sel,{r,c})){doErase(S.sel,{r,c});return;}      // 多候选时由玩家点第二张
+  const res=tapResolve(S.grid,{r,c});
+  if(res.action==='erase'){doErase({r,c},res.mate);return;}           // 唯一候选 → 单点即消
+  S.sel={r,c};draw();
+  if(!res.partners.length)toast('它暂时没有相邻的同牌 · 试着推一行');
+});
+cv.addEventListener('pointercancel',()=>{S.drag=null;pd=null;draw();});
+
+/* ── 道具 & 广告闭环（模拟）───────────────── */
+function useAd(then,label){
+  S.ads++;syncHud();
+  $('#vAd').classList.remove('hidden');$('#vAd').classList.add('on');
+  let n=3;$('#adSec').textContent=n;
+  const iv=setInterval(()=>{if(--n<=0){clearInterval(iv);$('#vAd').classList.remove('on');then();toast(label+'已到账');}},700);
+  $('#btnAdSkip').onclick=()=>{clearInterval(iv);$('#vAd').classList.remove('on');then();};
+}
+function lineName(ri){const r=S.runs[ri];return r?(r.axis==='row'?'第'+(r.i+1)+'行':'第'+(r.i+1)+'列'):'某条线';}
+function dirName(k,ri){const r=S.runs[ri],word=r?(r.axis==='row'?(k>0?'右':'左'):(k>0?'下':'上')):'';
+  return Math.abs(k)+' 格'+(word?'（'+word+'）':'');}
+$('#bHint').onclick=()=>{
+  const go=()=>{
+    const ps=findPairs(S.grid);
+    if(ps.length){S.hintPair=ps[0];S.sel=null;draw();toast('高亮这对可以直接消');return;}
+    const mv=bestSlide(S.grid,S.runs,mulberry32(Math.random()*1e6));
+    if(mv){S.hintPair=findPairs(shiftSnapshot(S.grid,mv.run,mv.k))[0];draw();
+      const ri=S.runs.indexOf(mv.run);
+      toast(`把${lineName(ri)}推 ${dirName(mv.k,ri)} 就贴上`);return;}
+    const deep=deepSlide(S.grid,S.runs,2);
+    if(deep){S.sel=null;S.hintPair=null;draw();
+      toast('推 '+deep.map(m=>`${lineName(m.ri)} ${dirName(m.k,m.ri)}`).join(' → ')+'，就能贴对');return;}
+    S.sel=null;S.hintPair=null;draw();
+    toast(sameFaceReachable(S.grid,S.runs)?'这对推得到，但要多步绕：先把其中一张挪出它现在的行列':'确实无路了 —— 两张牌被各自钉死，谁也推不到谁跟前');
+  };
+  if(S.free.hint>0){S.free.hint--;go();}else useAd(go,'提示');
+};
+$('#bShuffle').onclick=()=>{
+  const go=()=>{
+    const res=reshuffle(S.grid,spec(),Math.random()*1e9|0);
+    S.runs=res.runs;S.sel=null;S.hintPair=null;
+    S.plan=res.plan;S.pi=0;S.ei=0;S.deviated=false;
+    toast('已洗牌 · '+res.mode+(res.plan?`（重新打乱 ${res.plan.scramble} 步）`:''));
+    after();
+  };
+  if(S.free.shuf>0){S.free.shuf--;go();}else useAd(go,'洗牌');
+};
+$('#bUndo').onclick=()=>{
+  const go=()=>{
+    const grp=S.undo.pop();if(!grp){toast('没有可撤销的操作');return;}
+    for(let i=grp.length-1;i>=0;i--){                                  // 一次滑动带出的连消整组回退
+      const u=grp[i];
+      if(u.type==='slide')applyShift(S.grid,u.run,u.k);
+      else{S.grid[u.a.r][u.a.c].push(u.face);S.grid[u.b.r][u.b.c].push(u.face);}
+    }
+    if(grp[0].type==='slide'&&S.slides)S.slides--;
+    S.sel=null;S.hintPair=null;S.dead=false;S.deviated=true;
+    $('#vDead').classList.remove('on');syncHud();draw();
+  };
+  if(S.free.undo>0){S.free.undo--;go();}else useAd(go,'撤销');
+};
+$('#bReset').onclick=()=>{toast('重开本关');resetLevel(S.lv);};
+$('#bDbg').onclick=()=>{const d=$('#dbg');d.classList.toggle('on');if(d.classList.contains('on'))renderDbg();};
+$('#btnNext').onclick=()=>{$('#vWin').classList.remove('on');resetLevel((S.lv+1)%LEVELS.length);};
+$('#btnReplay').onclick=()=>{$('#vWin').classList.remove('on');resetLevel(S.lv);};
+$('#btnRetry').onclick=()=>{S.dead=false;$('#vDead').classList.remove('on');resetLevel(S.lv);};
+$('#btnAdShuffle').onclick=()=>useAd(()=>{S.free.shuf=1;$('#bShuffle').click();S.dead=false;$('#vDead').classList.remove('on');},'洗牌');
+$('#btnAdRevive').onclick=()=>useAd(()=>{S.free.hint=3;S.dead=false;$('#vDead').classList.remove('on');toast('已获得 3 次提示');},'提示');
+$('#btnShare').onclick=()=>{S.dead=false;$('#vDead').classList.remove('on');toast('真实产品里这里要回调 wx 分享后才放行');};
+$('#btnStart').onclick=()=>{$('#vIntro').classList.remove('on');resetLevel(Math.min(store.get('max',0),LEVELS.length-1));};
+
+function renderDbg(){
+  const sp=spec(),k=knobs(sp,S.grid);
+  const plan=S.plan;
+  $('#dbg').innerHTML=`
+    <div class="r"><span>关卡种子 seed</span><b>${S.seed}</b></div>
+    <div class="r"><span>牌数 / 对子</span><b>${tileCount(S.grid)} / ${S.totalPairs}</b></div>
+    <div class="r"><span>构牌打乱步数（难度主旋钮）</span><b>${plan?plan.scramble:'-'}（spec ${sp.scramble}）</b></div>
+    <div class="r"><span>参考解（构造性证明可解）</span><b>${plan?`${plan.slides.length} 滑 + ${plan.erases.length} 消`:'洗牌后未重建'}</b></div>
+    <div class="r"><span>自动收下（滑动白送的对子）</span><b>${S.autoCleared} 对 · 最长连消 ${S.lastChain} 层</b></div>
+    <div class="r"><span>残局判据（同面推不推得到）</span><b>${sameFaceReachable(S.grid,S.runs)?'推得到 · 不算无路':'真无路'} · 可动格 ${cellComponents(S.runs).nodes}</b></div>
+    <div class="r"><span>自动收规则下自证可解</span><b>${S.unproven?'未通过（本盘不保证可清台）':`第 ${S.tries} 次发牌即通过`}</b></div>
+    <div class="r"><span>是否已偏离参考解</span><b>${S.deviated?'已偏离 → AI 改用贪心':'未偏离'}</b></div>
+    <div class="r"><span>开局即有可消对</span><b>${S.initPairs} 对 / 共 ${S.totalPairs} 对（${Math.round(S.initPairs/S.totalPairs*100)}%）</b></div>
+    <div class="r"><span>贪心 AI 探针</span><b>${S.ai?(S.ai.ok?`可解 · ${S.ai.slides} 滑 · ${S.ai.clears} 消 · ${S.probeMs}ms`:'解不开'):'未跑'}</b></div>
+    <div class="r"><span>可滑线数量 / 孤格剩余容量</span><b>${S.runs.length} / ${S.leftover}</b></div>
+    <div class="r"><span>旋钮：木块 / 空洞 / 层数</span><b>${k.stones} / ${k.holes} / ${k.layers}</b></div>
+    <div class="r"><span>旋钮：卡死行 / 卡死列 / 永久锁位格</span><b>${k.lockR} / ${k.lockC} / ${k.locked}</b></div>
+    <div class="btns">
+      <button data-a="step">走一步</button>
+      <button data-a="auto">自动通关</button>
+      <button data-a="probe">跑贪心探针</button>
+      <button data-a="lv0">回到第一关</button>
+    </div>`;
+  $('#dbg').querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{
+    const a=b.dataset.a;
+    if(a==='step')aiStep();
+    if(a==='auto'){S.aiBusy=true;(function lp(){if(!aiStep())S.aiBusy=false;else setTimeout(lp,120);})();}
+    if(a==='probe')probe();
+    if(a==='lv0'){S.aiBusy=false;resetLevel(0);}
+  });
+}
+function probe(){
+  const t0=performance.now();
+  S.ai=solveBest(cloneGrid(S.grid),S.runs,8);
+  S.probeMs=Math.round(performance.now()-t0);
+  toast(`贪心 AI：${S.ai.ok?'解得开':'解不开'} · ${S.ai.slides} 次滑动 · ${S.probeMs}ms`);
+  renderDbg();
+}
+function aiStep(){
+  if(tileCount(S.grid)===0){S.aiBusy=false;return false;}
+  if(!S.deviated&&S.plan){
+    if(S.pi<S.plan.slides.length){const m=S.plan.slides[S.pi++];commitSlide(S.runs[m.ri],m.k,true);return !S.dead&&!S.solved;}
+    while(S.ei<S.plan.erases.length){
+      const p=S.plan.erases[S.ei++];
+      const ta=topOf(S.grid,p.a.r,p.a.c),tb=topOf(S.grid,p.b.r,p.b.c);
+      if(!ta||!tb)continue;                                          // 这对已被自动收吃掉
+      if(ta===tb&&Math.abs(p.a.r-p.b.r)+Math.abs(p.a.c-p.b.c)===1){doErase(p.a,p.b,true);return !S.dead&&!S.solved;}
+      S.deviated=true;break;                                         // 牌还在但对不上 → 计划失效
+    }
+  }
+  const ps=findPairs(S.grid);
+  if(ps.length){doErase(ps[0][0],ps[0][1],true);return !S.dead&&!S.solved;}
+  let mv=bestSlide(S.grid,S.runs,mulberry32(Math.random()*1e6));
+  if(!mv){const deep=deepSlide(S.grid,S.runs,2,8000);if(deep&&deep.length)mv={run:S.runs[deep[0].ri],k:deep[0].k};}
+  if(!mv){S.aiBusy=false;toast('AI 也走投无路 —— 这就是「够不着」造成的死局');return false;}
+  commitSlide(mv.run,mv.k,true);return !S.dead&&!S.solved;
+}
+
+/* ── 启动 ─────────────────────────────────── */
+let raf=0;
+function loop(){raf=0;S.fx=S.fx.filter(e=>performance.now()-e.t0<320);draw();if(S.fx.length)raf=requestAnimationFrame(loop);}
+function kick(){if(!raf)raf=requestAnimationFrame(loop);}
+window.__mj={state:()=>S,geo:()=>geo,after:()=>after(),reset:resetLevel,step:aiStep,shuffle:()=>$('#bShuffle').click(),hint:()=>$('#bHint').click(),
+             auto:()=>{S.aiBusy=true;(function lp(){if(!aiStep())S.aiBusy=false;else setTimeout(lp,60);})();},
+             L:{findPairs,tileCount,replayPlan,genLevel,computeRuns,buildGrid,LEVELS,bestSlide,cloneGrid,autoClear,tapResolve,partnersOf,facePairSet,topOf,sameFaceReachable,deepSlide,cellComponents}};   // 调试钩子：控制台可用
+window.addEventListener('resize',()=>{layout();draw();});
+document.addEventListener('keydown',e=>{
+  if(e.key==='h')$('#bHint').click();if(e.key==='w')$('#bShuffle').click();
+  if(e.key==='u')$('#bUndo').click();if(e.key==='r')$('#bReset').click();
+  if(e.key==='d')$('#bDbg').click();
+  if(/^[1-5]$/.test(e.key)){const i=+e.key-1;if(i<=store.get('max',0))resetLevel(i);}
+});
+(function boot(){
+  layout();S.grid=buildGrid(spec());S.runs=computeRuns(S.grid,spec());
+  const sp=spec();$('#lvName').textContent=sp.name;$('#lvSub').textContent=sp.sub;
+  resetLevel(0);$('#vIntro').classList.add('on');
+})();
+</script>
+</body>
+</html>
