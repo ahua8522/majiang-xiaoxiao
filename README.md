@@ -9,6 +9,7 @@ cocos/                       Cocos Creator 3.8 工程（package.json 里的 crea
   assets/scripts/core/       纯规则：Rules（滑动/配对/连消/提示搜索）、Generator（18关+清台证书）、Session（评级/辅助/续局存档）
   assets/scripts/view/       纯视图：Drawing（绘图指令）、GameView（render/hitTest/cellAt）、Input（拖动/点击控制器）
   assets/scripts/cocos/      GameRoot.ts：把 Frame 画到 Graphics + Label，接触摸、wx 存档/震动/分享
+  build-templates/wechatgame/ 构建时覆盖模板：first-screen.js 茶馆风启动页
   preview/                   浏览器预览（同一套 core/view，Canvas2D 绘制）
   tests/                     node:test 用例
 demo/                        早期 H5 demo（设计参考）
@@ -28,10 +29,17 @@ npm run preview      # http://127.0.0.1:8080 ，可加 ?level=0..17&seed=7（直
 ## 在 Cocos Creator 中挂载
 
 1. Cocos Dashboard → 打开 `cocos/` 目录（Creator 3.8.x，首次打开会生成 `library/`、`temp/`，已被 gitignore）。
-2. 新建场景 `assets/scenes/main.scene`，在 Canvas 下新建空节点 `Game`（UITransform 锚点 0.5/0.5，位置 0,0）。
-3. 给 `Game` 添加组件 `GameRoot`；`seed` 填 0 表示每局随机。
-4. 项目设置 → 设计分辨率 750×1334，适配「宽度优先」；把 `main.scene` 设为启动场景。
+2. 场景 `assets/scenes/main.scene` 已提交且配置完毕：Canvas（UITransform 750×1334 + Widget 全屏对齐）→ 子节点 `Game`（UITransform 锚点 0.5/0.5 + `GameRoot` 组件，`seed` 填 0 表示每局随机）+ 子节点 `Camera`（UI 相机）。**GameRoot 必须挂在 Canvas 下**：Graphics/Label 等 UI 组件不在 Canvas 节点树里不会进入 2D 渲染管线（表现为纯色白屏）。
+3. 项目设置 → 设计分辨率 750×1334，适配勾选「宽度优先」。
+4. 设置启动场景（编辑器菜单里没有此项，在构建面板设置）：菜单 **项目 → 构建发布**，在「Included Scenes」里勾选 `assets/scenes/main.scene`，并将其拖到列表**第一位**——排最前的场景即「初始场景/启动场景」。之后编辑器内点 Play 会从当前打开的场景运行；构建产物则固定从列表第一位启动。
 5. 构建发布 → 平台选「微信小游戏」，填 AppID，竖屏；用微信开发者工具打开 `build/wechatgame`。
+
+## 包体与启动页
+
+- 微信小游戏主包上限 4MB。引擎功能裁剪清单固化在 **`build-options/wechatgame.json`**（入库，含 `includeModules` 最小集：base/gfx-webgl/2d/graphics/ui/affine-transform/tween/custom-pipeline(-builtin-scripts) 与逐项 `off` 的裁剪映射）。裁剪后主包约 1.7MB。
+- **构建不要走 `CocosCreator --build` CLI**：3.8.8 的 CLI 会丢弃裁剪配置，构建出完整引擎（>4MB）。正确通道是项目内置扩展 `extensions/auto-build`：编辑器打开本项目时，向 `temp/auto-build/trigger.json` 写入 `{id, options}`（options 直接取 `build-options/wechatgame.json`），扩展会调用 builder 的 `add-task` 消息执行构建（等同构建面板点「构建」）。新机器首次需在「扩展管理器」里启用 auto-build 一次。
+- 启动页是微信小游戏的 first-screen 画布（不是小程序的 splash 配置）：`build-templates/wechatgame/first-screen.js` 会在构建时覆盖模板默认实现，绘制茶馆配色标题页 + 加载进度条；构建选项里 `useSplashScreen` 需保持开启，否则 game.js 不会调用 first-screen。
+- 上传体验版走 **miniprogram-ci 无人值守通道**：`node tools/upload-ci.cjs <version> [desc]`（密钥在 `E:\Download\private.wx3d895529df5ec250.key`，不入库）。不要用 wechatide 的 upload——它走开发者工具界面通道，每次要人工点确认。wechatide 只用于预览、模拟器截图、控制台等自动化。
 
 GameRoot 会按 `Frame` 自动分层（只有图形压到文字上时才新开一个 Graphics 层），所有节点复用对象池，只在状态变化或动画进行时重绘。
 

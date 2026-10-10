@@ -1,0 +1,10 @@
+{
+  "name": "auto-build",
+  "title": "Auto Build",
+  "package_version": 2,
+  "version": "1.0.3",
+  "author": "majiang-xiaoxiao",
+  "description": "监听 temp/auto-build/trigger.json，按注入的完整参数调用 builder add-task 执行构建，结果写回 result.json",
+  "main": "./src/main.js",
+  "editor": ">=3.8.0"
+}

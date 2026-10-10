@@ -11,14 +11,17 @@
     "test:legacy": "node ../demo/verify.cjs",
     "check:cocos": "tsc -p tsconfig.check.json",
     "preview:build": "esbuild preview/main.ts --bundle --format=iife --target=es2020 --tsconfig=tsconfig.check.json --outfile=preview/dist/main.js",
-    "preview": "npm run preview:build && esbuild preview/main.ts --bundle --format=iife --target=es2020 --tsconfig=tsconfig.check.json --outdir=preview/dist --servedir=preview --serve=8080"
+    "preview": "npm run preview:build && esbuild preview/main.ts --bundle --format=iife --target=es2020 --tsconfig=tsconfig.check.json --outdir=preview/dist --servedir=preview --serve=8080",
+    "upload:ci": "node tools/upload-ci.cjs"
   },
   "devDependencies": {
     "@cocos/creator-types": "^3.8.6",
     "esbuild": "^0.25.12",
+    "miniprogram-ci": "^2.1.31",
     "typescript": "^5.2.2"
   },
   "creator": {
-    "version": "3.8.6"
-  }
+    "version": "3.8.8"
+  },
+  "uuid": "b005ab0b-4d55-4ac6-b1c5-e2c233ee57f8"
 }

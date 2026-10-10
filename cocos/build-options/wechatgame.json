@@ -1,0 +1,92 @@
+{
+  "name": "majiang-xiaoxiao",
+  "server": "",
+  "engineModulesConfigKey": "defaultConfig",
+  "platform": "wechatgame",
+  "buildPath": "project://build",
+  "debug": false,
+  "buildMode": "normal",
+  "mangleProperties": false,
+  "md5Cache": false,
+  "skipCompressTexture": false,
+  "sourceMaps": false,
+  "overwriteProjectSettings": {
+    "macroConfig": {
+      "cleanupImageCache": "on"
+    },
+    "includeModules": {
+      "physics": "off",
+      "physics-2d": "off",
+      "gfx-webgl2": "off",
+      "3d": "off",
+      "animation": "off",
+      "skeletal-animation": "off",
+      "audio": "off",
+      "dragon-bones": "off",
+      "intersection-2d": "off",
+      "light-probe": "off",
+      "marionette": "off",
+      "mask": "off",
+      "particle": "off",
+      "particle-2d": "off",
+      "primitive": "off",
+      "profiler": "off",
+      "rich-text": "off",
+      "spine-3.8": "off",
+      "terrain": "off",
+      "tiled-map": "off",
+      "video": "off",
+      "websocket": "off",
+      "webview": "off",
+      "ui-skew": "off"
+    }
+  },
+  "nativeCodeBundleMode": "wasm",
+  "polyfills": {
+    "asyncFunctions": false
+  },
+  "experimentalEraseModules": false,
+  "startSceneAssetBundle": false,
+  "bundleConfigs": [],
+  "inlineEnum": true,
+  "useBuiltinServer": false,
+  "md5CacheOptions": {
+    "excludes": [],
+    "includes": [],
+    "replaceOnly": [],
+    "handleTemplateMd5Link": true
+  },
+  "mainBundleIsRemote": false,
+  "mainBundleCompressionType": "merge_dep",
+  "useSplashScreen": true,
+  "bundleCommonChunk": false,
+  "packAutoAtlas": true,
+  "startScene": "e08b907b-5329-45d6-86b6-1674dd9b732f",
+  "outputName": "wechatgame",
+  "taskName": "wechatgame",
+  "scenes": [
+    {
+      "url": "db://assets/scenes/main.scene",
+      "uuid": "e08b907b-5329-45d6-86b6-1674dd9b732f"
+    }
+  ],
+  "wasmCompressionMode": false,
+  "binGroupConfig": {
+    "threshold": 16,
+    "enable": false
+  },
+  "packages": {},
+  "__version__": "1.3.9",
+  "logDest": "project://temp/builder/log/wechatgame2026-10-10 09-11.log",
+  "includeModules": [
+    "base",
+    "gfx-webgl",
+    "2d",
+    "graphics",
+    "ui",
+    "affine-transform",
+    "tween",
+    "custom-pipeline",
+    "custom-pipeline-builtin-scripts"
+  ]
+}

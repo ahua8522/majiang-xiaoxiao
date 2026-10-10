@@ -9,6 +9,7 @@ cocos/native/
 # 测试编译产物（npm test 会自动生成）
 cocos/.test/
 cocos/.view-test/
+cocos/.node-test/
 node_modules/
 
 # 旧原型的抽取缓存
