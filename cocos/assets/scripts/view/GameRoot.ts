@@ -11,7 +11,7 @@
  *
  * core/ 完全不感知 cc；本文件是唯一的引擎适配层。
  */
-import {_decorator, Component, EventTouch, Label, Node, Sprite, UIOpacity, UITransform, input, Input, sys, view} from 'cc';
+import {_decorator, Component, EventTouch, Game, game, Label, Node, Sprite, UIOpacity, UITransform, input, Input, sys, view} from 'cc';
 import {Session, Platform} from '../core/Session';
 import {LEVELS, levelAt} from '../core/Generator';
 import {count, Run} from '../core/Rules';
@@ -196,14 +196,24 @@ export class GameRoot extends Component {
       wx?.onShareAppMessage?.(() => ({title: SHARE_TITLE}));
       wx?.onShareTimeline?.(() => ({title: SHARE_TITLE}));
     } catch { /* 分享可选 */ }
+    // 限时关必须"看不见就不走表"。用 cc 的 game 事件而不是 wx.onHide：小游戏和 H5 同一套，
+    // 接电话/切后台回来直接判负是要被投诉的那种错误。
+    game.on(Game.EVENT_SHOW, this.onGameShow, this);
+    game.on(Game.EVENT_HIDE, this.onGameHide, this);
     mark('Z-onLoad done');
   }
+
+  private onGameHide(): void { this.session?.setPaused(true); }
+  private onGameShow(): void { this.session?.setPaused(false); this.dirty = true; }
 
   onDestroy(): void {
     input.off(Input.EventType.TOUCH_START, this.onTouch, this);
     input.off(Input.EventType.TOUCH_MOVE, this.onTouch, this);
     input.off(Input.EventType.TOUCH_END, this.onTouch, this);
     input.off(Input.EventType.TOUCH_CANCEL, this.onTouch, this);
+    // 生命周期监听要成对摘掉：场景重建时不摘就会重复订阅，一次切后台触发多次 setPaused。
+    game.off(Game.EVENT_SHOW, this.onGameShow, this);
+    game.off(Game.EVENT_HIDE, this.onGameHide, this);
     // 纹理是显存，节点销毁不会释放它：三张图集都要在这里显式 dispose
     //（微信小游戏切后台/重进场景时不释放就是下一次进来黑屏）。
     this.tileAtlas?.atlas.dispose();
@@ -216,6 +226,9 @@ export class GameRoot extends Component {
 
   update(dt: number): void {
     if (!this.session || !this.ui) return;
+    // 倒计时必须每帧喂 dt，而且要在 `!dirty` 早退**之前**：跨过整秒时 session.revision 不变，
+    // 放在早退之后就永远不会重绘，玩家看到的数字会停在原地。
+    if (this.session.tick(dt)) this.dirty = true;
     const visible = view.getVisibleSize();
     if (!this.sceneReady || visible.width !== this.size.w || visible.height !== this.size.h) {
       this.size = {w: visible.width, h: visible.height};
@@ -444,6 +457,9 @@ export class GameRoot extends Component {
     makeLabel(root, goalText ? goalText : `剩余 ${left} / ${S.total} 张`, {x: -W / 2 + 40, y: H / 2 - 118 - safe, size: 25, color: goalText ? palette.jadeDeep : palette.ink, align: 'left', bold: true});
     const moveText = S.moveLimit ? `步数 ${S.moves}/${S.moveLimit}` : `${S.moves} 步 · 三星 ≤ ${S.par} 步`;
     makeLabel(root, moveText, {x: W / 2 - 40, y: H / 2 - 118 - safe, size: 25, color: S.moveLimit && S.movesLeft <= 3 ? palette.red : palette.ink, align: 'right', bold: true});
+    // 秒数与「步数」同一行、排在它左边：两者都是"预算"，读盘时眼睛本来就会扫这一行。
+    // 不往下放是因为 -166 那条进度条只有 16 高，再塞一行必然压字（看不见画面时不要靠猜排版）。
+    if (S.timeLimit) makeLabel(root, `时间 ${Math.ceil(S.timeLeft)} 秒`, {x: W / 2 - 150, y: H / 2 - 118 - safe, size: 24, color: S.timeLeft <= 10 ? palette.red : palette.ink, align: 'right', bold: true});
     const barW = W - 80;
     makeSprite(root, this.ui.frame('chip-light'), barW, 16, 0, H / 2 - 166 - safe, true, this.ui.inset('chip-light'));
     const done = S.total ? (S.total - left) / S.total : 0;

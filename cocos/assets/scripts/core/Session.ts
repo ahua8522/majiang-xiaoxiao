@@ -11,6 +11,8 @@ export class Session {
   selected:Pos|null=null;hint:Action[]=[];message='';modal:Modal='none';
   reducedMotion=false;vibration=true;lastChain=0;solution:Action[]=[];lastErased:Pair[]=[];
   revision=0;seed:number;private history:Snapshot[]=[];private platform:Platform;
+  /** 限时关剩余秒数；非限时关恒 0。只由 `tick` 递减，视图负责按帧喂 dt。 */
+  timeLeft=0;private paused=false;
   par=0;hintsUsed=0;shufflesUsed=0;stars:Record<string,number>={};levelPage=0;
   /** 体验版 / 开发版全解锁（视图按 wx envVersion 设置）：选关不再受 maxLevel 限制，但跳关不推进进度。 */
   unlockAll=false;
@@ -39,11 +41,11 @@ export class Session {
       this.reducedMotion=data.reducedMotion===true;this.vibration=data.vibration!==false;
     }
     this.reset(this.maxLevel,false);
-    if(data?.version===2)this.restore(data.run);
+    if(data?.version>=2)this.restore(data.run);
     this.modal='home';
   }
-  private save(){try{this.platform.save({version:2,maxLevel:this.maxLevel,stars:this.stars,reducedMotion:this.reducedMotion,vibration:this.vibration,tipsSeen:this.tipsSeen,
-    run:count(this.grid)?{index:this.levelIndex,seed:this.seed,grid:this.grid,total:this.total,moves:this.moves,par:this.par,hintsUsed:this.hintsUsed,shufflesUsed:this.shufflesUsed,clearedPairs:this.clearedPairs,goalDone:this.goalDone}:null});}catch{/* Storage quota must not block play. */}}
+  private save(){try{this.platform.save({version:3,maxLevel:this.maxLevel,stars:this.stars,reducedMotion:this.reducedMotion,vibration:this.vibration,tipsSeen:this.tipsSeen,
+    run:count(this.grid)?{index:this.levelIndex,seed:this.seed,grid:this.grid,total:this.total,moves:this.moves,par:this.par,hintsUsed:this.hintsUsed,shufflesUsed:this.shufflesUsed,clearedPairs:this.clearedPairs,goalDone:this.goalDone,timeLeft:Math.round(this.timeLeft*10)/10}:null});}catch{/* Storage quota must not block play. */}}
   private restore(run:any){
     if(!run||!Number.isInteger(run.index)||run.index<0||run.index>this.maxLevel||!Array.isArray(run.grid))return;
     const map=levelAt(run.index).map,grid=run.grid as Grid;
@@ -57,6 +59,11 @@ export class Session {
     // 这里不再调 `reset()`：reset 会先完整生成一局新牌、再被下面的存档盘面覆盖，
     // 于是冷启动白白多花一次发牌（实测单次 61~553ms）。
     this.setupLevel(run.index);
+    // 剩余时间必须恢复，否则杀进程重进＝白送一次倒计时重置，限步关可以靠反复退出刷成无限时间。
+    // 旧的 version 2 存档没有这个字段，退到"满值"而不是 0（那批档不可能来自限时关）。
+    const limit=levelAt(run.index).timeLimit||0;
+    const tl=Number.isFinite(run.timeLeft)?run.timeLeft:limit;
+    this.timeLeft=Math.max(0,Math.min(tl,limit));
     this.grid=clone(grid);this.seed=run.seed;this.total=run.total;this.moves=run.moves;this.par=run.par;
     this.hintsUsed=run.hintsUsed;this.shufflesUsed=run.shufflesUsed;
     this.clearedPairs=Number.isInteger(run.clearedPairs)?Math.max(0,run.clearedPairs):0;
@@ -80,6 +87,8 @@ export class Session {
   get levelCount(){return LEVELS.length;}
   /** 本关钉死的发牌种子；`null` = 该关没钉（主线不该出现，无尽段之外的兜底路径）。 */
   get pinnedSeed(){return Number.isInteger(this.def.seed)?this.def.seed>>>0:null;}
+  /** 本关限时秒数；0 = 不限时。视图据此决定要不要画倒计时。 */
+  get timeLimit(){return this.def.timeLimit||0;}
   /** 牌面代号 → 中文名（目标关 HUD 等界面文案用）。 */
   static faceName(face:string):string{
     const nums='一二三四五六七八九';
@@ -139,6 +148,7 @@ export class Session {
     this.moves=0;this.lastChain=0;this.selected=null;this.hint=[];this.history=[];this.modal='none';this.lastErased=[];
     this.hintsUsed=0;this.shufflesUsed=0;this.levelPage=Math.floor(chosen/PAGE_SIZE);this.returnModal='none';
     this.clearedPairs=0;this.goalDone=0;this.goalTarget=0;
+    this.timeLeft=this.def.timeLimit||0;this.paused=false;
     // 第 1 关的教学卡每次进都弹（新玩家可能重开）；机制说明只在首次出现时弹
     this.tip=chosen===0?'basic':(this.def.intro&&!this.tipsSeen[this.def.intro]?this.def.intro:null);
   }
@@ -176,6 +186,28 @@ export class Session {
     this.message=chosen===0?'同牌相邻，轻点消除；拖动一行或一列，松手自动消。'
       :(chosen!==wanted?'这一关暂时发不出可解的牌，先给你摆了第 1 关。':'看清这盘的障碍，先找出第一步。');
     this.revision++;
+  }
+  setPaused(v:boolean){this.paused=v;}
+  /**
+   * 限时关的秒数推进。视图每帧喂 dt，**只有牌桌活跃、无弹窗、没被说明卡挡住、未暂停时才走表**。
+   *
+   * 单帧钳到 0.25 秒：小游戏切后台掉帧、一次 GC 卡十几秒，都不许把倒计时吃掉——
+   * 玩家因为手机卡了一下就被判负，是要投诉的。真实时间靠 `paused` 挡，不用 `Date.now()` 追：
+   * 追时间必然在"接电话回来"的那一刻做出错误判决。
+   * @returns 是否跨过了整秒（视图据此决定要不要重绘）
+   */
+  tick(dt:number):boolean{
+    if(!this.def.timeLimit||this.modal!=='none'||this.tip||this.paused)return false;
+    const before=this.timeLeft;
+    this.timeLeft=Math.max(0,this.timeLeft-Math.min(Math.max(dt,0),0.25));
+    if(this.timeLeft<=0&&before>0){
+      this.modal='lose';this.message=`时间到，还差 ${count(this.grid)} 张。`;this.save();return true;
+    }
+    const crossed=Math.ceil(this.timeLeft)!==Math.ceil(before);
+    // 每跨过整秒就落盘。剩余时间不进存档的话，杀进程重进＝倒计时满血复活，
+    // 限时关可以靠反复退出刷成无限时间——这是会被拿来刷星级的漏洞，不是体验问题。
+    if(crossed)this.save();
+    return crossed;
   }
   private apply(action:Action):boolean{
     if(this.modal!=='none'||this.tip)return false;

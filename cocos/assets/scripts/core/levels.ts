@@ -49,6 +49,8 @@ export interface LevelDef {
   moveLimit?: number;
   /** 目标关：不必清空，先达成目标即通关。 */
   goal?: {kind: 'face' | 'ice'; face?: string; count: number};
+  /** 限时（秒）。必须由 `par × 每步秒数` 推出来，不许手填一个好看的数字。 */
+  timeLimit?: number;
   /** 本关首次出现某机制时的说明键（视图据此弹「新玩法」卡片）。 */
   intro?: string;
   /**
