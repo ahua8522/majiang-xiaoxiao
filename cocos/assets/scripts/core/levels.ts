@@ -47,8 +47,9 @@ export interface LevelDef {
   unlock?: {axis: 'row' | 'col'; index: number; after: number}[];
   /** 步数上限：用尽仍未清台即失败。 */
   moveLimit?: number;
-  /** 目标关：不必清空，先达成目标即通关。 */
-  goal?: {kind: 'face' | 'ice'; face?: string; count: number};
+  /** 目标关：不必清空，先达成目标即通关。`collect` = 集齐一组（八花齐/三元齐/清龙），
+   *  `faces` 是那组的牌面代号，进度按「集齐了几种」算。 */
+  goal?: {kind: 'face' | 'ice' | 'collect'; face?: string; faces?: string[]; count: number};
   /**
    * 方言：只约束「哪些牌能配对」。白名单外的牌是哑弹——占位、能当滑块，但永远配不上，
    * 通关判定因此看 `Rules.liveCount` 而不是 `count`（只剩哑弹也算清台）。

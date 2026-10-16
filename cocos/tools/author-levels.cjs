@@ -575,8 +575,9 @@ export interface LevelDef {
   unlock?: {axis: 'row' | 'col'; index: number; after: number}[];
   /** 步数上限：用尽仍未清台即失败。 */
   moveLimit?: number;
-  /** 目标关：不必清空，先达成目标即通关。 */
-  goal?: {kind: 'face' | 'ice'; face?: string; count: number};
+  /** 目标关：不必清空，先达成目标即通关。`collect` = 集齐一组（八花齐/三元齐/清龙），
+   *  `faces` 是那组的牌面代号，进度按「集齐了几种」算。 */
+  goal?: {kind: 'face' | 'ice' | 'collect'; face?: string; faces?: string[]; count: number};
   /**
    * 方言：只约束「哪些牌能配对」。白名单外的牌是哑弹——占位、能当滑块，但永远配不上，
    * 通关判定因此看 \`Rules.liveCount\` 而不是 \`count\`（只剩哑弹也算清台）。
@@ -624,7 +625,13 @@ const body = built.map(({i, def, rows, cols, slots, par}) => {
   if (def.unlock && def.unlock.length) bits.push(`unlock: [${def.unlock.map((u) => `{axis: '${u.axis}', index: ${u.index}, after: ${u.after}}`).join(', ')}]`);
   if (def.moveLimit) bits.push(`moveLimit: ${def.moveLimit}`);
   if (def.timeLimit) bits.push(`timeLimit: ${def.timeLimit}`);
-  if (def.goal) bits.push(`goal: {kind: '${def.goal.kind}', ${def.goal.face ? `face: '${def.goal.face}', ` : ''}count: ${def.goal.count}}`);
+  if (def.goal) {
+    const gb = [`kind: '${def.goal.kind}'`];
+    if (def.goal.face) gb.push(`face: '${def.goal.face}'`);
+    if (def.goal.faces) gb.push(`faces: [${def.goal.faces.map((x) => `'${x}'`).join(', ')}]`);
+    gb.push(`count: ${def.goal.count}`);
+    bits.push(`goal: {${gb.join(', ')}}`);
+  }
   if (def.intro) bits.push(`intro: '${def.intro}'`);
   const tags = [];
   if (def.ice2) tags.push(`${def.ice2} 对厚冰`);

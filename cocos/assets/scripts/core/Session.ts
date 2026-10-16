@@ -242,7 +242,15 @@ export class Session {
     if(g){
       const base=unwild(g.face||'');
       const isGoal=(p:Pair):boolean=>unwild(stripIce(p.face))===base||unwild(stripIce(p.other))===base;
-      this.goalDone+=g.kind==='face'?(g.face?out.erased.filter(isGoal).length:cleared):out.erased.filter(anyIce).length;
+      if(g.kind==='collect'){
+        // 一步连消里同一种可能不止一对（冰面要消两次），集组按「这一种到手了」算，只加一次。
+        const hit=new Set<string>();
+        for(const pr of out.erased)for(const f of [pr.face,pr.other]){
+          const b=unwild(stripIce(f));if(g.faces&&g.faces.includes(b))hit.add(b);
+        }
+        this.goalDone+=hit.size;
+      }
+      else this.goalDone+=g.kind==='face'?(g.face?out.erased.filter(isGoal).length:cleared):out.erased.filter(anyIce).length;
       if(need)this.goalDone=Math.min(this.goalDone,need);
     }
     this.refreshRuns();
@@ -250,14 +258,18 @@ export class Session {
     const brokeIce=out.erased.some(anyIce);
     this.message=brokeIce
       ?'冰层碎了，露出牌面再消一次才能收走。'
-      :(out.erased.length?(out.chain>1?`连消 ${out.chain} 层，带走 ${out.erased.length} 对！`:`碰个对！消掉 ${out.erased.length} 对。`):'再转个方向，牌会从轨道另一头回来。');
+      // 麻将语汇是白捡的手感：碰 / 杠 / 胡 三个词，零美术成本，题材浓度比再加一种机制高。
+      :(out.erased.length?(out.chain>=3?`杠！连消 ${out.chain} 层，带走 ${out.erased.length} 对。`
+        :out.chain>1?`碰！连消 ${out.chain} 层，带走 ${out.erased.length} 对。`
+        :`碰个对！消掉 ${out.erased.length} 对。`)
+        :'再转个方向，牌会从轨道另一头回来。');
     if(this.hint.length)this.message=this.describe(this.hint[0]);
     // 方言关的终点是还能配的都消光：哑弹留在盘上也算清台（判据见 Rules.liveCount）
     const done=liveCount(this.grid,this.dialect)===0;
     if(done||this.goalReached){
       this.modal='win';this.maxLevel=Math.max(this.maxLevel,Math.min(LEVELS.length-1,this.levelIndex+1));
       this.stars[this.levelIndex]=Math.max(this.stars[this.levelIndex]||0,this.rating);this.hint=[];
-      if(!done)this.message='目标达成，通关！';
+      this.message=done?'胡了！清台。':'胡了！目标达成。';
     }else if(this.moveLimit&&this.moves>=this.moveLimit){
       // 步数用尽：明确判负（视图据此弹失败页）
       this.modal='lose';this.message=`步数用尽，还差 ${liveCount(this.grid,this.dialect)} 张可消。`;

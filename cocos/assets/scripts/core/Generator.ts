@@ -47,6 +47,17 @@ export function goalPairs(def:LevelDef,grid:Grid):number{
     const base=unwild(g.face!);
     grid.flat().forEach(cell=>{if(Array.isArray(cell))cell.forEach(f=>{if(unwild(stripIce(f))===base)avail++;});});
     avail=Math.floor(avail/2);
+  }else if(g.kind==='collect'){
+    // 集组：目标是「这一组里有几种能凑成一对」。每种最多 4 张 = 2 对，但集组要的是
+    // 这一种出现过，所以 ≥2 张算一种；不足 2 张的（被百搭收走、或开局就单张）够不着，不能算进分母。
+    const tally=new Map<string,number>();
+    grid.flat().forEach(cell=>{if(Array.isArray(cell))cell.forEach(f=>{
+      const b=unwild(stripIce(f));
+      if(g.faces&&g.faces.includes(b))tally.set(b,(tally.get(b)||0)+1);
+    });});
+    // Array.from 而不是 [...tally.values()]：构建器会把后者转译成 [].concat(迭代器)，
+    // 在产物里得到一个装着迭代器对象的数组——transpile.test 专门守这条。
+    return Array.from(tally.values()).filter(n=>n>=2).length;
   }else{
     // 碎冰目标：剩余冰层总数（厚冰算两层）
     grid.flat().forEach(cell=>{if(Array.isArray(cell))cell.forEach(f=>{avail+=iceLayers(f);});});

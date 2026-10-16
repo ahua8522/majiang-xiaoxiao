@@ -46,7 +46,14 @@ const TIP_CONTENT: Record<string, {title: string; lines: string[]}> = {
   stack3: {title: '三层牌', lines: ['一格叠三层：要连消三次才能清空。', '右上角数字就是层数。']},
   ice2: {title: '厚冰', lines: ['双圈厚霜的牌要碎两次冰、再消一次。', '一共三步才能收走。']},
   bomb: {title: '鞭炮牌', lines: ['鞭炮配对时，会把全场同款冰面一次震碎。', '冰面关里的破冰好帮手。']},
-  unlock: {title: '连锁解锁', lines: ['带数字的锁轨是暂时锁住的：', '每消一对就计数，凑够数字自动解锁。']}
+  unlock: {title: '连锁解锁', lines: ['带数字的锁轨是暂时锁住的：', '每消一对就计数，凑够数字自动解锁。']},
+  // 方言卡一律用白话，不写术语：「将将胡」三个字对上"只有 2、5、8 能消"这句人话，
+  // 玩家才知道章节标题在说什么。也必须讲清哑弹不用管，否则玩家会对着消不掉的牌死推轨道。
+  only258: {title: '将将胡', lines: ['这一关只有 2、5、8 能配成对。', '别的牌推不动局面，只能当滑块借道。', '剩下的牌不用管：能消的消光就通关。']},
+  only19: {title: '幺九', lines: ['这一关只有 1 和 9 能配成对。', '中间的牌全当滑块用。', '能消的消光就通关，剩下的不用管。']},
+  noSuit: {title: '断门', lines: ['这一门的牌只能轻点消除。', '滑动带不走它们。', '别的门照旧可以连着消。']},
+  oneSuit: {title: '清一色', lines: ['只有一门的牌能配对，其余三门全是滑块。', '把它们推到相邻位置再轻点。', '能消的消光就通关。']},
+  collect: {title: '集齐一组', lines: ['不用清台：把这一组各消掉一对就通关。', '顶栏显示已经集齐几种。']}
 };
 
 /** 微信小游戏全局；编辑器预览 / Web 构建里不存在。 */
@@ -453,8 +460,16 @@ export class GameRoot extends Component {
     // 统计行：目标关把左侧换成目标进度；限步关把右侧换成剩余步数
     const goal = S.goal;
     // 分母用 `S.goalNeed`（本关实际给得出的量），不是关卡表里的 `goal.count`
-    const goalText = goal ? (goal.kind === 'face' ? `目标 ${Session.faceName(goal.face!)} ×${S.goalDone}/${S.goalNeed}` : `目标 碎冰 ×${S.goalDone}/${S.goalNeed}`) : null;
-    makeLabel(root, goalText ? goalText : `剩余 ${left} / ${S.total} 张`, {x: -W / 2 + 40, y: H / 2 - 118 - safe, size: 25, color: goalText ? palette.jadeDeep : palette.ink, align: 'left', bold: true});
+    const goalText = goal ? (goal.kind === 'face' ? `目标 ${Session.faceName(goal.face!)} ×${S.goalDone}/${S.goalNeed}`
+      : goal.kind === 'collect' ? `集齐 ${S.goalDone}/${S.goalNeed} 种`
+      : `目标 碎冰 ×${S.goalDone}/${S.goalNeed}`) : null;
+    // 方言关的"剩余"必须数还能消的牌：哑弹永远消不掉，按 count 显示会让玩家对着一个到不了 0
+    // 的数字反复推轨道。顺带把哑弹单独标出来，省得它被当成 bug。
+    const duds = left - S.remaining;
+    const restText = goalText ? goalText
+      : duds > 0 ? `可消 ${S.remaining} / ${S.liveTotal} 张 · 哑弹 ${duds}`
+      : `剩余 ${left} / ${S.total} 张`;
+    makeLabel(root, restText, {x: -W / 2 + 40, y: H / 2 - 118 - safe, size: 25, color: goalText ? palette.jadeDeep : palette.ink, align: 'left', bold: true});
     const moveText = S.moveLimit ? `步数 ${S.moves}/${S.moveLimit}` : `${S.moves} 步 · 三星 ≤ ${S.par} 步`;
     makeLabel(root, moveText, {x: W / 2 - 40, y: H / 2 - 118 - safe, size: 25, color: S.moveLimit && S.movesLeft <= 3 ? palette.red : palette.ink, align: 'right', bold: true});
     // 秒数与「步数」同一行、排在它左边：两者都是"预算"，读盘时眼睛本来就会扫这一行。
@@ -462,7 +477,8 @@ export class GameRoot extends Component {
     if (S.timeLimit) makeLabel(root, `时间 ${Math.ceil(S.timeLeft)} 秒`, {x: W / 2 - 150, y: H / 2 - 118 - safe, size: 24, color: S.timeLeft <= 10 ? palette.red : palette.ink, align: 'right', bold: true});
     const barW = W - 80;
     makeSprite(root, this.ui.frame('chip-light'), barW, 16, 0, H / 2 - 166 - safe, true, this.ui.inset('chip-light'));
-    const done = S.total ? (S.total - left) / S.total : 0;
+    // 进度按"还能消的牌"算：哑弹不在分子也不该在分母里拖底。
+    const done = S.liveTotal ? (S.liveTotal - S.remaining) / S.liveTotal : 0;
     if (done > 0) makeSprite(root, this.ui.frame('chip-dark'), Math.max(12, barW * done), 16, -barW / 2 + Math.max(12, barW * done) / 2, H / 2 - 166 - safe, true, this.ui.inset('chip-dark'));
 
     const banner = makeNode(root, {w: W - 68, h: 62, x: 0, y: H / 2 - 221 - safe, name: 'banner'});
