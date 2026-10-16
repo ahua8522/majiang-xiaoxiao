@@ -746,7 +746,10 @@ export class GameRoot extends Component {
     const oTitle = 26, oNum = 62, oBar = 150, oMap = 190, oGrid = 236;
     const oLegend = oGrid + gridH + 36;
     const oFoot = oLegend + 48;
-    const ph = oFoot + 30 + 34;
+    // 内容一律从「面板顶 - 94」往下排（那 94 是匾额占掉的），所以面板高度必须把这 94 算进去。
+    // 以前写成 oFoot + 30 + 34，等于比内容矮 30 多像素：图例压在卡片底边上、
+    // 「已通关 0 / 224 关」整行掉到卡片外面，和背后首页的「选择关卡」按钮叠成一团（第 14 章切图实测）。
+    const ph = oFoot + 94 + 46;
     const py = this.centeredTop(ph);
     makePanel(root, this.ui, W - 80, ph, 0, py - ph / 2);
     const plate = makePlate(root, this.ui, 240, 66, -40, py - 28 - 33);
