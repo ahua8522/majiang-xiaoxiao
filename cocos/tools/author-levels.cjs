@@ -16,12 +16,99 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const {construct} = require(path.join(root, '.test/core/Generator.js'));
-const {count, transition} = require(path.join(root, '.test/core/Rules.js'));
+const {count, pairs, boardHash, isWild} = require(path.join(root, '.test/core/Rules.js'));
 
 const TOTAL = 120;
 const MAX_SLOTS = 136;
 const MIN_SLOTS = 8;
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+/* ---------------------------------------------------------------------------
+ * 种子冻结。
+ *
+ * 本工具**从不读回 levels.ts**，全靠 `i >= 常量` 的门控从关号重新推导一切。
+ * 而关卡内容 = map（形状）+ seed（发牌种子）的纯函数，所以只要有人动一处门控，
+ * 整张表就会静默重摇——玩家打过的第 50 关下次进去换了一副牌，切图审阅也全部作废。
+ *
+ * 修法不是在门控上小心翼翼地加约束，而是让种子成为**真源**：
+ * `npm run author:levels` = `build:core && node tools/author-levels.cjs && build:core`，
+ * 于是脚本运行时 `.test/core/levels.js` 编译自**上一次**的关卡表——它就是已钉种子的唯一出处。
+ * 只有形状一模一样的关才继承旧种子（形状一变，旧种子证出来的就是另一盘）。
+ * ------------------------------------------------------------------------- */
+let PREV = [];
+try { PREV = require(path.join(root, '.test/core/levels.js')).LEVELS; } catch { PREV = []; }
+
+/** `--reseed` 全表重钉；`--reseed=81-96` 只重钉这个 1 基闭区间。 */
+const RESEED = (() => {
+  const arg = process.argv.find((v) => v === '--reseed' || v.startsWith('--reseed='));
+  if (!arg) return null;
+  if (arg === '--reseed') return [0, Infinity];
+  const m = /^--reseed=(\d+)?(?:-(\d+))?$/.exec(arg);
+  if (!m) throw new Error(`--reseed 用法：--reseed 或 --reseed=81-96（收到 ${arg}）`);
+  return [m[1] ? Number(m[1]) - 1 : 0, m[2] ? Number(m[2]) : Infinity];
+})();
+
+/** 旧表里这一关钉过的种子；形状变了、或被 `--reseed` 点名了，就返回 null 让它重钉。 */
+const frozenSeedOf = (i, map) => {
+  const prev = PREV[i];
+  if (!prev || !Number.isInteger(prev.seed)) return null;
+  if (RESEED && i >= RESEED[0] && i < RESEED[1]) return null;
+  return prev.map.join('|') === map.join('|') ? prev.seed : null;
+};
+
+/** 跨关累计的"引擎变化导致换盘"计数（`why` 是每关局部的，汇总要的是全局数）。 */
+const DRIFT = {count: 0};
+/** 扫完所有种子仍带锁轨冲突就发出去的关数（应为 0；非 0 就是离线质检没兜住）。 */
+const CONFLICT = {count: 0, worst: 0, rejected: 0};
+/** 因为「标了 wild 却发不出百搭」而被否掉的候选次数（说明卡的真实性质检）。 */
+const WILD = {rejected: 0};
+
+/**
+ * 锁轨上的"白送对子"：两张同面牌都落在锁轨上，玩家不推也能点掉，等于开局白送进度。
+ *
+ * 运行时为了进关速度（实测 113ms）在"满足步数上限"时就提前返回，**不保证**把冲突搜到 0
+ * ——要保它就得每次进关多花 2.3 倍时间（实测 113→261ms，真机 0.8-1.3 秒），不划算。
+ * 内容既然已经预生成钉死，质量就改由**离线选种子**保证：这里多扫几颗种子，挑出
+ * 发出来那盘 0 冲突的种子钉进表。运行时拿同一颗种子走同一条快路径必然复现
+ * （已实测跨进程逐字节相同），所以玩家拿到的就是离线挑中的那一盘。
+ */
+function railConflicts(def, grid) {
+  const inLock = (p) => def.lockR.includes(p.r) || def.lockC.includes(p.c);
+  return pairs(grid).filter((pr) => inLock(pr.a) && inLock(pr.b)).length;
+}
+
+/**
+ * 认证某个定义，返回「游戏将来真的会发的那一盘」。
+ *
+ * ⚠️ 必须对**最终定义**调用，不能对推导中的半成品调用：`goal` 会反灌进生成器的牌池
+ * （constructOnce 把目标牌面强制排进去），`moveLimit` 会改变候选排序（rankOf 的第一键就是
+ * "有没有超步数上限"）。所以拿 candidate 认证出来的盘面去钉 hash，游戏用 finalDef 一发牌
+ * 就是另一盘——实测 120 关里有 15 关指纹对不上，且**全部**是带 goal 的关。
+ */
+function certifyDef(def, slots, seedSet) {
+  let best = null;
+  for (const seed of seedSet) {
+    const d = construct(def, seed);
+    // 任何一颗证不出满盘解 = 这个形状不可信，换下一个候选形状，不许挑着报喜
+    if (!d) return {bad: 'noDeal'};
+    if (count(d.grid) !== slots) return {bad: 'shortFill'};
+    const conflicts = railConflicts(def, d.grid);
+    if (!best || conflicts < best.conflicts || (conflicts === best.conflicts && d.solution.length < best.deal.solution.length)) {
+      best = {bad: null, seed, deal: d, conflicts};
+    }
+    if (conflicts === 0) break;                          // 够干净就收工
+    if (seed === seedSet[0]) best.cleanHead = false;     // 首选（=上表钉过的那颗）不干净
+  }
+  return best || {bad: 'noSeed'};
+}
+
+/** 种子尝试顺序：上表钉过的排第一（保住继承），再固定探针，最后按关号派生补足扫描数。 */
+function seedOrder(i, frozen) {
+  const list = [frozen, 1, 7, 20261013];
+  for (let k = 0; list.length < 16; k++) list.push((0x9E3779B1 ^ Math.imul(i + 1 + k * 7919, 0x85EBCA6B)) >>> 0);
+  const seen = new Set();
+  return list.filter((s) => Number.isInteger(s) && s >= 0 && !seen.has(s) && seen.add(s));
+}
 
 function mulberry32(a) {
   return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -299,8 +386,8 @@ const built = [];
 const seen = new Map();
 for (let i = 0; i < TOTAL; i++) {
   const {rows, cols} = sizeFor(i);
-  let def = null, par = 0;
-  const why = {isolated: 0, unbalance: 0, slots: 0, duplicate: 0, noDeal: 0, shortFill: 0, mechanism: 0, unsolvable: 0};
+  let def = null, par = 0, seedInherited = false;
+  const why = {isolated: 0, unbalance: 0, slots: 0, duplicate: 0, noDeal: 0, shortFill: 0, mechanism: 0, unsolvable: 0, drift: 0, overLimit: 0, conflict: 0, noWild: 0};
   for (let attempt = 0; attempt < 120 && !def; attempt++) {
     const g = buildMap(i, attempt);
     const rand = mulberry32(0xFACE + i * 7919 + attempt * 104729);
@@ -331,22 +418,27 @@ for (let i = 0; i < TOTAL; i++) {
     // 单向轨不能与锁轨/连锁锁重叠（同一条轨不能既锁又单向）
     if (oneWay.some((w) => (w.axis === 'row' ? lockR : lockC).includes(w.index) ||
       unlock.some((u) => u.axis === w.axis && u.index === w.index))) { why.mechanism++; continue; }
-    // 三组种子都能出解，且牌位一个不差，才算这关可靠
-    let ok = true, deal = null, noDeal = false, shortFill = false;
-    let maxPar = 0;
-    for (const seed of [1, 7, 20261013]) {
-      const d = construct(candidate, seed);
-      if (!d) { ok = false; noDeal = true; break; }
-      if (count(d.grid) !== slots) { ok = false; shortFill = true; break; }
-      deal = d;
-      maxPar = Math.max(maxPar, d.solution.length);
+    // 阶段 1：认证「还没填 moveLimit / goal 的候选」——这两样都得先看盘面才能定，所以必须先跑一轮。
+    // 但**不能**用这一轮的盘面去钉指纹：`goal` 会反灌进生成器的牌池、`moveLimit` 会改变候选排序，
+    // 最终定义发出来的其实是另一盘（实测 120 关里 15 个目标关指纹全对不上）。见阶段 2。
+    const frozen = frozenSeedOf(i, map);
+    const first = certifyDef(candidate, slots, seedOrder(i, frozen));
+    if (first.bad) {
+      why.unsolvable++;
+      if (first.bad === 'noDeal') why.noDeal++; else why.shortFill++;
+      continue;
     }
-    if (!ok) { why.unsolvable++; if (noDeal) why.noDeal++; if (shortFill) why.shortFill++; continue; }
-    // 限步关：步数上限必须 ≥ 参考解步数（否则这关理论上不可能过）
-    const parNow = deal.solution.length;
-    // 限步基于证书总步数的最大值（三种子里最长的）——这才是「照着路线走」需要的真实移动数；
-    // 玩家可能找到更短的路线，所以只在这个上浮系数之下做下限
-    const moveLimit = moveLimitFor(i, maxPar);
+    const deal = first.deal;
+    // 限步上限的基数必须按「洗牌之后可能拿到的那些盘」取最坏，不能只看钉死的那一盘：
+    // 洗牌道具走 `redeal(index, grid, seed + revision*7919)`，用的是**别的种子**、发出的是别的盘。
+    // 实测教训：改成只看钉死盘之后，第 91 关上限 33 而抽样盘参考解 57——洗一次牌
+    // 这关就变成"照游戏自己的提示走完也会步数用尽"，属于必输开局。
+    let limitPar = deal.solution.length;
+    for (let k = 0; k < 8; k++) {
+      const d = construct(candidate, (20261015 + k * 7919) >>> 0);
+      if (d) limitPar = Math.max(limitPar, d.solution.length);
+    }
+    const moveLimit = moveLimitFor(i, limitPar);
     // 目标关：目标数取「这一关实际给得出的量」——每种牌整局最多 4 张 = 2 对。
     //
     // ⚠️ 这里以前是遍历证书路线、对 `next.erased` 按牌面计数，但**每次都拿初始
@@ -375,25 +467,56 @@ for (let i = 0; i < TOTAL; i++) {
       if (pairs >= 2) goal = {kind: 'face', face: pick[0], count: Math.min(pairs, 2)};
       else if (iceLayers >= 3) goal = {kind: 'ice', count: Math.min(2, Math.max(1, Math.floor(iceLayers / 2)))};
     }
-    const finalDef = {...candidate, moveLimit, goal};
-    // 限步关的体检：玩家拿到的种子来自 Date.now()，同一关的参考解长度实测在 22..197 之间跳。
-    // 只按 3 个固定种子取 max 定上限，就会留下「照游戏自己的提示走完也会步数用尽」的开局。
-    // 生成端已经会优先挑能进上限的种子，这里再按玩家可能的取法抽 8 次，超标的关打出来。
-    if (moveLimit) {
-      let over = 0, longest = 0;
-      for (let k = 0; k < 8; k++) {
-        const d = construct(finalDef, (20261015 + k * 7919) >>> 0);
-        if (!d) continue;
-        longest = Math.max(longest, d.solution.length);
-        if (d.solution.length > moveLimit) over++;
-      }
-      if (over) console.warn(`⚠ 第 ${i + 1} 关：步数上限 ${moveLimit}，抽样 8 次仍有 ${over} 次参考解更长（最长 ${longest}）——考虑放宽上限或加大 scramble`);
+    // 阶段 2：对**最终定义**重新认证。表里那对 (seed, hash) 必须描述游戏真正会发的那一盘，
+    // 否则 levels-seed 门禁拿 generate(i, seed) 重算时指纹对不上（改造前就是 15 个目标关全错）。
+    const preDef = {...candidate, moveLimit, goal};
+    const second = certifyDef(preDef, slots, seedOrder(i, first.seed));
+    if (second.bad) {
+      why.unsolvable++;
+      if (second.bad === 'noDeal') why.noDeal++; else why.shortFill++;
+      continue;
     }
-    def = finalDef; par = parNow;
+    if (second.conflicts) {
+      // 扫完 16 颗种子还挑不出 0 冲突 = 这个形状本身不适合发布（锁轨把同面牌焊在一起），
+      // 换形状重来。不能退而求其次发"最不脏"的那盘：那样 0 冲突就只是一句口号，
+      // 而玩家一眼就能看出"这两张锁在一起不用推就能消"。
+      why.conflict++;
+      CONFLICT.rejected++;
+      continue;
+    }
+    const faceList = second.deal.grid.flat().filter(Array.isArray).flatMap((c) => c);
+    if (candidate.wild && !faceList.some(isWild)) {
+      // `wild: true` 原本只把百搭放进**牌池**，不保证这一盘真的发出百搭——实测 8 个百搭关里
+      // 有 4 个（第 60/76/84/108 关）盘上一张都没有，可玩家照样会收到「百搭」说明卡。
+      // 说明卡教一个盘上不存在的东西，比没有说明卡更糟，所以这里当不合格处理。
+      why.mechanism++;
+      why.noWild++; WILD.rejected++;
+      continue;
+    }
+    const hash = boardHash(second.deal.grid);
+    const finalDef = {...preDef, seed: second.seed, hash};
+    if (second.conflicts) { CONFLICT.count++; CONFLICT.worst = Math.max(CONFLICT.worst, second.conflicts); }
+    // 冻结的判据是指纹而不是种子号：生成器实现改一行，同一颗种子就发出另一盘。
+    // 指纹不匹配 = 引擎动过 = 这些关重钉，而且必须喊出来，不许假装"沿用成功"。
+    const prev = PREV[i];
+    if (prev && Number.isInteger(prev.seed) && prev.hash && prev.hash !== hash) {
+      why.drift++; DRIFT.count++;
+      if (why.drift <= 5) console.warn(`⚠ 第 ${i + 1} 关：旧种子 ${prev.seed} 在当前引擎下发出的是另一盘（${prev.hash} → ${hash}）——这一关重钉`);
+    }
+    // 限步关只有一条硬要求：钉死那一盘的参考解不许超过上限。
+    // 以前这里是"抽 8 颗别的种子看会不会超"——那是玩家拿 Date.now() 发牌时代的质检。
+    // 内容冻结之后别的种子永远不会被用到，按它们报警只会淹没真问题（实测全是噪音）。
+    if (moveLimit && second.deal.solution.length > moveLimit) {
+      why.overLimit++;
+      console.error(`✗ 第 ${i + 1} 关：钉死的那盘参考解 ${second.deal.solution.length} 步 > 上限 ${moveLimit}，这一盘照自己的路线都过不去`);
+      continue;
+    }
+    def = finalDef; par = second.deal.solution.length;   // par 取最终定义那一盘：玩家实际看到的就是它
+    seedInherited = frozen !== null && def.seed === frozen;
   }
   if (!def) throw new Error(`第 ${i + 1} 关（${rows}x${cols}）在 120 次尝试内没有找到可用布局，失败分布 ${JSON.stringify(why)}`);
   seen.set(def.map.join('|'), i + 1);
-  built.push({i, def, rows, cols, slots: slotsOf(def.map.map((r) => r.split(''))), par});
+  built.push({i, def, rows, cols, slots: slotsOf(def.map.map((r) => r.split(''))), par, seedInherited});
 }
 
 // 说明键：第 1 关固定教学，其余按「实际首现」标注
@@ -456,6 +579,18 @@ export interface LevelDef {
   goal?: {kind: 'face' | 'ice'; face?: string; count: number};
   /** 本关首次出现某机制时的说明键（视图据此弹「新玩法」卡片）。 */
   intro?: string;
+  /**
+   * 钉死的发牌种子。**关卡内容 = map + seed 的纯函数**，所以这一行就是这一关的本体。
+   * 规矩：改了 \`map\` 必须重钉；\`map\` 没改就不许换。
+   * \`npm run author:levels\` 只给没有 seed 的关补，要重钉显式用 \`--reseed[=81-96]\`。
+   */
+  seed: number;
+  /**
+   * 盘面内容指纹（\`Rules.boardHash\` 的前 8 位十六进制）。
+   * 光钉 seed 挡不住"改引擎"：生成器实现变一行，同一颗种子就发出另一盘。
+   * 所以真正的冻结判据是这个指纹——\`tests/levels-seed.test.cjs\` 逐关重算并比对。
+   */
+  hash: string;
 }
 
 /** 关卡表，共 ${TOTAL} 关。 */
@@ -464,6 +599,9 @@ export const LEVELS: LevelDef[] = [
 
 const body = built.map(({i, def, rows, cols, slots, par}) => {
   const bits = [];
+  if (!Number.isInteger(def.seed)) throw new Error(`第 ${i + 1} 关没有钉种子，冻结链路断了（usedSeed 没赋值）`);
+  bits.push(`seed: ${def.seed}`);
+  bits.push(`hash: '${def.hash}'`);
   bits.push(`map: [${def.map.map((r) => `'${r}'`).join(', ')}]`);
   bits.push(`lockR: [${def.lockR.join(', ')}]`);
   bits.push(`lockC: [${def.lockC.join(', ')}]`);
@@ -510,5 +648,17 @@ console.log(`已写入 ${built.length} 关到 assets/scripts/core/levels.ts`);
 console.log('尺寸分布：', Object.entries(sizes).map(([k, v]) => `${k}×${v}`).join('  '));
 console.log(`牌位范围：${Math.min(...built.map((b) => b.slots))} ~ ${Math.max(...built.map((b) => b.slots))}`);
 console.log(`参考解步数：${Math.min(...built.map((b) => b.par))} ~ ${Math.max(...built.map((b) => b.par))}`);
+// 两个维度分开报，否则 `--reseed` 的效果看不出来：
+//  · 种子继承：这一关是不是直接沿用了上表的种子（`--reseed` 会把它打断）。
+//  · 指纹相同：发出来的盘面是不是同一盘。**这才是"内容冻结"的判据**——
+//    手动重钉拿到的往往还是同一盘，此时种子继承=0 而指纹相同=120，内容并没有变。
+const rePinned = built.filter((b) => !b.seedInherited).length;
+const sameContent = built.filter((b) => PREV[b.i] && PREV[b.i].hash === b.def.hash).length;
+console.log(`种子：继承 ${built.length - rePinned} 关 · 重钉 ${rePinned} 关${RESEED ? '（--reseed 点名范围内）' : ''}`);
+console.log(`内容：与上表逐盘面相同 ${sameContent}/${built.length} 关${DRIFT.count ? ` · 引擎变化导致换盘 ${DRIFT.count} 关` : ''}`);
+if (DRIFT.count) console.log('  ↑ 换盘说明生成器实现与上表不匹配：这批关的切图与试玩要重做，别当无事发生。');
+// 发布盘面的锁轨冲突由"挑种子"保证（运行时不为它多花 2.3 倍进关时间），这里是它的账。
+console.log(`锁轨冲突：因挑不出 0 冲突而换掉形状 ${CONFLICT.rejected} 次 · 带冲突发布 ${CONFLICT.count} 关${CONFLICT.count ? `（最脏 ${CONFLICT.worst} 处）` : ''}`);
+console.log(`说明卡真实性：因「标了 wild 却发不出百搭」否决 ${WILD.rejected} 次`);
 console.log(`冰面关：${built.filter((b) => (b.def.ice || 0) > 0).length} 关（首现第 ${built.find((b) => (b.def.ice || 0) > 0)?.i + 1 ?? '-'} 关）`);
 console.log(`棋盘唯一性：${seen.size}/${TOTAL} 关各不相同`);

@@ -78,6 +78,8 @@ export class Session {
     this.runs=runsFor(this.grid,l.lockR,l.lockC,this.def.oneWay);
   }
   get levelCount(){return LEVELS.length;}
+  /** 本关钉死的发牌种子；`null` = 该关没钉（主线不该出现，无尽段之外的兜底路径）。 */
+  get pinnedSeed(){return Number.isInteger(this.def.seed)?this.def.seed>>>0:null;}
   /** 牌面代号 → 中文名（目标关 HUD 等界面文案用）。 */
   static faceName(face:string):string{
     const nums='一二三四五六七八九';
@@ -149,16 +151,23 @@ export class Session {
    * 保证界面一定起得来。
    */
   private deal(chosen:number):{index:number;deal:Deal}{
-    for(let k=0;k<4;k++){
-      try{return{index:chosen,deal:generate(chosen,(this.seed+Math.imul(k+1,0x9e3779b9))>>>0)};}catch{/* 换下一个派生种子 */}
+    // 钉了种子的关**只能**用它：换派生种子重试会发出另一盘，等于当着玩家的面换关卡内容。
+    // 真发不出牌是数据事故（跑批与 levels-seed 门禁本该拦住），所以要指名该重跑什么命令。
+    const pin=LEVELS[chosen]?.seed;
+    const attempts=Number.isInteger(pin)?[pin>>>0]:[1,2,3,4].map(k=>(this.seed+Math.imul(k,0x9e3779b9))>>>0);
+    for(const s of attempts){
+      try{return{index:chosen,deal:generate(chosen,s)};}catch{/* 没钉种子的关：换下一颗派生种子 */}
     }
-    console.error('[core] 这一关发不出可验证的牌，已兜底到第 1 关',{level:chosen,seed:this.seed});
+    console.error('[core] 这一关发不出可验证的牌，已兜底到第 1 关。钉死种子的关出现这条＝levels.ts 与 .test 不同步，请重跑 npm run author:levels',{level:chosen,seed:this.seed,pin});
     this.seed=(this.seed+1)>>>0;
     return{index:0,deal:generate(0,this.seed)};
   }
   reset(index=this.levelIndex,fresh=true){
     const wanted=Number.isFinite(index)?Math.max(0,Math.min(LEVELS.length-1,Math.floor(index))):0;
-    if(fresh)this.seed=(this.seed+0x9e3779b9)>>>0;
+    // 关卡是固定谜题：这一关钉了 seed，重开就必须看到同一盘（玩家背板重来才有三星动力，
+    // 作者试玩的那一盘也必须就是玩家拿到的那一盘）。没钉的关保留旧的"每次换一副"行为。
+    const pin=LEVELS[wanted]?.seed;
+    this.seed=Number.isInteger(pin)?pin>>>0:(fresh?(this.seed+0x9e3779b9)>>>0:this.seed);
     const{index:chosen,deal}=this.deal(wanted);
     this.setupLevel(chosen);
     this.grid=deal.grid;this.runs=deal.runs;this.solution=deal.solution;

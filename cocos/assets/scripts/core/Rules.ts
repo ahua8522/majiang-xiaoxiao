@@ -29,6 +29,20 @@ export const clone = (g: Grid): Grid => g.map(row => row.map(c => Array.isArray(
 export const count = (g: Grid): number => g.reduce((n,row) => n + row.reduce((m,c) => m + (Array.isArray(c) ? c.length : 0), 0), 0);
 export const top = (g: Grid, p: Pos): string | null => { const cell = g[p.r]?.[p.c]; return Array.isArray(cell) && cell.length ? cell[cell.length-1] : null; };
 export const signature = (g: Grid): string => JSON.stringify(g);
+/**
+ * 盘面指纹（FNV-1a 32 位，8 位十六进制）。用来给关卡钉**内容**而不只是钉**种子**。
+ *
+ * 为什么光有 seed 不够：`关卡内容 = f(map, params, seed, 生成器实现)`。前三样都不变、
+ * 但 Generator 的挑选逻辑被改了一行，发出来的牌就整盘换了（实测：本轮重写
+ * `constructOnce` 的候选排序之后，120 关的参考解有 30 关变了，而 map 一字未改）。
+ * 种子只挡得住"改公式"，指纹才挡得住"改引擎"。
+ */
+export const boardHash = (g: Grid): string => {
+  const s = signature(g);
+  let h = 0x811C9DC5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return (h >>> 0).toString(16).padStart(8, '0');
+};
 /** 冰面牌的牌面以 `~` 结尾：一层冰一个 `~`（`5s~~` = 厚冰，要碎两次）。 */
 export const hasIce = (face: string): boolean => face.endsWith('~');
 export const iceLayers = (face: string): number => { let n = 0; while (face.endsWith('~')) { face = face.slice(0, -1); n++; } return n; };

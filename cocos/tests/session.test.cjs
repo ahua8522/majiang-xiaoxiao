@@ -160,8 +160,22 @@ test('连锁解锁：消够对数后该轨自动解锁（runs 随之变化）',(
 test('百搭配对之后：存档读得回来，洗牌也还能用',()=>{
   const G=require(require('path').join(__dirname,'..','.test','core','Generator.js'));
   assert.ok(G&&Array.isArray(G.LEVELS),'缺少编译后的关卡表');
-  const idx=G.LEVELS.findIndex(l=>l.wild);
-  assert.ok(idx>=0,'关卡表里要有百搭关');
+  // 不能假设"第一个标了 wild 的关"就能点到百搭：百搭可能埋在叠层下面（实测第 60 关就是）。
+  // 内容已经钉死，所以这里在所有百搭关里确定性地找一颗第一步就摸得到的。
+  const wildLevels=G.LEVELS.map((l,i)=>({l,i})).filter(x=>x.l.wild);
+  assert.ok(wildLevels.length>0,'关卡表里要有百搭关');
+  let idx=-1,grab=null;
+  for(const {l,i} of wildLevels){
+    const deal=G.generate(i,l.seed);
+    for(let r=0;r<deal.grid.length&&!grab;r++)for(let c=0;c<deal.grid[r].length&&!grab;c++){
+      const a={r,c},f=R.top(deal.grid,a);
+      if(!f||!R.isWild(f))continue;
+      const b=R.partners(deal.grid,a).find(p=>{const bf=R.top(deal.grid,p);return bf&&bf!==f;});
+      if(b){grab={a,b};idx=i;}
+    }
+    if(grab)break;
+  }
+  assert.ok(grab,'没有任何百搭关能在第一步摸到百搭：说明卡教的东西玩家碰不着');
   let store=null;
   const plat={load:()=>store,save:d=>{store=JSON.stringify(d)},feedback(){}};
   const seed=20261015;
@@ -214,4 +228,32 @@ test('说明卡：第 1 关弹教学、机制关弹机制说明、看过之后�
   s.reset(1);
   assert.equal(s.tip,null,'看过的机制说明不再弹');
   delete G.LEVELS[1].intro;
+});
+
+/* ---------------- 关卡是固定谜题：钉了种子的关，重开必须看到同一盘 ---------------- */
+// 以前 `reset(index,fresh=true)` 无条件翻种子，"重开这一关"约等于"换一副新牌"。
+// 对无尽随机池是对的，对关卡制是错的：玩家背板重来应该面对同一盘，作者试玩的那一盘
+// 也必须就是玩家拿到的那一盘（否则切图审阅、招牌关的设计意图全落空）。
+const GEN=require('../.test/core/Generator.js');
+test('重开同一关牌面一字不差（fresh=true 连开三次）',()=>{
+  const idx=[41,60,7].find(i=>GEN.LEVELS[i]&&Number.isInteger(GEN.LEVELS[i].seed));
+  assert.ok(idx!==undefined,'关卡表还没有钉种子，先跑 npm run author:levels');
+  const s=new mod.Session(18);s.command('continue');
+  s.reset(idx,true);const first=R.signature(s.grid);
+  s.reset(idx,true);assert.equal(R.signature(s.grid),first,'重开换了牌');
+  s.reset(idx,true);assert.equal(R.signature(s.grid),first);
+  s.reset(idx,false);assert.equal(R.signature(s.grid),first);
+});
+test('pinnedSeed 就是关卡表里那一颗，视图诊断条可以直接读',()=>{
+  const s=new mod.Session(18);s.command('continue');
+  assert.equal(s.pinnedSeed,GEN.LEVELS[s.levelIndex].seed);
+});
+test('没钉种子的关仍按老行为每次换牌（无尽池依赖这条）',()=>{
+  const i=0,keep=GEN.LEVELS[i].seed;
+  try{
+    delete GEN.LEVELS[i].seed;
+    const s=new mod.Session(18);s.command('continue');
+    s.reset(i,true);const a=R.signature(s.grid);
+    s.reset(i,true);assert.notEqual(R.signature(s.grid),a,'删了 seed 还不换牌，说明翻种子的分支被删掉了');
+  }finally{GEN.LEVELS[i].seed=keep;}
 });
