@@ -179,17 +179,35 @@ function constructOnce(def:LevelDef,seed:number,tokens?:Token[]):Deal|null{
   // 目标关：目标牌面**一定**要上盘。老写法是从牌池随机切 def.faces 种，
   // 于是 15 个目标关经常整局摸不到目标牌（实测 20 个种子里只在 3~12 次里出现）。
   if(!tokens&&goalBase&&source.includes(goalBase)&&!pool.includes(goalBase))pool[pool.length-1]=goalBase;
+  // 集组目标（八花齐/三元齐/清龙）：`goal.faces` 里每一种都必须上盘，至少给一对。
+  // 少了这一步，"集齐三种"可能整局一种都见不到（实测第 169 关就是），HUD 会永远卡在 0/3。
+  const collectFaces=def.goal&&def.goal.kind==='collect'?(def.goal.faces||[]).map(f=>unwild(f)):[];
+  for(const f of collectFaces){
+    if(!source.includes(f))continue;
+    if(pool.includes(f))continue;
+    if(pool.length<liveKinds.length)pool.push(f);else pool[pool.length-1]=f;
+  }
   const doubled=pool.concat(pool);
   // 开局路径全程是「同面字符串」，只有洗牌路径才会带异面混合对，所以牌面后缀在这里处理干净
   let faces:Token[];
   if(tokens)faces=shuffled(tokens,random);
   else{
-    let liveList:string[]=goalBase&&source.includes(goalBase)
-      ?[goalBase,goalBase].concat(shuffled(doubled.filter(f=>f!==goalBase),random))
-      :shuffled(doubled,random);
+    // 强制上盘的目标牌面（face 目标一种、collect 一组若干种）：每种先各占两对，剩下的位置再随机填。
+    // 没有这一步，"集齐三种"可能整局一种都见不到（实测第 169 关 HUD 永远 0/3）。
+    // Array.from 而不是 [...new Set(...)]：构建器会把后者转译成 [].concat(迭代器)，
+    // transpile.test 专门守这条（Node 里永远测不出来，只在产物里发作）。
+    const forced=Array.from(new Set((goalBase&&source.includes(goalBase)?[goalBase]:[])
+      .concat(collectFaces.filter((f)=>pool.includes(f)))));
+    let liveList:string[]=forced.flatMap((f)=>[f,f])
+      .concat(shuffled(doubled.filter((f)=>!forced.includes(f)),random));
     // 哑弹最多占四成（设计线是"哑弹比例 ≤55%"，这里给证书留出更宽松的余量）。
     // 每种哑弹最多两对 = 4 张，守住的还是「每面 ≤4 张」那条存档不变量。
-    const dudPairs=d&&dudKinds.length?Math.min(Math.floor(places.length*0.4),dudKinds.length*2):0;
+    // 哑弹份额不是拍脑袋的比例，而是被两端夹出来的：
+    //  下界 = 有效面供不出那么多对子时，剩下的只能用哑弹填（清一色一章 9 种有效面最多 18 对）；
+    //  上界 = 验收线的哑弹 ≤55%，再高玩家会以为棋盘卡住。
+    const liveCap=liveList.length, maxDud=Math.floor(places.length*0.55);
+    const needDud=Math.max(places.length-liveCap, Math.floor(places.length*0.4));
+    const dudPairs=d&&dudKinds.length?Math.min(needDud,maxDud,dudKinds.length*2):0;
     const livePairs=places.length-dudPairs;
     if(liveList.length<livePairs)return null;      // 有效面撑不起这一盘：参数太窄，换参数
     const dudList=shuffled(dudKinds.concat(dudKinds),random);

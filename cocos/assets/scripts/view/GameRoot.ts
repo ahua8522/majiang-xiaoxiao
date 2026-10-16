@@ -14,6 +14,7 @@
 import {_decorator, Component, EventTouch, Game, game, Label, Node, Sprite, UIOpacity, UITransform, input, Input, sys, view} from 'cc';
 import {Session, Platform} from '../core/Session';
 import {LEVELS, levelAt} from '../core/Generator';
+import {CHAPTER_NAMES} from '../core/levels';
 import {count, Run} from '../core/Rules';
 import {SceneAtlas, TileAtlas, UiAtlas, UiName} from './assets';
 import {Board, Pos} from './Board';
@@ -115,6 +116,8 @@ export class GameRoot extends Component {
   private firstPainted = false;
   private size = {w: DESIGN_W, h: DESIGN_H};
   private page = 0;
+  /** 星图停在第几章（一章一屏，见 renderProgress）。 */
+  private chapterPage = 0;
   private sound = true;
   private music = true;
 
@@ -265,6 +268,7 @@ export class GameRoot extends Component {
     else if (s === 'home') this.session.modal = 'home';
     else if (overlay[s]) this.session.modal = overlay[s] as any;
     if (s === 'levels') this.page = Math.floor(this.session.levelIndex / 16);
+    if (s === 'progress') this.chapterPage = Math.floor(this.session.levelIndex / 16);
     this.dirty = true;
   }
 
@@ -297,6 +301,8 @@ export class GameRoot extends Component {
       case 'toggle-sound': this.sound = !this.sound; break;
       case 'toggle-music': this.music = !this.music; break;
       case 'toggle-vibration': this.session.command('toggle-vibration'); break;
+      case 'chapter-prev': this.chapterPage = Math.max(0, this.chapterPage - 1); break;
+      case 'chapter-next': this.chapterPage = Math.min(Math.ceil(LEVELS.length / 16) - 1, this.chapterPage + 1); break;
       case 'page-prev': this.page = Math.max(0, this.page - 1); break;
       case 'page-next': {
         const shown = this.session.unlockAll ? LEVELS.length : this.session.maxLevel + 1;
@@ -533,9 +539,9 @@ export class GameRoot extends Component {
 
     const tools: {id: string; icon: UiName; label: string; sub: string}[] = [
       {id: 'hint', icon: 'icon-hint', label: '提示', sub: `免费 ${S.hintsLeft} 次`},
-      {id: 'shuffle', icon: 'icon-shuffle', label: '洗牌', sub: `免费 ${S.shufflesLeft} 次`},
+      {id: 'shuffle', icon: 'icon-shuffle', label: '洗牌', sub: S.shuffleBlocked ? '方言洗不开' : `免费 ${S.shufflesLeft} 次`},
       {id: 'undo', icon: 'icon-undo', label: '撤销', sub: '退回上一步'},
-      {id: 'restart', icon: 'icon-restart', label: '重开', sub: '重新发牌'}
+      {id: 'restart', icon: 'icon-restart', label: '重开', sub: '重来这一盘'}
     ];
     const tw = (W - 68 - 3 * 16) / 4;
     tools.forEach((t, i) => {
@@ -695,13 +701,15 @@ export class GameRoot extends Component {
     const cleared = Object.keys(stars).length;
     const x0 = -W / 2 + 80;
 
-    const COLS = 10, gap = 8;
-    // 行数必须按**实际关数**算：以前 gridH 直接按 COLS（10 行）留高，120 关要画 12 行，
-    // 第 101-120 关就叠在图例和页脚上。
-    const ROWS = Math.max(1, Math.ceil(total / COLS));
-    // 格子既不能超宽（10 列要排得下），也不能超高（屏矮时星图会先撞图例）——取两者较小值。
-    const cwByW = (W - 160 - gap * (COLS - 1)) / COLS;
-    const availH = this.size.h - 118 - 40 - 94 - 300;
+    // 星图改成**一章一屏**：以前 10 列平铺，224 关要画 23 行——格子小到点不动，
+    // 而且玩家说不清"我卡在哪一章"。章节在这里不是装饰，是玩家描述进度的坐标。
+    const CH = 16;
+    const chapters = Math.max(1, Math.ceil(total / CH));
+    this.chapterPage = Math.max(0, Math.min(this.chapterPage, chapters - 1));
+    const COLS = 4, ROWS = 4, gap = 10;
+    // 格子既不能超宽（4 列要排得下），也不能超高（屏矮时星图会先撞图例）——取两者较小值。
+    const cwByW = (W - 200 - gap * (COLS - 1)) / COLS;
+    const availH = this.size.h - 118 - 40 - 94 - 360;
     const cwByH = Math.max(18, (availH - (ROWS - 1) * gap) / ROWS);
     const cw = Math.min(cwByW, cwByH);
     const gridW = COLS * cw + (COLS - 1) * gap;
@@ -730,13 +738,16 @@ export class GameRoot extends Component {
       makeSprite(root, this.ui.frame('chip-dark'), w, 20, -barW / 2 + w / 2, py - oBar - 94, true, this.ui.inset('chip-dark'));
     }
 
-    // 星图：100 关一格，颜色越深星越多，已解锁的格子点一下直接开这一关。
-    // （旧稿这里是「第 1 章 1-20 … 第 6 章 101-120」——既和「100 关扁平、不分组」的设定打架，6×20 也对不上 100 关。）
-    makeLabel(root, '星图', {x: x0, y: py - oMap - 94, size: 27, color: palette.ink, align: 'left', bold: true});
+    const name = CHAPTER_NAMES[this.chapterPage] || '';
+    makeLabel(root, `第 ${this.chapterPage + 1} 章 · ${name}（${this.chapterPage * CH + 1}-${Math.min(total, (this.chapterPage + 1) * CH)}）`,
+      {x: x0, y: py - oMap - 94, size: 26, color: palette.ink, align: 'left', bold: true});
+    makeLabel(root, `${this.chapterPage + 1} / ${chapters}`, {x: W / 2 - 80, y: py - oMap - 94, size: 22, color: palette.inkSoft, align: 'right'});
     const gridTop = py - oGrid - 94;
     const fsize = Math.round(cw * .34);
-    for (let i = 0; i < total; i++) {
-      const col = i % COLS, row = Math.floor(i / COLS);
+    const from = this.chapterPage * CH;
+    for (let i = from; i < Math.min(total, from + CH); i++) {
+      const j = i - from;
+      const col = j % COLS, row = Math.floor(j / COLS);
       const cx = -gridW / 2 + col * (cw + gap) + cw / 2;
       const cy = gridTop - row * (cw + gap) - cw / 2;
       const st = stars[String(i)] || 0;
@@ -762,6 +773,14 @@ export class GameRoot extends Component {
       lx += lw + lgap;
     }
     makeLabel(root, `已通关 ${cleared} / ${total} 关`, {x: 0, y: py - oFoot - 94, size: 24, color: palette.ink, align: 'center', bold: true});
+    // 章节翻页放在页脚两侧：中间那句"已通关 x/N 关"是居中的，两侧各留 90 才不会压字。
+    const navY = py - oFoot - 94;
+    if (this.chapterPage > 0) makeIconButton(root, this.ui, -(W - 80) / 2 + 62, navY, 52, 'back', () => this.activate('chapter-prev'));
+    if (this.chapterPage < chapters - 1) {
+      const nx = makeNode(root, {w: 66, h: 50, x: (W - 80) / 2 - 62, y: navY, name: 'chapter-next'});
+      makeSprite(nx, this.ui.frame('chevron'), 32, 32);
+      bindPress(nx, () => this.activate('chapter-next'));
+    }
   }
 
   /* ── 弹窗 ─────────────────────────────────────────────── */

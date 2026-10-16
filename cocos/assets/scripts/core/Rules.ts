@@ -69,6 +69,8 @@ export interface Dialect {
   suit?: 'p' | 's' | 'm';
   /** 该门的牌不参与滑动连消，只能点消（断门）。它仍然"能配对"，所以不算哑弹。 */
   noSlideSuit?: 'p' | 's' | 'm';
+  /** 字牌（东南西北中發白）也算有效面。幺九/国士本来就把字牌算在内。 */
+  honors?: boolean;
 }
 /** 牌面本体：剥掉冰（可多层）与百搭后缀。`z1~*` → `z1`。 */
 export const bare = (f: string): string => {
@@ -86,7 +88,10 @@ export function pairable(face: string, d?: Dialect): boolean {
   if (!d) return true;
   if (isWild(face)) return true;                       // 财神永远能配，不被白名单误伤
   const s = suitOf(face);
-  if (s !== 'p' && s !== 's' && s !== 'm') return !d.ranks && !d.suit;   // 字/花/鞭炮：白名单关里是哑弹
+  if (s !== 'p' && s !== 's' && s !== 'm') {
+    if (s === 'z' && d.honors) return true;    // 幺九带字牌：真实麻将的国士就是这么算的
+    return !d.ranks && !d.suit;                 // 否则花牌/字牌/鞭炮在白名单关里都是哑弹
+  }
   if (d.suit && s !== d.suit) return false;
   if (d.ranks && !d.ranks.includes(rankOf(face))) return false;
   return true;

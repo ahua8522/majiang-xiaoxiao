@@ -16,9 +16,12 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const {construct} = require(path.join(root, '.test/core/Generator.js'));
-const {count, pairs, boardHash, isWild} = require(path.join(root, '.test/core/Rules.js'));
+const {count, pairs, boardHash, isWild, pairable, sameFacePairs, liveCount} = require(path.join(root, '.test/core/Rules.js'));
+const {stateLegal} = require(path.join(root, '.test/core/Generator.js'));
 
-const TOTAL = 120;
+const TOTAL = 224;   // 14 章 × 16 关，见下面 CHAPTERS
+/** 调试用：`--limit=40` 只生成前 40 关，且绝不写 levels.ts（试错从十几分钟降到十几秒）。 */
+const LIMIT = (() => {const a = process.argv.find((v) => /^--limit=[0-9]+$/.test(v));return a ? Math.min(TOTAL, Number(a.split('=')[1])) : TOTAL;})();
 const MAX_SLOTS = 136;
 const MIN_SLOTS = 8;
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -39,6 +42,7 @@ let PREV = [];
 try { PREV = require(path.join(root, '.test/core/levels.js')).LEVELS; } catch { PREV = []; }
 
 /** `--reseed` 全表重钉；`--reseed=81-96` 只重钉这个 1 基闭区间。 */
+const DEBUG_WHY = process.argv.includes('--why');
 const RESEED = (() => {
   const arg = process.argv.find((v) => v === '--reseed' || v.startsWith('--reseed='));
   if (!arg) return null;
@@ -85,29 +89,121 @@ function railConflicts(def, grid) {
  * "有没有超步数上限"）。所以拿 candidate 认证出来的盘面去钉 hash，游戏用 finalDef 一发牌
  * 就是另一盘——实测 120 关里有 15 关指纹对不上，且**全部**是带 goal 的关。
  */
-function certifyDef(def, slots, seedSet) {
-  let best = null;
+function certifyDef(def, slots, seedSet, freeTarget = 0) {
+  let best = null, staleHead = false;
   for (const seed of seedSet) {
     const d = construct(def, seed);
-    // 任何一颗证不出满盘解 = 这个形状不可信，换下一个候选形状，不许挑着报喜
-    if (!d) return {bad: 'noDeal'};
-    if (count(d.grid) !== slots) return {bad: 'shortFill'};
-    const conflicts = railConflicts(def, d.grid);
-    if (!best || conflicts < best.conflicts || (conflicts === best.conflicts && d.solution.length < best.deal.solution.length)) {
-      best = {bad: null, seed, deal: d, conflicts};
+    // 首颗是"上表钉过的种子"：它证不出解**不代表形状不可信**，只代表参数变过
+    // （章节表一改，faces/ice/scramble 全跟着变，旧种子自然发不出可证的盘）。
+    // 这种情况跳过它、继续往下探；以前这里有"退回固定种子"的兜底，重构成
+    // certifyDef 时被删掉了，结果 224 关跑到第 194 关 120 次全灭在 noDeal 上。
+    if (!d || count(d.grid) !== slots) {
+      if (seed === seedSet[0] && seed === def.__frozen) { staleHead = true; continue; }
+      return {bad: d ? 'shortFill' : 'noDeal'};
     }
-    if (conflicts === 0) break;                          // 够干净就收工
-    if (seed === seedSet[0]) best.cleanHead = false;     // 首选（=上表钉过的那颗）不干净
+    const conflicts = railConflicts(def, d.grid);
+    // 字典序：锁轨 0 冲突 → 开局白送对子尽量小 → 参考解尽量短。
+    // 以前只按冲突排，白送压根没进评分：16 颗种子里明明有更干净的盘，却挑了脏的那颗
+    // （实测第 58 关因此 108/120 次栽在 free 上）。
+    const freePairs = sameFacePairs(d.grid, def.dialect).length;
+    const better = !best || conflicts < best.conflicts
+      || (conflicts === best.conflicts && freePairs < best.freePairs)
+      || (conflicts === best.conflicts && freePairs === best.freePairs && d.solution.length < best.deal.solution.length);
+    if (better) best = {bad: null, seed, deal: d, conflicts, freePairs};
+    if (conflicts === 0 && best.freePairs <= freeTarget) break;   // 两项都达标就收工
   }
-  return best || {bad: 'noSeed'};
+  return best ? Object.assign(best, {staleHead}) : {bad: 'noSeed'};
 }
 
 /** 种子尝试顺序：上表钉过的排第一（保住继承），再固定探针，最后按关号派生补足扫描数。 */
 function seedOrder(i, frozen) {
   const list = [frozen, 1, 7, 20261013];
-  for (let k = 0; list.length < 16; k++) list.push((0x9E3779B1 ^ Math.imul(i + 1 + k * 7919, 0x85EBCA6B)) >>> 0);
+  for (let k = 0; list.length < 24; k++) list.push((0x9E3779B1 ^ Math.imul(i + 1 + k * 7919, 0x85EBCA6B)) >>> 0);
   const seen = new Set();
   return list.filter((s) => Number.isInteger(s) && s >= 0 && !seen.has(s) && seen.add(s));
+}
+
+/**
+ * 14 章 × 16 关的参数表。取代以前散在各处的 `i >= 常量` 门控——那些门控就是难度退坡的温床：
+ * 改一个阈值就会连带把别的轴的取值一起挪走，而没人能一眼看出挪了什么。
+ *
+ * 字段：
+ *  name   章名（只给星图与汇总用；关卡内文案一律白话）
+ *  size   [起始rows, 起始cols, 结束rows, 结束cols]，章内按 k 内插
+ *  slots  牌位区间（**只决定玩多久，不用于调难度**）
+ *  faces  花色/有效面区间（**这才是难度旋钮**，与 slots 解耦）
+ *  free   开局白送对子上限
+ *  moveK  限步系数（par × moveK）；null = 该章大部分关不限步，只有 k>=8 的紧局限
+ *  timeK  每步秒数（timeLimit = par × timeK）；null = 该章不限时
+ *  mech   本章允许出现的旧机制（配额与首见都按它来）
+ *  dialect/collect/flowers/wild 方言与牌面策略
+ *  parMax 本章参考解上限（步）。验收线第 2 条"单关 4-7 分钟"的代码化：超线就丢掉这盘
+ *          重新找，而不是放宽阈值。按每步 4 秒粗算，105 步约 7 分钟。
+ *  k      章内位序约定：0 首见、8 招牌、13 变体、15 章末（这 4 关是"钉审"位）
+ */
+const CHAPTERS = [
+  {name:'推与点',     size:[3,4,5,6],  slots:[8,22],  faces:[4,6],   free:3, moveK:null, timeK:null, mech:['hole','wood','stack'], parMax:10},
+  {name:'钉住',       size:[5,6,6,7],  slots:[22,32], faces:[6,9],   free:3, moveK:1.8,  timeK:null, mech:['hole','wood','stack','stack3','lockR','lockC'], parMax:20},
+  {name:'方向与链条', size:[6,7,6,7],  slots:[32,40], faces:[9,12],  free:2, moveK:1.7,  timeK:null, mech:['wood','stack','stack3','lockR','lockC','oneWay','unlock','move'], parMax:30},
+  {name:'冰封',       size:[6,7,7,8],  slots:[40,48], faces:[12,15], free:2, moveK:1.6,  timeK:null, mech:['wood','stack','lockR','lockC','oneWay','ice','ice2','bomb'], parMax:40},
+  {name:'订单',       size:[7,8,7,8],  slots:[48,54], faces:[15,18], free:1, moveK:1.55, timeK:3.0,  mech:['stack','lockR','lockC','unlock','ice','goal','flower','wild','move'], parMax:50},
+  {name:'将将胡',     size:[7,8,8,9],  slots:[54,60], faces:[8,9],   free:1, moveK:1.5,  timeK:null, mech:['stack','lockR','lockC','oneWay','ice'], dialect:{ranks:[2,5,8]}, parMax:60},
+  {name:'断门',       size:[8,9,8,9],  slots:[56,62], faces:[18,22], free:1, moveK:1.5,  timeK:null, mech:['stack','lockC','unlock','ice','goal'], dialect:{noSlideSuit:'auto'}, parMax:60},
+  {name:'幺九',       size:[8,9,8,9],  slots:[58,64], faces:[13,13], free:1, moveK:1.45, timeK:2.8,  mech:['stack3','lockR','oneWay','unlock'], dialect:{ranks:[1,9],honors:true}, parMax:60},
+  {name:'清一色',     size:[8,9,8,9],  slots:[60,66], faces:[9,9],   free:1, moveK:1.45, timeK:null, mech:['stack','lockC','ice','ice2'], dialect:{suit:'auto'}, parMax:65},
+  {name:'八花齐',     size:[8,9,9,9],  slots:[62,68], faces:[22,28], free:1, moveK:1.4,  timeK:2.6,  mech:['lockR','oneWay','stack','flower'], collect:['f1','f2','f3','f4','f5','f6','f7','f8'], parMax:70},
+  {name:'三元齐',     size:[9,9,9,9],  slots:[64,70], faces:[24,30], free:0, moveK:1.35, timeK:null, mech:['unlock','ice','lockC','stack3'], collect:['z5','z6','z7'], parMax:75},
+  {name:'清龙',       size:[9,9,9,9],  slots:[66,72], faces:[26,32], free:0, moveK:1.35, timeK:2.4,  mech:['stack3','move','lockR','oneWay'], collectBySuit:true, parMax:80},
+  {name:'双方言',     size:[9,9,10,9], slots:[66,72], faces:[24,32], free:0, moveK:1.3,  timeK:2.3,  mech:['ice','lockC','unlock','stack','goal'], mixDialect:true, parMax:90},
+  {name:'终章',       size:[10,9,10,9],slots:[68,74], faces:[28,38], free:0, moveK:1.25, timeK:2.1,  mech:['all'], mixDialect:true, parMax:105},
+];
+const CHAPTER_LEN = 16;
+/** 关号 → {章, 章号, 章内位序 k}。 */
+function chapterOf(i) {
+  const ci = Math.min(Math.floor(i / CHAPTER_LEN), CHAPTERS.length - 1);
+  return {ch: CHAPTERS[ci], ci, k: i % CHAPTER_LEN};
+}
+/** 章内线性内插：k=0 取区间下沿，k=15 取上沿。 */
+function lerp(range, k) { return Math.round(range[0] + (range[1] - range[0]) * (k / (CHAPTER_LEN - 1))); }
+const hasMech = (ch, m) => ch.mech.includes('all') || ch.mech.includes(m);
+
+/**
+ * 本章在这关该用哪种方言。`auto` 的门/花色由 rand 挑，保证同一 (i, attempt) 可复现。
+ * 每章至少 12 关带方言，由 levels-meta 的配额测试守住（"名义上有、实际没用上"是红线）。
+ */
+/** 本章在这档 faces 下真正能给出的有效面种类数（方言会砍掉一部分）。 */
+function candidatePoolSize(ch, f, dialect) {
+  // 必须用**这一关真正拿到的方言**算，不能拿章节的方言配置猜：混合章奇数关压根没方言，
+  // 按方言算会把 faces 从 25 压到 9，9 种面填不了 33 对 → construct 全灭（实测第 194 关）。
+  const d = dialect === undefined ? undefined : dialect;
+  const all = 34 + (ch.mech.includes('flower') || ch.collect || ch.collectBySuit ? 8 : 0);
+  if (!d) return all;
+  const suits = ['p', 's', 'm'];
+  let live = 0;
+  if (d.ranks) live = d.ranks.length * 3 + (d.honors ? 7 : 0);
+  else if (d.suit && d.suit !== 'auto') live = 9;
+  else if (d.noSlideSuit) live = all - 9;          // 缺一门：那门还能点消，仍算能配
+  else live = all;
+  return Math.max(3, Math.min(all, live));
+}
+
+function chapterDialect(ch, k, rand) {
+  let base = null;
+  if (ch.dialect) base = ch.dialect;
+  else if (ch.mixDialect) {
+    // 混合章只有一半的关绑方言：白名单天然把有效面砍到 6-13 种，章章都砍等于把
+    // "花色数"这个主难度旋钮拧回去——那正是 101-120 退坡的成因（实测终章塌到 9 种）。
+    // 奇数关走"纯高压清台"（花色按表走高），偶数关走方言。
+    if (k % 2 !== 0) return undefined;
+    const menu = [{ranks: [2, 5, 8]}, {ranks: [1, 9], honors: true}, {suit: 'auto'}, {noSlideSuit: 'auto'}];
+    base = menu[Math.floor(rand() * menu.length)];
+  }
+  if (!base) return undefined;
+  const d = Object.assign({}, base);
+  const suits = ['p', 's', 'm'];
+  if (d.suit === 'auto') d.suit = suits[Math.floor(rand() * 3)]; else delete d.suit;
+  if (d.noSlideSuit === 'auto') d.noSlideSuit = suits[Math.floor(rand() * 3)]; else delete d.noSlideSuit;
+  return d;
 }
 
 function mulberry32(a) {
@@ -119,23 +215,25 @@ function mulberry32(a) {
  * 屏幕约束下 行 ≤ 10、列 ≤ 9，所以窄高只能靠加行（8x5 / 9x5 / 10x6）。
  */
 function sizeFor(i) {
-  if (i >= 110) return {rows: i >= 115 ? 10 : 9, cols: i >= 115 ? 6 : 5};   // 111-120：窄高极限
-  if (i >= 100) return {rows: 8, cols: 5};                                   // 101-110：窄高
-  return {
-    rows: clamp(3 + (i >= 9 ? 1 : 0) + (i >= 21 ? 1 : 0) + (i >= 36 ? 1 : 0) + (i >= 51 ? 1 : 0) + (i >= 66 ? 1 : 0) + (i >= 83 ? 1 : 0), 3, 8),
-    cols: clamp(4 + (i >= 12 ? 1 : 0) + (i >= 21 ? 1 : 0) + (i >= 36 ? 1 : 0) + (i >= 51 ? 1 : 0) + (i >= 66 ? 1 : 0) + (i >= 83 ? 1 : 0), 4, 9)
-  };
+  const {ch, k} = chapterOf(i);
+  const [r0, c0, r1, c1] = ch.size;
+  // 屏幕约束：行 ≤ 10、列 ≤ 9（再大就超出牌桌可用高度）
+  return {rows: clamp(lerp([r0, r1], k), 3, 10), cols: clamp(lerp([c0, c1], k), 4, 9)};
 }
 
 /** 按难度曲线铺一张地图。扰动 attempt 进随机种子，保证重试能出不同的图。 */
 function buildMap(i, attempt) {
   const {rows, cols} = sizeFor(i);
+  const {ch, k} = chapterOf(i);
   const rand = mulberry32(0x5EED + i * 7919 + attempt * 104729);
-  const t = i / (TOTAL - 1);
-  const p3 = i >= 58 ? 0.10 + (i - 58) / 42 * 0.24 : 0;
-  const p2 = i >= 14 ? 0.16 + t * 0.44 : 0;
-  const wood = i >= 2 ? Math.min(9, 1 + Math.floor(i / 12)) : 0;
-  const holes = i >= 1 ? Math.min(6, 1 + Math.floor(i / 16)) : 0;
+  const t = k / (CHAPTER_LEN - 1);
+  // 叠层由章节决定要不要出现（三层是第四章之后的弹药）
+  const p3 = hasMech(ch, 'stack3') ? 0.06 + t * 0.20 : 0;
+  const p2 = hasMech(ch, 'stack') ? 0.14 + t * 0.34 : 0;
+  // 空洞与木桩反过来：全程都撒。它们是"背景词汇"而不是考点（现表覆盖率 99% / 78%），
+  // 一旦按章开关，后半程的盘面会集体变成没有缺口的矩形，滑轨手感一眼就雷同。
+  const wood = i >= 2 ? Math.min(9, 1 + Math.floor(i / 16)) : 0;
+  const holes = i >= 1 ? Math.min(6, 1 + Math.floor(i / 22)) : 0;
 
   const g = Array.from({length: rows}, () => Array.from({length: cols}, () => '1'));
   for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
@@ -236,7 +334,8 @@ function makeFillable(g, rand) {
  * 升完还要复验完美匹配，破了就回退换一对。
  */
 function ensureMechanism(g, i, rand) {
-  const need2 = i >= 14, need3 = i >= 66;
+  const {ch} = chapterOf(i);
+  const need2 = hasMech(ch, 'stack') || hasMech(ch, 'stack3'), need3 = hasMech(ch, 'stack3');
   if (!need2 && !need3) return true;
   for (let tries = 0; tries < 300; tries++) {
     const has2 = g.some((row) => row.some((v) => v === '2' || v === '3'));
@@ -285,54 +384,128 @@ function slotsOf(g) {
 }
 
 /** 牌位总数压到上限以内（把多余的三层降成两层）。 */
-function trim(g) {
+/**
+ * 把牌位削到目标附近：先三→二，再二→一，从棋盘下半部分开始动（上半盘留给机制位）。
+ * 以前只削到全局上限 136，等于牌位完全由形状随机决定——而牌位决定"这一关玩多久"，
+ * 没有目标值就没法把每章的单关时长压进 4-7 分钟那条硬线。
+ */
+function trim(g, targetSlots) {
+  const cap = Math.min(targetSlots || MAX_SLOTS, MAX_SLOTS);
+  const rows = g.length, cols = g[0].length;
+  const holds = (r, c) => r >= 0 && c >= 0 && r < rows && c < cols && '123'.includes(g[r][c]);
   let n = slotsOf(g);
-  for (let r = 0; r < g.length && n > MAX_SLOTS; r++) for (let c = 0; c < g[r].length && n > MAX_SLOTS; c++) {
-    if (g[r][c] === '3') { g[r][c] = '2'; n--; }
+  // 1) 先削层数（3→2、2→1）。必须**两侧轮流削**：`balance()` 比的是"偶色层数和 === 奇色层数和"，
+  //    从右下角一路削会让加权差单边累积，之后 balance() 只能靠删格子找平——
+  //    实测目标 27 的盘被删到 22，整关白拒 120 次。轮流削把差值锁在原地。
+  for (let pass = 0; pass < 2 && n > cap; pass++) {
+    let turn = 0, stuck = 0;
+    while (n > cap && stuck < 2) {                  // 连续两侧都动不了才算削完
+      let moved = false;
+      for (let r = rows - 1; r >= 0 && !moved; r--) for (let c = cols - 1; c >= 0 && !moved; c--) {
+        if ((r + c) % 2 !== turn) continue;
+        const v = g[r][c];
+        if (pass === 0 && v === '3') { g[r][c] = '2'; n--; moved = true; }
+        else if (pass === 1 && v === '2') { g[r][c] = '1'; n--; moved = true; }
+      }
+      stuck = moved ? 0 : stuck + 1;
+      turn ^= 1;
+    }
   }
+  /** 打这个洞之后，会不会让某个邻居变成"四边全堵"的孤立牌位（孤立=匹配不上=填不满）。 */
+  const isolates = (r, c) => {
+    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nr = r + dr, nc = c + dc;
+      if (!holds(nr, nc)) continue;
+      const free = [[nr + 1, nc], [nr - 1, nc], [nr, nc + 1], [nr, nc - 1]]
+        .filter(([ar, ac]) => (ar === r && ac === c) || holds(ar, ac)).length;
+      if (free <= 1) return true;                 // 打完洞后它只剩一条出路（含被洞堵住的情况）
+    }
+    return false;
+  };
+  // 2) 层数削到底仍然超标 → 打洞。但必须**成对**打（偶色一格 + 奇色一格）：
+  //    单侧删格子会破坏"偶色格数 === 奇色格数"，紧接着 makeFillable 只能继续删格子来找平，
+  //    实测就是它把牌位从目标 33 拖到 28（连续打洞、奇偶失衡），整关 120 次全拒在 slots。
+  const cand = (wantOdd) => {
+    const out = [];
+    for (let r = rows - 1; r >= 0; r--) for (let c = cols - 1; c >= 0; c--) {
+      if (g[r][c] !== '1') continue;
+      if (((r + c) % 2 === 1) !== wantOdd) continue;
+      out.push([r, c]);
+    }
+    // 优先打"本来就贴着障碍"的格子：它少一个邻居，最不容易把别人孤立掉
+    return out.sort((a2, b2) => (nearObstacle(b2) - nearObstacle(a2)));
+  };
+  const nearObstacle = ([r, c]) => [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    .filter(([dr, dc]) => r + dr >= 0 && r + dr < rows && c + dc >= 0 && c + dc < cols
+      && !holds(r + dr, c + dc)).length;
+  const budget = Math.floor(rows * cols * 0.28);            // 空洞最多占 28%，再多盘面就成筛子
+  let punched = 0, even = cand(false), odd = cand(true), ie = 0, io2 = 0;
+  while (n > cap && punched + 1 < budget) {
+    while (ie < even.length && isolates(even[ie][0], even[ie][1])) ie++;
+    while (io2 < odd.length && isolates(odd[io2][0], odd[io2][1])) io2++;
+    if (ie >= even.length || io2 >= odd.length) break;      // 凑不出成对的一偶一奇就不打了
+    const [er, ec] = even[ie++], [or, oc] = odd[io2++];
+    g[er][ec] = '.'; g[or][oc] = '.'; n -= 2; punched += 2;
+  }
+  // 3) 牌位必须成双：发牌是成对放的。前面每次成对打洞扣 2，层数每削一次扣 1，
+  //    所以这里可能剩一个奇数尾巴——再削一层抹平。
+  if (n % 2) {
+    outer: for (let r = rows - 1; r >= 0; r--) for (let c = cols - 1; c >= 0; c--) {
+      if (g[r][c] === '3') { g[r][c] = '2'; n--; break outer; }
+      if (g[r][c] === '2') { g[r][c] = '1'; n--; break outer; }
+    }
+  }
+  return n;
 }
 
 /** 锁轨：第 25 关起锁一行，第 51 关加第二条锁行，第 40 关起锁列，第 87 关加第二条锁列。 */
 function locksFor(i, rows, cols) {
+  const {ch, ci, k} = chapterOf(i);
   const lockR = [], lockC = [];
-  if (i >= 24 && rows >= 4) lockR.push(Math.floor(rows / 2) - 1);
-  if (i >= 50 && rows >= 6) lockR.push(rows - 3);
-  if (i >= 39 && cols >= 5) lockC.push(2);
-  if (i >= 86 && cols >= 7) lockC.push(cols - 3);
+  if (hasMech(ch, 'lockR') && rows >= 4) lockR.push(Math.floor(rows / 2) - 1);
+  if (hasMech(ch, 'lockR') && (k >= 8 || ci >= 6) && rows >= 6) lockR.push(rows - 3);
+  if (hasMech(ch, 'lockC') && cols >= 5) lockC.push(2);
+  if (hasMech(ch, 'lockC') && (k >= 10 || ci >= 8) && cols >= 7) lockC.push(cols - 3);
   return {lockR, lockC};
 }
 
 /** 冰面对子数：第 51 关起引入，随段落爬升；冰牌要消两次，等价于难度翻倍的机制。 */
 function iceFor(i) {
-  if (i < 50) return 0;
-  if (i < 65) return 1 + (i % 2);   // 1~2 对
-  if (i < 82) return 2 + (i % 3);   // 2~4 对
-  if (i < 100) return 4 + (i % 3);  // 4~6 对
-  return 5 + (i % 4);               // 窄高盘 5~8 对
+  const {ch, ci, k} = chapterOf(i);
+  if (!hasMech(ch, 'ice')) return 0;
+  // 冰的对数按章号往后爬，不再用关号分段——分段计数正是上次退坡的写法。
+  const base = Math.min(6, 1 + Math.max(0, ci - 3) + (k % 2));
+  return k === 0 ? Math.max(1, base - 1) : base;
 }
 
 /** 厚冰（两层冰）对子数：第 66 关起，每 5 关来一次。 */
 function ice2For(i, ice) {
-  if (i < 65 || i % 5 !== 0 || ice <= 0) return 0;
-  return Math.min(ice, 1 + (i % 2));
+  const {ch, k} = chapterOf(i);
+  if (!hasMech(ch, 'ice2') || k % 5 !== 0 || ice <= 0) return 0;
+  return Math.min(ice, 1 + (k % 2));
 }
 
 /** 鞭炮对子数：第 70 关起，每 5 关来一次（只在有冰的关，鞭炮是用来破冰的）。 */
 function bombsFor(i, ice) {
-  if (i < 69 || i % 5 !== 4 || ice <= 0) return 0;
-  return Math.min(2, 1 + (i % 2));
+  const {ch, k} = chapterOf(i);
+  if (!hasMech(ch, 'bomb') || k % 5 !== 4 || ice <= 0) return 0;
+  return Math.min(2, 1 + (k % 2));
 }
 
 /** 限步关：第 30 关起，每 3 关一次。步数上限按参考解步数 × 系数（前松后紧）。 */
 function moveLimitFor(i, par) {
-  if (i < 29 || i % 3 !== 0) return 0;
-  const factor = i >= 100 ? 1.2 : i >= 60 ? 1.35 : 1.5;
+  const {ch, k} = chapterOf(i);
+  // 第一章不设限步：新玩家在学语法时不该被步数催。之后每章从 k>=4 起收紧，章末最紧。
+  // 限步是"关卡属性"，不是模式——所以它跟着章节走，而不是跟着关号同余。
+  if (!ch.moveK || k < 4) return 0;
+  const factor = ch.moveK * (k >= 13 ? 0.94 : 1);
   return Math.max(par, Math.ceil(par * factor));
 }
 
 /** 单向轨：第 35 关起，每 4 关一次；不能与锁轨重叠（工具里断言）。 */
 function oneWayFor(i, rows, cols, lockR, lockC, rand) {
-  if (i < 34 || i % 4 !== 1) return [];
+  const {ch, k} = chapterOf(i);
+  if (!hasMech(ch, 'oneWay') || k % 4 !== 1) return [];
   const useRow = rand() < 0.5 && rows >= 4;
   if (useRow) {
     const cand = [];
@@ -348,13 +521,14 @@ function oneWayFor(i, rows, cols, lockR, lockC, rand) {
 
 /** 连锁解锁：第 75 关起，每 6 关一次；挑一条不在永久锁里的轨，消掉 after 对后解锁。 */
 function unlockFor(i, rows, cols, lockR, lockC, rand) {
-  if (i < 74 || i % 6 !== 2) return [];
+  const {ch, k} = chapterOf(i);
+  if (!hasMech(ch, 'unlock') || k % 6 !== 2) return [];
   const useRow = rand() < 0.5 && rows >= 5;
   if (useRow) {
     const cand = [];
     for (let r = 1; r < rows - 1; r++) if (!lockR.includes(r)) cand.push(r);
     if (!cand.length) return [];
-    return [{axis: 'row', index: cand[Math.floor(rand() * cand.length)], after: 3 + (i % 4)}];
+    return [{axis: 'row', index: cand[Math.floor(rand() * cand.length)], after: 3 + (k % 4)}];
   }
   const cand = [];
   for (let c = 1; c < cols - 1; c++) if (!lockC.includes(c)) cand.push(c);
@@ -379,24 +553,78 @@ const INTRO_RULES = [
   ['stack3', (d) => d.map.some((row) => row.includes('3'))],
   ['ice2', (d) => !!d.ice2],
   ['bomb', (d) => !!d.bombs],
-  ['unlock', (d) => !!(d.unlock && d.unlock.length)]
+  ['unlock', (d) => !!(d.unlock && d.unlock.length)],
+  // 方言首见弹卡：键名与 view/TIP_CONTENT 对齐，白话文案写在卡片里，章名只用于星图标题
+  ['only258', (d) => !!(d.dialect && d.dialect.ranks && d.dialect.ranks.join() === '2,5,8')],
+  ['only19', (d) => !!(d.dialect && d.dialect.ranks && d.dialect.ranks.join() === '1,9')],
+  ['oneSuit', (d) => !!(d.dialect && d.dialect.suit)],
+  ['noSuit', (d) => !!(d.dialect && d.dialect.noSlideSuit)],
+  ['collect', (d) => !!(d.goal && d.goal.kind === 'collect')]
 ];
 
 const built = [];
 const seen = new Map();
-for (let i = 0; i < TOTAL; i++) {
+/** `--probe=193` 只跑这一关，并把每次尝试的关键量打出来（noDeal 这种"所有种子都证不出解"
+ *  靠全量跑批诊断一次要十几分钟，必须能单关复现）。 */
+const PROBE = (() => {const a = process.argv.find((v) => /^--probe=\d+$/.test(v));return a ? Number(a.split('=')[1]) : -1;})();
+if (PROBE >= 0) {
+  const i = PROBE;
   const {rows, cols} = sizeFor(i);
+  const chap = chapterOf(i);
+  console.log(`probe 第 ${i + 1} 关 ${rows}x${cols} 章 ${chap.ch.name} k=${chap.k} slots目标 ${lerp(chap.ch.slots, chap.k)} faces ${lerp(chap.ch.faces, chap.k)}`);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const g = buildMap(i, attempt);
+    const rand = mulberry32(0xFACE + i * 7919 + attempt * 104729);
+    // 与主循环**完全相同**的顺序：fillable → fillable → 机制 → trim → 再 fillable
+    const okA = makeFillable(g, rand);
+    const okB = makeFillable(g, rand);
+    const okC = ensureMechanism(g, i, rand);
+    trim(g, lerp(chap.ch.slots, chap.k));
+    const okD = makeFillable(g, rand);
+    const slots = slotsOf(g);
+    const {lockR, lockC} = locksFor(i, rows, cols);
+    const ice = iceFor(i);
+    const oneWay = oneWayFor(i, rows, cols, lockR, lockC, rand);
+    const unlock = unlockFor(i, rows, cols, lockR, lockC, rand);
+    const base = {map: g.map((r) => r.join('')), lockR, lockC, faces: lerp(chap.ch.faces, chap.k),
+      scramble: clamp(4 + Math.floor(i * 0.16), 4, 34), ice, ice2: ice2For(i, ice), bombs: bombsFor(i, ice),
+      flowers: false, wild: false, chapter: chap.ci};
+    const withOw = Object.assign({}, base, {oneWay, unlock});
+    const d1 = construct(withOw, 1);
+    const d0 = construct(Object.assign({}, base, {oneWay: [], unlock: []}), 1);
+    console.log(`  attempt ${attempt}: fill=${okA}/${okB}/${okD} mech=${okC} 牌位=${slots} 锁=${lockR}/${lockC} 单向=${JSON.stringify(oneWay)} 连锁=${JSON.stringify(unlock)} 冰=${ice}` +
+      ` | 全配=${d1 ? d1.solution.length + '步' : 'null'} 去单向=${d0 ? d0.solution.length + '步' : 'null'}`);
+    if (d1) break;
+  }
+  process.exit(0);
+}
+for (let i = 0; i < LIMIT; i++) {
+  const {rows, cols} = sizeFor(i);
+  const chap = chapterOf(i);
   let def = null, par = 0, seedInherited = false;
-  const why = {isolated: 0, unbalance: 0, slots: 0, duplicate: 0, noDeal: 0, shortFill: 0, mechanism: 0, unsolvable: 0, drift: 0, overLimit: 0, conflict: 0, noWild: 0};
+  const why = {isolated: 0, unbalance: 0, slots: 0, duplicate: 0, noDeal: 0, shortFill: 0, mechanism: 0, unsolvable: 0, drift: 0, frozenBroken: 0, legal: 0, overLimit: 0, conflict: 0, noWild: 0, free: 0, dud: 0, par: 0};
   for (let attempt = 0; attempt < 120 && !def; attempt++) {
     const g = buildMap(i, attempt);
     const rand = mulberry32(0xFACE + i * 7919 + attempt * 104729);
     if (!makeFillable(g, rand)) { why.isolated++; continue; }
-    trim(g);
     if (!makeFillable(g, rand)) { why.unbalance++; continue; }
     if (!ensureMechanism(g, i, rand)) { why.mechanism++; continue; }
+    // 削牌位必须放在 makeFillable 与 ensureMechanism **之后**：前者把障碍还原成牌位、
+    // 后者把 1 升成 2/3，两件事都会把牌位加回来。放在它们前面削过等于没削
+    // （实测第 19 关 89 次全是牌位出界）。
+    const slotTarget = lerp(chap.ch.slots, chap.k);
+    trim(g, slotTarget);
+    // trim 可能新开了空洞，牌位的奇偶色跟着变 → 必须再修一次，否则后面会成批 shortFill
+    if (!makeFillable(g, rand)) { why.unbalance++; continue; }
     const slots = slotsOf(g);
-    if (slots < MIN_SLOTS || slots > MAX_SLOTS || slots % 2) { why.slots++; continue; }
+    // 牌位带 ±10，**不是** ±4：真正守"单关 4-7 分钟"的是下面的 parMax（参考解步数），
+    // 牌位只是估时长的中间量。试过把带收紧到 ±4 并为此改 balance()（往轻侧补格子而不是删），
+    // 结果是二分匹配被搞崩、unbalance 69/120——为精度牺牲可行性不划算。
+    if (slots < MIN_SLOTS || slots > MAX_SLOTS || slots % 2 || Math.abs(slots - slotTarget) > 10) {
+      why.slots++;
+      if (DEBUG_WHY && why.slots <= 6) console.log(`  [slots] 第 ${i + 1} 关 ${rows}x${cols} 目标 ${slotTarget} 实得 ${slots} 层分布 ${g.map((r) => r.join('')).join('|')}`);
+      continue;
+    }
     const map = g.map((row) => row.join(''));
     const key = map.join('|');
     if (seen.has(key)) { why.duplicate++; continue; }
@@ -404,16 +632,33 @@ for (let i = 0; i < TOTAL; i++) {
     const ice = iceFor(i);
     const oneWay = oneWayFor(i, rows, cols, lockR, lockC, rand);
     const unlock = unlockFor(i, rows, cols, lockR, lockC, rand);
+    const {ch, ci, k} = chapterOf(i);
     const candidate = {
       map, lockR, lockC,
-      faces: clamp(Math.ceil(slots / 4), 4, 40),
-      scramble: clamp(2 + Math.floor(i * 0.55), 2, 62),
+      // 难度旋钮来自章节，**不再由牌位反推**。以前这行是
+      // `clamp(Math.ceil(slots/4), 4, 40)`，等于把"牌多"当成"更难"：
+      // 盘面一收窄花色就跟着掉到 10，同面相邻概率暴涨、开局成把白送——101-120 的退坡就是这么来的。
+      // faces 是"有效面种类数"。方言章里它不能超过白名单实际给得起的种类数，
+      // 否则下面的牌池会被 slice 静默截断、哑弹份额被迫超线（实测幺九写 faces:6 时 118 次全灭）。
+      faces: (() => {
+        const f = lerp(ch.faces, k);
+        const liveKinds = candidatePoolSize(ch, f, chapterDialect(ch, k, rand));
+        if (f > liveKinds) { console.warn(`⚠ 第 ${i + 1} 关：faces=${f} 超过本章有效面 ${liveKinds}，按 ${liveKinds} 收`); return liveKinds; }
+        return f;
+      })(),
+      // 打乱步数别按关号线性堆：它就是证书路线里的滑动步数，i=190 时 51 步打乱
+      // 会把参考解直接顶到 100 步以上（超单关 7 分钟那条线）。天花板压到 34。
+      scramble: clamp(4 + Math.floor(i * 0.16), 4, 34),
       ice,
       ice2: ice2For(i, ice),
       bombs: bombsFor(i, ice),
-      flowers: i >= 54,
-      wild: i >= 57 && i % 8 === 3,
-      oneWay, unlock
+      flowers: hasMech(ch, 'flower') || !!ch.collect || !!ch.collectBySuit,
+      // 百搭（财神）是降难度开关：方言关不给（它会吃掉"哑弹消不掉"这条规则），
+      // 集组关也不给（集齐一组 + 万能配对 = 白送目标）。
+      wild: hasMech(ch, 'wild') && k % 4 === 1 && !ch.dialect && !ch.collect && !ch.collectBySuit && !ch.mixDialect,
+      oneWay, unlock,
+      chapter: ci,
+      dialect: chapterDialect(ch, k, rand)
     };
     // 单向轨不能与锁轨/连锁锁重叠（同一条轨不能既锁又单向）
     if (oneWay.some((w) => (w.axis === 'row' ? lockR : lockC).includes(w.index) ||
@@ -422,10 +667,15 @@ for (let i = 0; i < TOTAL; i++) {
     // 但**不能**用这一轮的盘面去钉指纹：`goal` 会反灌进生成器的牌池、`moveLimit` 会改变候选排序，
     // 最终定义发出来的其实是另一盘（实测 120 关里 15 个目标关指纹全对不上）。见阶段 2。
     const frozen = frozenSeedOf(i, map);
-    const first = certifyDef(candidate, slots, seedOrder(i, frozen));
+    if (frozen !== null) candidate.__frozen = frozen;
+    const first = certifyDef(candidate, slots, seedOrder(i, frozen), ch.free);
     if (first.bad) {
       why.unsolvable++;
       if (first.bad === 'noDeal') why.noDeal++; else why.shortFill++;
+      if (DEBUG_WHY && i === LIMIT - 1 && why.unsolvable <= 2) {
+        console.log(`  [noDeal@194] 牌位=${slots} 种子=${seedOrder(i, frozen).slice(0, 3).join(',')} candidate=${JSON.stringify(Object.assign({}, candidate, {map: candidate.map.join('|')}))}`);
+        console.log(`     construct(1)=${JSON.stringify(construct(candidate, 1) ? 'ok' : null)} construct(7)=${construct(candidate, 7) ? 'ok' : 'null'} 同盘再证一次=${construct(JSON.parse(JSON.stringify(Object.assign({}, candidate, {map: candidate.map})), 1)) ? 'ok' : 'null'}`);
+      }
       continue;
     }
     const deal = first.deal;
@@ -438,7 +688,17 @@ for (let i = 0; i < TOTAL; i++) {
       const d = construct(candidate, (20261015 + k * 7919) >>> 0);
       if (d) limitPar = Math.max(limitPar, d.solution.length);
     }
-    const moveLimit = moveLimitFor(i, limitPar);
+    // 限时与限步二选一（章末考试除外）：以前写成"有 moveLimit 就不给 timeLimit"，
+    // 而限步从 k=4 起全程占位，结果限时每章只剩 1 关——设计要的是每章 2-4 关。
+    const timeOn = !!ch.timeK && (k === 5 || k === 9 || k === 14);
+    const moveLimit = timeOn ? 0 : moveLimitFor(i, limitPar);
+    // 限时由 par 推（par × 每步秒数），绝不手填好看的数字——限步那边踩过"同档差三倍"
+    // （L106 宽松 3.4 倍 vs L103 只留 1.16 倍），同一个坑不踩第二次。
+    // 除章末考试（k=15）外，限时与限步不同时压：两条预算一起收紧，玩家分不清在赶哪个。
+    // 限时按**钉死那一盘**的参考解算：时间是绝对量，洗牌换不了它，
+    // 所以不像限步那样要留抽样余量。按 limitPar 算会把每步秒数顶到 3.83（超 3.6 的线）。
+    const timeFor = (par) => ((timeOn || k === 15) && ch.timeK) ? Math.round(par * ch.timeK) : 0;
+    const timeLimit = 0;
     // 目标关：目标数取「这一关实际给得出的量」——每种牌整局最多 4 张 = 2 对。
     //
     // ⚠️ 这里以前是遍历证书路线、对 `next.erased` 按牌面计数，但**每次都拿初始
@@ -448,7 +708,12 @@ for (let i = 0; i < TOTAL; i++) {
     // 现在直接从盘面按牌面统计可用对数；生成端（Generator.constructOnce）会把这个
     // 牌面强制放进牌池，所以它一定在盘上。
     let goal = null;
-    if (i >= 44 && i % 5 === 2) {
+    if (ch.collect) goal = {kind: 'collect', faces: ch.collect, count: ch.collect.length};
+    else if (ch.collectBySuit && k % 2 === 0) {
+      const suit = ['p', 's', 'm'][Math.floor(rand() * 3)];
+      goal = {kind: 'collect', faces: '123456789'.split('').map((n) => n + suit), count: 9};
+    }
+    else if (hasMech(ch, 'goal') && k % 5 === 2) {
       const tiles = new Map();
       let iceLayers = 0;
       for (const cell of deal.grid.flat()) {
@@ -461,7 +726,8 @@ for (let i = 0; i < TOTAL; i++) {
           iceLayers += n;
         }
       }
-      const pick = [...tiles.entries()].sort((a, b) => b[1] - a[1])[0];
+      const pick = [...tiles.entries()].filter(([f]) => pairable(f, candidate.dialect))
+        .sort((a, b) => b[1] - a[1])[0];
       const pairs = pick ? Math.floor(pick[1] / 2) : 0;
       // 目标至少要有 2 对才像目标；否则这一关不设目标（改走清台）
       if (pairs >= 2) goal = {kind: 'face', face: pick[0], count: Math.min(pairs, 2)};
@@ -469,8 +735,10 @@ for (let i = 0; i < TOTAL; i++) {
     }
     // 阶段 2：对**最终定义**重新认证。表里那对 (seed, hash) 必须描述游戏真正会发的那一盘，
     // 否则 levels-seed 门禁拿 generate(i, seed) 重算时指纹对不上（改造前就是 15 个目标关全错）。
-    const preDef = {...candidate, moveLimit, goal};
-    const second = certifyDef(preDef, slots, seedOrder(i, first.seed));
+    const preDef = {...candidate, moveLimit, timeLimit, goal};
+    if (frozen !== null) preDef.__frozen = frozen;
+    if (first.staleHead) why.frozenBroken++;
+    const second = certifyDef(preDef, slots, seedOrder(i, first.seed), ch.free);
     if (second.bad) {
       why.unsolvable++;
       if (second.bad === 'noDeal') why.noDeal++; else why.shortFill++;
@@ -494,7 +762,26 @@ for (let i = 0; i < TOTAL; i++) {
       continue;
     }
     const hash = boardHash(second.deal.grid);
-    const finalDef = {...preDef, seed: second.seed, hash};
+    const finalDef = {...preDef, seed: second.seed, hash, timeLimit: timeFor(second.deal.solution.length)};
+    // 验收线第 3 条：开局白送对子不许超上限。白送是"不用推就白给的进度"，
+    // 它一超标，花色数和限步都白搭——所以当场拒掉，不等事后统计。
+    // 白送额度必须随盘面大小给：章节表里写死"≤1"时，第 65 关（7x8、54 牌位、15 花色）
+    // 120 次尝试有 114 次栽在这条上——随机摆放的相邻同面对子压不到 1，不是搜索不给力，
+    // 是目标本身不可达。改成 `章内下限 与 每 24 个可消牌 1 对` 取大，两档都是可算的量。
+    const live = liveCount(second.deal.grid, finalDef.dialect);
+    const freeCap = Math.max(ch.free, 1 + Math.floor(live / 24));
+    if (second.freePairs > freeCap) { why.free++; continue; }
+    // 存档不变量必须在这就守住：某面 >4 张的盘面 `stateLegal` 判脏，玩家重进会被丢档
+    if (!stateLegal(second.deal.grid)) { why.legal++; continue; }
+    // 验收线第 2 条：参考解超本章上限就丢掉这盘重找（"超过 7 分钟直接丢弃"是设计写死的）
+    if (second.deal.solution.length > (ch.parMax || 105)) { why.par++; continue; }
+    if (finalDef.dialect) {
+      const all = count(second.deal.grid);
+      const liveKinds = new Set(second.deal.grid.flat().filter(Array.isArray)
+        .flatMap((c) => c).map((f) => String(f).replace(/[~*]+$/, '')).filter((f) => pairable(f, finalDef.dialect))).size;
+      // 哑弹过半会让玩家以为棋盘卡住；一种能配的都没有，方言就成了装饰。
+      if (all - live > all * 0.55 || liveKinds < 3) { why.dud++; continue; }
+    }
     if (second.conflicts) { CONFLICT.count++; CONFLICT.worst = Math.max(CONFLICT.worst, second.conflicts); }
     // 冻结的判据是指纹而不是种子号：生成器实现改一行，同一颗种子就发出另一盘。
     // 指纹不匹配 = 引擎动过 = 这些关重钉，而且必须喊出来，不许假装"沿用成功"。
@@ -575,17 +862,19 @@ export interface LevelDef {
   unlock?: {axis: 'row' | 'col'; index: number; after: number}[];
   /** 步数上限：用尽仍未清台即失败。 */
   moveLimit?: number;
-  /** 目标关：不必清空，先达成目标即通关。`collect` = 集齐一组（八花齐/三元齐/清龙），
-   *  `faces` 是那组的牌面代号，进度按「集齐了几种」算。 */
+  /** 目标关：不必清空，先达成目标即通关。「collect」= 集齐一组（八花齐 / 三元齐 / 清龙），
+   *  faces 是那一组的牌面代号，进度按「集齐了几种」算。 */
   goal?: {kind: 'face' | 'ice' | 'collect'; face?: string; faces?: string[]; count: number};
   /**
    * 方言：只约束「哪些牌能配对」。白名单外的牌是哑弹——占位、能当滑块，但永远配不上，
    * 通关判定因此看 \`Rules.liveCount\` 而不是 \`count\`（只剩哑弹也算清台）。
    * 与 \`wild\` 互斥：财神不吃哑弹，两者同时开会让玩家以为还能消。
    */
-  dialect?: {ranks?: number[]; suit?: 'p' | 's' | 'm'; noSlideSuit?: 'p' | 's' | 'm'};
+  dialect?: {ranks?: number[]; suit?: 'p' | 's' | 'm'; noSlideSuit?: 'p' | 's' | 'm'; honors?: boolean};
   /** 限时（秒）。必须由 \`par × 每步秒数\` 推出来，不许手填一个好看的数字。 */
   timeLimit?: number;
+  /** 所属章节（0 基）。工具对每一关都会发射；星图分组与难度档读它，缺省时按 index/16 推。 */
+  chapter?: number;
   /** 本关首次出现某机制时的说明键（视图据此弹「新玩法」卡片）。 */
   intro?: string;
   /**
@@ -623,6 +912,8 @@ const body = built.map(({i, def, rows, cols, slots, par}) => {
   if (def.wild) bits.push('wild: true');
   if (def.oneWay && def.oneWay.length) bits.push(`oneWay: [${def.oneWay.map((w) => `{axis: '${w.axis}', index: ${w.index}, dir: ${w.dir}}`).join(', ')}]`);
   if (def.unlock && def.unlock.length) bits.push(`unlock: [${def.unlock.map((u) => `{axis: '${u.axis}', index: ${u.index}, after: ${u.after}}`).join(', ')}]`);
+  bits.push(`chapter: ${def.chapter}`);
+  if (def.dialect) bits.push(`dialect: ${JSON.stringify(def.dialect)}`);
   if (def.moveLimit) bits.push(`moveLimit: ${def.moveLimit}`);
   if (def.timeLimit) bits.push(`timeLimit: ${def.timeLimit}`);
   if (def.goal) {
@@ -650,17 +941,21 @@ const body = built.map(({i, def, rows, cols, slots, par}) => {
 const footer = `
 ];
 
+/** 章名（星图标题用）。由作者工具的章节表导出，避免视图里再抄一份曲线。 */
+export const CHAPTER_NAMES: string[] = ${JSON.stringify(CHAPTERS.map((c) => c.name))};
+
 export function levelAt(index: number): LevelDef {
   const i = Number.isFinite(index) ? Math.max(0, Math.min(LEVELS.length - 1, Math.floor(index))) : 0;
   return LEVELS[i];
 }
 `;
 
-fs.writeFileSync(path.join(root, 'assets/scripts/core/levels.ts'), header + body + footer);
+if (LIMIT !== TOTAL) console.log(`（--limit=${LIMIT} 调试模式：已跳过写入 levels.ts）`);
+else fs.writeFileSync(path.join(root, 'assets/scripts/core/levels.ts'), header + body + footer);
 
 const sizes = {};
 for (const b of built) { const k = `${b.rows}x${b.cols}`; sizes[k] = (sizes[k] || 0) + 1; }
-console.log(`已写入 ${built.length} 关到 assets/scripts/core/levels.ts`);
+console.log(`已生成 ${built.length} 关${LIMIT === TOTAL ? '，写入 assets/scripts/core/levels.ts' : '（--limit 调试，未写文件）'}`);
 console.log('尺寸分布：', Object.entries(sizes).map(([k, v]) => `${k}×${v}`).join('  '));
 console.log(`牌位范围：${Math.min(...built.map((b) => b.slots))} ~ ${Math.max(...built.map((b) => b.slots))}`);
 console.log(`参考解步数：${Math.min(...built.map((b) => b.par))} ~ ${Math.max(...built.map((b) => b.par))}`);
@@ -671,6 +966,13 @@ console.log(`参考解步数：${Math.min(...built.map((b) => b.par))} ~ ${Math.
 const rePinned = built.filter((b) => !b.seedInherited).length;
 const sameContent = built.filter((b) => PREV[b.i] && PREV[b.i].hash === b.def.hash).length;
 console.log(`种子：继承 ${built.length - rePinned} 关 · 重钉 ${rePinned} 关${RESEED ? '（--reseed 点名范围内）' : ''}`);
+const byCh = {};
+built.forEach((b) => { const c = b.def.chapter; (byCh[c] = byCh[c] || []).push(b); });
+Object.entries(byCh).forEach(([c, list]) => {
+  const ch = CHAPTERS[Number(c)];
+  const slots = list.map((b) => b.slots), faces = list.map((b) => b.def.faces), pars = list.map((b) => b.par);
+  console.log(`  ${list.length}关 ${(Number(c) + 1).toString().padStart(2, ' ')} ${ch.name}：牌位 ${Math.min(...slots)}~${Math.max(...slots)} 花色 ${Math.min(...faces)}~${Math.max(...faces)} 参考解 ${Math.min(...pars)}~${Math.max(...pars)} 限步 ${list.filter((b) => b.def.moveLimit).length} 限时 ${list.filter((b) => b.def.timeLimit).length} 方言 ${list.filter((b) => b.def.dialect).length} 集组 ${list.filter((b) => b.def.goal && b.def.goal.kind === 'collect').length}`);
+});
 console.log(`内容：与上表逐盘面相同 ${sameContent}/${built.length} 关${DRIFT.count ? ` · 引擎变化导致换盘 ${DRIFT.count} 关` : ''}`);
 if (DRIFT.count) console.log('  ↑ 换盘说明生成器实现与上表不匹配：这批关的切图与试玩要重做，别当无事发生。');
 // 发布盘面的锁轨冲突由"挑种子"保证（运行时不为它多花 2.3 倍进关时间），这里是它的账。

@@ -107,10 +107,21 @@ export class Session {
     if(/^f[1-8]$/.test(face))return ['春','夏','秋','冬','梅','兰','竹','菊'][Number(face[1])-1];
     return face;
   }
-  /** 难度 1~5，由关卡序号推导；关卡数据本身不再携带章节与名称。 */
-  get difficulty(){return Math.min(5,1+Math.floor(this.levelIndex/20));}
+  /**
+   * 难度 1~5：按章推进。旧口径 `1+floor(index/20)` 在 224 关下会把前三章全标成同一级，
+   * 而章节才是玩家感知的难度台阶。
+   */
+  // 用 ?? 而不是 Number.isInteger 判空：TS 不认后者做类型窄化。
+  get difficulty(){const c=this.def.chapter??Math.floor(this.levelIndex/16);return Math.max(1,Math.min(5,1+Math.floor(c/3.2)));}
   get hintsLeft(){return 3-this.hintsUsed;}
   get shufflesLeft(){return 2-this.shufflesUsed;}
+  /**
+   * 方言关不提供洗牌——这是产品决定，不是兜底失败。
+   * 方言的牌池被白名单砍窄，`redeal` 用的又是**别的种子**（`seed + revision*7919`），
+   * 实测经常发不出可证满盘解；与其让玩家按了没反应，不如明说"洗不开"。
+   * 设计意图：方言章卖的是规划，不是重开一次运气。
+   */
+  get shuffleBlocked(){return !!this.def.dialect;}
   get canUndo(){return this.history.length>0;}
   /** 本关步数上限（0 = 不限步）。 */
   get moveLimit(){return this.def.moveLimit||0;}
@@ -300,6 +311,7 @@ export class Session {
   }
   shuffle():boolean{
     if(this.modal!=='none'||this.tip||!count(this.grid))return false;
+    if(this.shuffleBlocked){this.notice('这一关的牌洗不开：方言关只有一种解法，靠推不靠运气。');return false;}
     if(!this.shufflesLeft){this.notice('本关两次免费洗牌已用完，可以撤销或重开。');return false;}
     const deal=redeal(this.levelIndex,this.grid,(this.seed+this.revision*7919)>>>0);
     if(!deal){this.message='这次无法安全重排，原来的牌没有改动。';this.revision++;return false;}

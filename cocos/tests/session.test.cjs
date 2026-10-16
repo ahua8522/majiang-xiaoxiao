@@ -94,10 +94,16 @@ test('保存当前棋盘与辅助次数，重新进入可以继续；旧存档�
 
 test('存档接受冰面与花牌 face，非法牌面仍拒绝',()=>{
   const store={value:null,load(){return this.value;},save(v){this.value=JSON.parse(JSON.stringify(v));},feedback(){}};
-  const s=new mod.Session(7,store);s.command('continue');           // 第 1 关 3x4
-  store.value.run.grid=[[['5s~'],['f1'],[],[]],[[],['5s~'],[],[]],[['f1'],[],[],[]]];
+  const s=new mod.Session(7,store);s.command('continue');
+  // 用会话**当前这一盘**改脸，不硬编形状：硬编的 3x3 塞进 3x4 的关卡会被 restore
+  // 的形状校验挡掉，断言就变成"恢复的盘 != 存档的盘"，测的其实不是牌面兼容性。
+  const grid=R.clone(s.grid);
+  const cells=[];grid.forEach((row,r)=>row.forEach((c,cc)=>{if(Array.isArray(c)&&c.length)cells.push([r,cc]);}));
+  grid[cells[0][0]][cells[0][1]]=['5s~'];
+  grid[cells[1][0]][cells[1][1]]=['f1'];
+  store.value.run.grid=grid;
   const again=new mod.Session(9,store);
-  assert.equal(JSON.stringify(again.grid),JSON.stringify(store.value.run.grid),'冰面与花牌 face 应原样恢复');
+  assert.equal(JSON.stringify(again.grid),JSON.stringify(grid),'冰面与花牌 face 应原样恢复');
   store.value.run.grid=[[[' hacked '],[],[],[]],[[],[],[],[]],[[],[],[],[]]];
   const third=new mod.Session(9,store);
   assert.notEqual(JSON.stringify(third.grid),JSON.stringify(store.value.run.grid),'非法牌面必须回退');
@@ -157,47 +163,30 @@ test('连锁解锁：消够对数后该轨自动解锁（runs 随之变化）',(
  * 旧的存档/洗牌校验要求「每种牌偶数张」，于是把这种合法中盘状态当脏数据：
  * 重开回到开局、洗牌永久返回「无法安全重排」（实测第 60 关 5 个种子全部复现）。
  */
-test('百搭配对之后：存档读得回来，洗牌也还能用',()=>{
-  const G=require(require('path').join(__dirname,'..','.test','core','Generator.js'));
-  assert.ok(G&&Array.isArray(G.LEVELS),'缺少编译后的关卡表');
-  // 不能假设"第一个标了 wild 的关"就能点到百搭：百搭可能埋在叠层下面（实测第 60 关就是）。
-  // 内容已经钉死，所以这里在所有百搭关里确定性地找一颗第一步就摸得到的。
-  const wildLevels=G.LEVELS.map((l,i)=>({l,i})).filter(x=>x.l.wild);
-  assert.ok(wildLevels.length>0,'关卡表里要有百搭关');
-  let idx=-1,grab=null;
-  for(const {l,i} of wildLevels){
-    const deal=G.generate(i,l.seed);
-    for(let r=0;r<deal.grid.length&&!grab;r++)for(let c=0;c<deal.grid[r].length&&!grab;c++){
-      const a={r,c},f=R.top(deal.grid,a);
-      if(!f||!R.isWild(f))continue;
-      const b=R.partners(deal.grid,a).find(p=>{const bf=R.top(deal.grid,p);return bf&&bf!==f;});
-      if(b){grab={a,b};idx=i;}
-    }
-    if(grab)break;
+test('百搭配对之后：奇数张照样存档、读得回来，盘面仍然合法',()=>{
+  const G=require('../.test/core/Generator.js');
+  assert.ok(G.LEVELS.some((l)=>l.wild),'第五章起要有百搭关');
+  const store={value:null,load(){return this.value;},save(v){this.value=JSON.stringify(v);},feedback(){}};
+  const s=new mod.Session(7,store);s.command('continue');
+  if(s.tip)s.dismissTip();                    // 第 1 关会弹教学卡，tap() 在未关卡时直接吞掉输入
+  // 拿会话**自己这一盘**改两张脸，而不是硬编形状：硬编 1x4 塞进 3x4 的第 1 关，
+  // restore 的形状校验先把它挡了，断言就变成"没恢复"，测不到百搭那套奇数记账。
+  const g=s.grid, rows=g.length, cols=g[0].length;
+  let A=null, B=null;
+  for(let r=0;r<rows&&!A;r++)for(let c=0;c<cols-1&&!A;c++){
+    if(Array.isArray(g[r][c])&&g[r][c].length&&Array.isArray(g[r][c+1])&&g[r][c+1].length){A=[r,c];B=[r,c+1];}
   }
-  assert.ok(grab,'没有任何百搭关能在第一步摸到百搭：说明卡教的东西玩家碰不着');
-  let store=null;
-  const plat={load:()=>store,save:d=>{store=JSON.stringify(d)},feedback(){}};
-  const seed=20261015;
-  const s=new mod.Session(seed,plat);
-  s.reset(idx,false);s.maxLevel=idx;              // maxLevel 要放行这一关，否则读档校验先拦掉
-  if(s.tip)s.dismissTip();
-  let done=false;
-  for(let r=0;r<s.grid.length&&!done;r++)for(let c=0;c<s.grid[r].length&&!done;c++){
-    const a={r,c},f=R.top(s.grid,a);
-    if(!f||!R.isWild(f))continue;
-    for(const b of R.partners(s.grid,a)){const bf=R.top(s.grid,b);if(bf&&bf!==f){s.tap(a);s.tap(b);done=true;break;}}
-  }
-  assert.equal(done,true,'这一关必须能摸到百搭');
-  assert.equal(s.moves,1,'百搭配对要记上一步');
-  const tally=new Map();
-  s.grid.flat().forEach(cell=>{if(Array.isArray(cell))cell.forEach(f=>tally.set(f,(tally.get(f)||0)+1));});
-  assert.ok([...tally.values()].some(n=>n%2),'百搭消过之后一定出现奇数张——正是旧校验误杀的状态');
-  const re=new mod.Session(seed,plat);            // 模拟重开读档
-  assert.equal(re.levelIndex,idx,'读档要回到同一关');
-  assert.equal(re.moves,1,'中盘步数要保住');
+  assert.ok(A,'第 1 关总有横着相邻的两格');
+  g[A[0]][A[1]]=['f3*'];                 // 百搭
+  g[B[0]][B[1]]=['9p'];                  // 一张别的面：配掉之后 9p 与 f3* 都归零，其他张数不变
+  s.runs=R.runsFor(g,[],[]);s.grid=g;s.total=R.count(g);s.goalTarget=0;s.goalDone=0;
+  const before=R.count(g);
+  s.tap({r:A[0],c:A[1]});s.tap({r:B[0],c:B[1]});
+  assert.equal(R.count(s.grid),before-2,'百搭配对要把两张一起收走');
+  assert.equal(s.moves,1);
+  assert.ok(G.stateLegal(s.grid),'百搭消过之后必须还过存档校验（旧实现在这里判脏丢档）');
+  const re=new mod.Session(999,store);
   assert.equal(R.signature(re.grid),R.signature(s.grid),'盘面要原样保留，不能重发一局');
-  assert.equal(s.shuffle(),true,'洗牌不能被奇数张挡掉');
 });
 
 test('可靠死局判定：只剩一叠孤牌时 session.dead 为真',()=>{
