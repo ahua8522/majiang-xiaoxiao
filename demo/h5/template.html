@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>快乐推麻对对消 · H5 Demo</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#20361F;
+    font-family:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif}
+  body{display:flex;align-items:center;justify-content:center}
+  #stage{position:relative;height:100vh;height:100dvh;aspect-ratio:750/1334;max-width:100vw;
+    box-shadow:0 0 60px rgba(0,0,0,.45);overflow:hidden;background:#20361F}
+  canvas{display:block;width:100%;height:100%;touch-action:none;user-select:none}
+  #hint{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);color:#9fb39a;
+    font-size:12px;letter-spacing:.05em;pointer-events:none;white-space:nowrap}
+  @media (max-width:760px){#hint{display:none}}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="cv"></canvas></div>
+<div id="hint">轻点配对 · 横竖拖动整段 · 右上角齿轮可暂停</div>
+<script>/*__BUNDLE__*/</script>
+</body>
+</html>

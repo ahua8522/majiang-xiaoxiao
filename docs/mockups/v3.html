@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>麻将小游戏 · v3 设计稿</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:750px;height:1334px;overflow:hidden;background:#F7F4EE;
+    font-family:-apple-system,"PingFang SC","HarmonyOS Sans SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;color:#1F1B2E}
+  .screen{position:relative;width:750px;height:1334px;overflow:hidden;
+    background-color:#F7F4EE;
+    background-image:radial-gradient(circle,#1F1B2E0C 1px,transparent 1px);
+    background-size:24px 24px}
+</style>
+</head>
+<body><div id="root"></div>
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   v3 · 「软编辑 / Soft Editorial」
+   ─ 暖纸底 + 朱砂主 + 茄紫文字 + 琥珀徽章
+   ─ 牌身纸白，花色集中表达
+   ─ 数字用衬线大字，正文无衬线
+   ─ 5 个屏：home / levels / board / settings / win
+   ════════════════════════════════════════════════════════════════════ */
+
+const D = {
+  bg:        '#F7F4EE',
+  panel:     '#FBFAF6',
+  panelEdge: '#E5DECE',
+  table:     '#EDE8DD',
+  tableEdge: '#DFD7C3',
+  slot:      '#FBFAF6',
+  slotEdge:  '#DFD7C3',
+  face:      '#FBFAF6',
+  faceEdge:  '#DFD7C3',
+  ink:       '#1F1B2E',
+  inkSoft:   '#5A5168',
+  muted:     '#948B9D',
+  primary:   '#D93B3B',
+  primaryDp: '#A82828',
+  primaryIn: '#FBFAF6',
+  amber:     '#F4C95D',
+  amberDp:   '#C49733',
+  amberIn:   '#1F1B2E',
+  jade:      '#2A7F6F',
+  suit:{p:'#1F1B2E', s:'#2A7F6F', m:'#D93B3B', z:'#1F1B2E'},
+  back:      '#E5DECE',
+  badge:     '#F4C95D',
+  badgeInk:  '#1F1B2E',
+  ok:        '#2A7F6F',
+  warn:      '#F4C95D',
+  danger:    '#D93B3B',
+  backdrop:  '#1F1B2EBF',
+  white:     '#FBFAF6',
+  shadowSm:  '0 1px 2px rgba(31,27,46,.06), 0 2px 8px rgba(31,27,46,.04)',
+  shadowMd:  '0 2px 6px rgba(31,27,46,.08), 0 6px 16px rgba(31,27,46,.06)',
+  shadowLg:  '0 8px 24px rgba(31,27,46,.10), 0 16px 40px rgba(31,27,46,.08)',
+  hairline:  '1px solid #E5DECE',
+};
+const NUMERALS='一二三四五六七八九';
+const HONORS =['東','南','西','北','中','發','白'];
+const suitOf = f => D.suit[/^[a-z]/i.test(f[0])?f[0]:f[1]] || D.ink;
+const numOf  = f => Number(/^[a-z]/i.test(f[0]) ? f.slice(1) : f[0]);
+
+/* ── 牌面内容 ── */
+const DOTS={
+ 1:[[.5,.5,.34]],
+ 2:[[.5,.27,.17],[.5,.73,.17]],
+ 3:[[.25,.22,.15],[.5,.5,.15],[.75,.78,.15]],
+ 4:[[.29,.28,.15],[.71,.28,.15],[.29,.72,.15],[.71,.72,.15]],
+ 5:[[.27,.25,.14],[.73,.25,.14],[.5,.5,.14],[.27,.75,.14],[.73,.75,.14]],
+ 6:[[.29,.2,.13],[.71,.2,.13],[.29,.5,.13],[.71,.5,.13],[.29,.8,.13],[.71,.8,.13]],
+ 7:[[.24,.15,.11],[.5,.25,.11],[.76,.35,.11],[.29,.6,.11],[.71,.6,.11],[.29,.85,.11],[.71,.85,.11]],
+ 8:[[.3,.14,.11],[.7,.14,.11],[.3,.38,.11],[.7,.38,.11],[.3,.62,.11],[.7,.62,.11],[.3,.86,.11],[.7,.86,.11]],
+ 9:[[.22,.17,.11],[.5,.17,.11],[.78,.17,.11],[.22,.5,.11],[.5,.5,.11],[.78,.5,.11],[.22,.83,.11],[.5,.83,.11],[.78,.83,.11]]
+};
+function faceArt(face, w, h){
+  const suit=/^[a-z]/i.test(face[0])?face[0]:face[1], n=numOf(face), col=suitOf(face);
+  const dot=(x,y,r,c)=>`<div style="position:absolute;left:${x*100}%;top:${y*100}%;width:${r*200}%;height:${r*200*.9}%;transform:translate(-50%,-50%);border-radius:50%;background:${c}"></div>`;
+  if(suit==='p' && DOTS[n]){
+    if(n===1){
+      const r=w*.32;
+      return `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+        <div style="width:${r*2}px;height:${r*2}px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center">
+          <div style="width:${r*1.5}px;height:${r*1.5}px;border-radius:50%;background:${D.face};display:flex;align-items:center;justify-content:center">
+            <div style="width:${r*.85}px;height:${r*.85}px;border-radius:50%;background:${col}"></div>
+          </div>
+        </div></div>`;
+    }
+    return DOTS[n].map(p=>dot(p[0],p[1],p[2],col)).join('');
+  }
+  if(suit==='s' && DOTS[n]){
+    if(n===1) return `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:serif;font-weight:700;font-size:${h*.5}px;color:${col}">雀</div>`;
+    const len=h*(n>6?.2:.3), sw=w*.12;
+    return DOTS[n].map((p,i)=>{
+      const red=(n===5&&i===2)||(n===7&&i===0)||(n===9&&i%3===1);
+      return `<div style="position:absolute;left:${p[0]*100}%;top:${p[1]*100}%;width:${sw}px;height:${len}px;background:${red?D.suit.m:col};border-radius:${sw/2}px;transform:translate(-50%,-50%)">
+        <div style="position:absolute;left:50%;top:50%;width:${sw*.42}px;height:${sw*.5}px;background:${D.face};transform:translate(-50%,-50%)"></div></div>`;
+    }).join('');
+  }
+  if(suit==='m') return `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:serif;font-weight:700;line-height:.95">
+      <div style="font-size:${h*.34}px;color:${col}">${NUMERALS[n-1]}</div>
+      <div style="font-size:${h*.36}px;color:${col}">萬</div></div>`;
+  if(suit==='z'){
+    if(n===7) return `<div style="position:absolute;left:18%;top:22%;width:64%;height:56%;border:${Math.max(2,w*.05)}px solid ${col};border-radius:${w*.08}px"></div>`;
+    const c=n===5?D.suit.m:n===6?D.suit.s:col;
+    return `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:serif;font-weight:700;font-size:${h*.5}px;color:${c}">${HONORS[n-1]}</div>`;
+  }
+  return '';
+}
+
+/* ── 一张牌 ── */
+function tile(face, w, h, opts){
+  opts = opts || {};
+  const stack = opts.stack || 1;
+  const ring = opts.ring || null;
+  const locked = !!opts.locked;
+  const m=w*.05, my=h*.04;
+  const tw=w-m*2, th=h-my*2;
+  const r=Math.min(12, w*.1);
+  const liftN=Math.min(stack,3)-1;
+  let back='';
+  for(let i=0;i<liftN;i++) back+=`<div style="position:absolute;left:${m}px;top:${my+i*3}px;width:${tw}px;height:${th}px;background:${D.faceEdge};border-radius:${r}px"></div>`;
+  const lockBadge=locked?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:${w*.4}px;color:${D.muted}">●</div>`:'';
+  const ringStyle=ring?`box-shadow:0 0 0 ${ring[1]}px ${ring[0]}, ${D.shadowMd}`:`box-shadow:${D.shadowSm}`;
+  return `<div style="position:relative;width:${w}px;height:${h}px">
+    ${back}
+    <div style="position:absolute;left:${m}px;top:${my}px;width:${tw}px;height:${th}px;background:${D.face};
+      border:${D.hairline};border-radius:${r}px;${ringStyle};
+      box-sizing:border-box;
+      background-image:linear-gradient(180deg,rgba(31,27,46,.04),transparent 40%);
+      display:flex;align-items:center;justify-content:center;overflow:hidden">
+      <div style="position:absolute;left:${tw*.11}px;top:${th*.08}px;width:${tw*.78}px;height:${th*.84}px">${faceArt(face,tw*.78,th*.84)}</div>
+      ${lockBadge}
+    </div>
+    ${stack>1?`<div style="position:absolute;right:${m-2}px;top:${my-2}px;min-width:${w*.22}px;height:${w*.22}px;background:${D.badge};color:${D.badgeInk};border-radius:${w*.08}px;display:flex;align-items:center;justify-content:center;font-size:${w*.16}px;font-weight:700;box-shadow:0 1px 3px rgba(31,27,46,.18);font-family:serif">${stack}</div>`:''}
+  </div>`;
+}
+
+/* ── 按钮 ── */
+function button(text, w, h, opts){
+  opts = opts || {};
+  const kind = opts.kind || 'sec';
+  const x = opts.x || 0;
+  const y = opts.y || 0;
+  const sub = opts.sub || '';
+  const size = opts.size || 28;
+  const leading = opts.leading || '';
+  const abs = opts.abs !== false;
+  const P = kind==='primary' ? [D.primary, D.primaryDp, D.primaryIn, D.shadowMd]
+          : kind==='amber'   ? [D.amber, D.amberDp, D.amberIn, D.shadowSm]
+          : kind==='ghost'   ? [D.bg, D.bg, D.muted, 'none']
+          : [D.panel, D.panelEdge, D.ink, D.shadowSm];
+  const rad = h/2;
+  return `<div style="${abs?`position:absolute;left:${x}px;top:${y}px;`:'position:relative;'}width:${w}px;height:${h}px;font-size:${size}px;line-height:1">
+    <div style="position:absolute;inset:0;background:${P[0]};border:${kind==='sec'?D.hairline:'none'};border-radius:${rad}px;box-shadow:${P[3]};display:flex;flex-direction:column;align-items:center;justify-content:center;color:${P[2]};font-weight:600;letter-spacing:.5px">
+      ${leading?'<div style="font-size:'+(size*.55)+'px;font-weight:500;opacity:.65;margin-bottom:4px;letter-spacing:3px">'+leading+'</div>':''}
+      <div>${text}</div>
+      ${sub?`<div style="font-size:${size*.6}px;font-weight:400;opacity:.65;margin-top:4px">${sub}</div>`:''}
+    </div>
+  </div>`;
+}
+
+/* ── Logo：三张牌 萬/乐/筒 微倾 ── */
+function logo(y, scale){
+  scale = scale || 1;
+  const w=120*scale, h=156*scale, gap=14*scale;
+  const items=[['萬',D.suit.m],['乐',D.suit.s],['筒',D.suit.p]];
+  return `<div style="position:absolute;left:50%;top:${y}px;transform:translateX(-50%);display:flex;gap:${gap}px">
+    ${items.map((it,i)=>`
+      <div style="position:relative;width:${w}px;height:${h}px;transform:rotate(${(i-1)*4}deg)">
+        <div style="position:absolute;left:0;top:6px;width:${w}px;height:${h}px;background:${D.faceEdge};border-radius:${14*scale}px;box-shadow:${D.shadowSm}"></div>
+        <div style="position:absolute;left:0;top:0;width:${w}px;height:${h}px;background:${D.face};border:${D.hairline};border-radius:${14*scale}px;box-shadow:${D.shadowMd};
+          display:flex;align-items:center;justify-content:center;font-family:serif;font-weight:700;font-size:${68*scale}px;color:${it[1]};margin-top:-${4*scale}px">${it[0]}</div>
+      </div>`).join('')}
+  </div>`;
+}
+
+/* ── icon 按钮（圆形） ── */
+function iconBtn(glyph, x, y, size, fontSize){
+  size = size || 88;
+  fontSize = fontSize || 40;
+  return `<div style="position:absolute;left:${x}px;top:${y}px;width:${size}px;height:${size}px;background:${D.panel};border:${D.hairline};border-radius:50%;box-shadow:${D.shadowSm};display:flex;align-items:center;justify-content:center;font-size:${fontSize}px;color:${D.ink};font-weight:500">${glyph}</div>`;
+}
+
+function backdrop(){ return `<div style="position:absolute;inset:0;background-color:${D.bg};background-image:radial-gradient(circle,#1F1B2E0C 1px,transparent 1px);background-size:24px 24px"></div>`; }
+
+/* ════════ 牌桌 ════════ */
+function boardContent(){
+  const grid=[
+    ['p5','s2','m3','z1','p7','s9'],
+    ['m1','p5','s2','z5','m3','p1'],
+    ['s2','m3','p7','p5','z1','s9'],
+    ['z1','p1','s9','m1','p5','s2'],
+    ['p7','s9','m1','p5','s2','m3'],
+    ['m3','z5','p5','s2','p1','p7']
+  ];
+  const cw=100, ch=124, bx=75, by=326;
+  let cells='';
+  grid.forEach((row,r)=>row.forEach((f,c)=>{
+    const x=bx+c*cw, y=by+r*ch, hl=(r===2&&c===2), lock=(r===3&&c===0);
+    cells+=`<div style="position:absolute;left:${x}px;top:${y}px;width:${cw}px;height:${ch}px">
+      <div style="position:absolute;left:3px;top:3px;right:3px;bottom:3px;background:${D.slot};border:1px dashed ${D.slotEdge};border-radius:10px"></div>
+      ${tile(f, cw, ch, {stack:(r===1&&c===3)?2:1, ring:hl?[D.amber, 3]:null, locked:lock})}
+    </div>`;
+  }));
+  const tool=(t,s,x)=>button(t,160,104,{kind:'sec',x:x,y:1130,size:24,sub:s});
+  return backdrop() +
+    iconBtn('‹',24,40,88,42) +
+    `<div style="position:absolute;left:124px;top:40px;width:190px;height:88px;background:${D.panel};border:${D.hairline};border-radius:44px;box-shadow:${D.shadowSm};display:flex;align-items:center;justify-content:center;gap:8px">
+      <div style="font-family:serif;font-weight:700;font-size:34px;color:${D.ink}">12</div>
+      <div style="font-size:21px;color:${D.muted}">关</div>
+    </div>` +
+    iconBtn('⚙',638,40,88,38) +
+    `<div style="position:absolute;left:40px;top:158px;width:340px;font-size:22px;font-weight:600;color:${D.ink};letter-spacing:.5px">剩余 34 / 48 张</div>` +
+    `<div style="position:absolute;left:370px;top:158px;width:340px;font-size:22px;color:${D.inkSoft};text-align:right;letter-spacing:.5px">11 步 · 三星 ≤ 21 步</div>` +
+    `<div style="position:absolute;left:40px;top:200px;width:670px;height:10px;background:${D.panelEdge};border-radius:5px;overflow:hidden">
+      <div style="width:${670*.29}px;height:10px;background:${D.primary};border-radius:5px"></div>
+    </div>` +
+    `<div style="position:absolute;left:24px;top:236px;width:702px;height:58px;background:${D.panel};border:${D.hairline};border-radius:14px;display:flex;align-items:center;padding-left:22px;font-size:21px;color:${D.inkSoft}">
+      <span style="width:5px;height:22px;background:${D.primary};border-radius:3px;margin-right:14px"></span>正在向右推 2 格 · 松手消除亮起的对子
+    </div>` +
+    `<div style="position:absolute;left:24px;top:308px;width:702px;height:${ch*6+44}px;background:${D.panel};border:${D.hairline};border-radius:22px;box-shadow:${D.shadowMd}"></div>` +
+    `<div style="position:absolute;left:36px;top:320px;width:678px;height:${ch*6+20}px;background:${D.table};border:1px solid ${D.tableEdge};border-radius:16px"></div>` +
+    cells +
+    `<div style="position:absolute;left:0;top:1102px;width:750px;text-align:center;font-size:18px;color:${D.muted};letter-spacing:1px">轻点配对 · 拖动整段</div>` +
+    tool('提示','免费 2 次',24) +
+    tool('洗牌','免费 1 次',200) +
+    tool('撤销','退回整步',376) +
+    tool('重开','重新发牌',552);
+}
+
+/* ════════ 首页 ════════ */
+function homeContent(){
+  return backdrop() +
+    logo(196, 1.0) +
+    `<div style="position:absolute;left:0;top:412px;width:750px;text-align:center;font-family:serif;font-size:42px;font-weight:700;color:${D.ink};letter-spacing:6px">推一推</div>
+    <div style="position:absolute;left:0;top:472px;width:750px;text-align:center;font-size:22px;color:${D.muted};letter-spacing:8px">碰个对</div>
+    <div style="position:absolute;left:96px;top:556px;width:558px;display:flex;justify-content:space-between;align-items:flex-end">
+      <div>
+        <div style="font-size:18px;color:${D.muted};letter-spacing:3px">继续</div>
+        <div style="font-family:serif;font-size:60px;font-weight:700;color:${D.ink};line-height:1">第 12 关</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:18px;color:${D.muted};letter-spacing:3px">已走</div>
+        <div style="font-family:serif;font-size:60px;font-weight:700;color:${D.primary};line-height:1">8 <span style="font-size:24px;color:${D.muted}">步</span></div>
+      </div>
+    </div>` +
+    button('继续 · 第 12 关',558,108,{kind:'primary',x:96,y:740,size:32}) +
+    button('选关',558,100,{kind:'sec',x:96,y:872,size:28}) +
+    button('设置',558,100,{kind:'sec',x:96,y:988,size:28}) +
+    `<div style="position:absolute;left:96px;top:1132px;width:558px;height:8px;background:${D.panelEdge};border-radius:4px;overflow:hidden">
+      <div style="width:${558*.12}px;height:8px;background:${D.primary};border-radius:4px"></div>
+    </div>
+    <div style="position:absolute;left:96px;top:1156px;width:558px;font-size:19px;color:${D.muted};text-align:center;letter-spacing:2px">已清台 12 局 · 28 颗星</div>`;
+}
+
+/* ════════ 选关 ════════ */
+function levelsContent(){
+  let cards='';
+  for(let i=1;i<=18;i++){
+    const col=(i-1)%3, row=Math.floor((i-1)/3);
+    const x=60+col*216, y=240+row*184;
+    const unlocked=i<=12;
+    const star=(i===3||i===7||i===11)?3:(i===5||i===9)?2:(unlocked?1:0);
+    cards += `<div style="position:absolute;left:${x}px;top:${y}px;width:180px;height:160px;background:${D.panel};border:${D.hairline};border-radius:20px;box-shadow:${D.shadowSm};display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div style="font-family:serif;font-size:48px;font-weight:700;color:${unlocked?D.ink:D.muted};line-height:1">${String(i).padStart(2,'0')}</div>
+      <div style="margin-top:14px;display:flex;gap:5px">${[1,2,3].map(j=>`<div style="width:11px;height:11px;border-radius:50%;background:${j<=star?D.amber:D.panelEdge}"></div>`).join('')}</div>
+      ${!unlocked?'<div style="position:absolute;top:10px;right:12px;font-size:18px;color:'+D.muted+'">●</div>':''}
+    </div>`;
+  }
+  return backdrop() +
+    `<div style="position:absolute;left:24px;top:56px;width:702px;display:flex;align-items:center;justify-content:space-between">
+      <div style="width:72px;height:72px;background:${D.bg};display:flex;align-items:center;justify-content:center;font-size:32px;color:${D.ink}">‹</div>
+      <div style="font-family:serif;font-size:38px;font-weight:700;color:${D.ink};letter-spacing:4px">选关</div>
+      <div style="width:72px"></div>
+    </div>
+    <div style="position:absolute;left:96px;top:152px;width:558px;font-size:20px;color:${D.muted};letter-spacing:2px">共 100 关 · 已解锁 12</div>` +
+    cards;
+}
+
+/* ════════ 设置（弹窗） ════════ */
+function settingsContent(){
+  return backdrop() +
+    `<div style="position:absolute;inset:0;background:${D.backdrop}"></div>
+    <div style="position:absolute;left:60px;top:240px;width:630px;background:${D.panel};border:${D.hairline};border-radius:24px;box-shadow:${D.shadowLg};padding:40px;box-sizing:border-box">
+      <div style="font-family:serif;font-size:42px;font-weight:700;color:${D.ink};letter-spacing:4px">设置</div>
+      <div style="margin-top:32px;border-top:${D.hairline}"></div>` +
+      settingRow('音效', '开启', true) +
+      settingRow('震动', '开启', true) +
+      settingRow('背景音乐', '关闭', false) +
+      `<div style="margin:32px 0 24px;border-top:${D.hairline}"></div>` +
+      button('清空进度',550,84,{kind:'sec',x:0,y:0,size:26,abs:false}) +
+      `<div style="height:16px"></div>` +
+      button('关闭',550,84,{kind:'primary',x:0,y:0,size:26,abs:false}) +
+    `</div>`;
+}
+function settingRow(label, value, on){
+  return `<div style="display:flex;align-items:center;justify-content:space-between;height:84px;border-bottom:${D.hairline};box-sizing:border-box">
+    <div style="font-size:26px;color:${D.ink}">${label}</div>
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 18px;background:${on?D.amber:D.bg};border:1.5px solid ${on?D.amberDp:D.panelEdge};border-radius:30px">
+      <div style="width:8px;height:8px;border-radius:50%;background:${on?D.primary:D.muted}"></div>
+      <div style="font-size:22px;font-weight:600;color:${on?D.amberIn:D.muted}">${value}</div>
+    </div>
+  </div>`;
+}
+
+/* ════════ 胜利 ════════ */
+function winContent(){
+  return backdrop() +
+    `<div style="position:absolute;left:60px;top:200px;width:630px;text-align:center">
+      <div style="font-family:serif;font-size:96px;font-weight:700;color:${D.primary};line-height:1;letter-spacing:8px">通关</div>
+      <div style="font-size:24px;color:${D.muted};margin-top:12px;letter-spacing:6px">第 12 关 · 三星达成</div>
+    </div>
+    <div style="position:absolute;left:96px;top:420px;width:558px;background:${D.panel};border:${D.hairline};border-radius:24px;box-shadow:${D.shadowMd};padding:40px 32px;box-sizing:border-box">
+      <div style="display:flex;justify-content:space-around;text-align:center">
+        ${stat('步数', '18', D.ink)}
+        ${stat('时间', '1:24', D.ink)}
+        ${stat('星级', '★★★', D.amberDp)}
+      </div>
+      <div style="margin:32px 0 0;border-top:${D.hairline}"></div>
+      <div style="margin-top:24px;display:flex;justify-content:space-around;text-align:center">
+        ${stat('本局奖励', '+60', D.ink)}
+        ${stat('连击', '4', D.ink)}
+        ${stat('得分', '1840', D.primary)}
+      </div>
+    </div>
+    <div style="position:absolute;left:96px;top:850px;width:558px;display:flex;gap:16px">
+      ${button('再玩一次',176,108,{kind:'sec',x:0,y:0,size:26,abs:false})}
+      ${button('下一关',366,108,{kind:'primary',x:0,y:0,size:30,abs:false})}
+    </div>
+    <div style="position:absolute;left:0;top:1040px;width:750px;text-align:center">
+      <div style="font-family:serif;font-size:34px;font-weight:700;color:${D.ink};letter-spacing:4px">第 13 关</div>
+      <div style="font-size:18px;color:${D.muted};margin-top:6px;letter-spacing:4px">解锁 · 继续挑战</div>
+    </div>`;
+}
+function stat(label, value, color){
+  return `<div>
+    <div style="font-size:18px;color:${D.muted};letter-spacing:3px;margin-bottom:6px">${label}</div>
+    <div style="font-family:serif;font-size:46px;font-weight:700;color:${color};line-height:1">${value}</div>
+  </div>`;
+}
+
+/* ════════ 路由 ════════ */
+const SCREENS = {
+  'home':     () => `<div class="screen">${homeContent()}</div>`,
+  'levels':   () => `<div class="screen">${levelsContent()}</div>`,
+  'board':    () => `<div class="screen">${boardContent()}</div>`,
+  'settings': () => `<div class="screen">${settingsContent()}</div>`,
+  'win':      () => `<div class="screen">${winContent()}</div>`,
+};
+function paint(){
+  const name = location.hash.replace('#','') || 'home';
+  document.getElementById('root').innerHTML = (SCREENS[name] || SCREENS['home'])();
+  document.title = 'v3 · ' + name;
+}
+paint();
+window.addEventListener('hashchange', paint);
+</script>
+</body>
+</html>

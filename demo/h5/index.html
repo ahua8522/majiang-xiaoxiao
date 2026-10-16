@@ -1,0 +1,3262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>快乐推麻对对消 · H5 Demo</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#20361F;
+    font-family:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif}
+  body{display:flex;align-items:center;justify-content:center}
+  #stage{position:relative;height:100vh;height:100dvh;aspect-ratio:750/1334;max-width:100vw;
+    box-shadow:0 0 60px rgba(0,0,0,.45);overflow:hidden;background:#20361F}
+  canvas{display:block;width:100%;height:100%;touch-action:none;user-select:none}
+  #hint{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);color:#9fb39a;
+    font-size:12px;letter-spacing:.05em;pointer-events:none;white-space:nowrap}
+  @media (max-width:760px){#hint{display:none}}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="cv"></canvas></div>
+<div id="hint">轻点配对 · 横竖拖动整段 · 右上角齿轮可暂停</div>
+<script>"use strict";
+(() => {
+  // cocos/assets/scripts/core/Rules.ts
+  var key = (p) => p.r + "," + p.c;
+  var equal = (a, b) => !!a && !!b && a.r === b.r && a.c === b.c;
+  var clone = (g) => g.map((row) => row.map((c) => Array.isArray(c) ? c.slice() : c));
+  var count = (g) => g.reduce((n, row) => n + row.reduce((m, c) => m + (Array.isArray(c) ? c.length : 0), 0), 0);
+  var top = (g, p) => {
+    const cell = g[p.r]?.[p.c];
+    return Array.isArray(cell) && cell.length ? cell[cell.length - 1] : null;
+  };
+  var signature = (g) => JSON.stringify(g);
+  var hasIce = (face) => face.endsWith("~");
+  var stripIce = (face) => hasIce(face) ? face.slice(0, -1) : face;
+  var isWild = (face) => face.endsWith("*");
+  var isBomb = (face) => face.startsWith("b");
+  function partners(g, p) {
+    const face = top(g, p);
+    if (!face) return [];
+    const wild = isWild(face);
+    return [{ r: p.r - 1, c: p.c }, { r: p.r, c: p.c + 1 }, { r: p.r + 1, c: p.c }, { r: p.r, c: p.c - 1 }].filter((q) => {
+      const f = top(g, q);
+      if (!f) return false;
+      return wild || isWild(f) || f === face;
+    });
+  }
+  function pairs(g) {
+    const out = [];
+    g.forEach((row, r) => row.forEach((_, c) => {
+      const a = { r, c }, face = top(g, a);
+      if (!face) return;
+      for (const b of [{ r, c: c + 1 }, { r: r + 1, c }]) {
+        const f = top(g, b);
+        if (!f) continue;
+        if (f === face || isWild(face) || isWild(f)) out.push({ a, b, face });
+      }
+    }));
+    return out;
+  }
+  function sameFacePairs(g) {
+    return pairs(g).filter((pr) => !isWild(pr.face) && top(g, pr.b) === pr.face);
+  }
+  function runsFor(g, lockR, lockC, oneWay) {
+    const out = [];
+    const dirOf = (axis, index) => oneWay?.find((w) => w.axis === axis && w.index === index)?.dir;
+    for (const axis of ["row", "col"]) {
+      const n = axis === "row" ? g.length : g[0].length, len = axis === "row" ? g[0].length : g.length;
+      for (let i = 0; i < n; i++) {
+        if ((axis === "row" ? lockR : lockC).includes(i)) continue;
+        let cells = [];
+        const flush = () => {
+          if (cells.length > 1) {
+            const run = { axis, index: i, cells };
+            const dir = dirOf(axis, i);
+            if (dir) run.dir = dir;
+            out.push(run);
+          }
+          cells = [];
+        };
+        for (let j = 0; j < len; j++) {
+          const p = axis === "row" ? { r: i, c: j } : { r: j, c: i };
+          if (Array.isArray(g[p.r][p.c])) cells.push(p);
+          else flush();
+        }
+        flush();
+      }
+    }
+    return out;
+  }
+  function rotate(g, run, step) {
+    const out = clone(g), len = run.cells.length, k = (step % len + len) % len;
+    for (let i = 0; i < len; i++) {
+      const to = run.cells[i], from = run.cells[(i - k + len) % len];
+      out[to.r][to.c] = Array.isArray(g[from.r][from.c]) ? g[from.r][from.c].slice() : g[from.r][from.c];
+    }
+    return out;
+  }
+  function popOrReveal(g, p, face, revealed) {
+    const cell = g[p.r][p.c];
+    cell.pop();
+    if (hasIce(face)) {
+      cell.push(stripIce(face));
+      revealed.add(key(p));
+    }
+  }
+  function shatterAround(g, cells, revealed) {
+    const faces = /* @__PURE__ */ new Set();
+    for (const p of cells) for (const q of [{ r: p.r - 1, c: p.c }, { r: p.r, c: p.c + 1 }, { r: p.r + 1, c: p.c }, { r: p.r, c: p.c - 1 }]) {
+      const f = top(g, q);
+      if (f && hasIce(f)) faces.add(f);
+    }
+    if (!faces.size) return;
+    for (let r = 0; r < g.length; r++) for (let c = 0; c < g[r].length; c++) {
+      const f = top(g, { r, c });
+      if (f && faces.has(f)) popOrReveal(g, { r, c }, f, revealed);
+    }
+  }
+  function transition(g, runs, action) {
+    const none = () => ({ grid: g, changed: false, erased: [], chain: 0 });
+    let next, affected;
+    if (action.kind === "match") {
+      if (!partners(g, action.a).some((p) => equal(p, action.b))) return none();
+      next = clone(g);
+      const fa = top(g, action.a), fb = top(g, action.b);
+      const revealed2 = /* @__PURE__ */ new Set();
+      popOrReveal(next, action.a, fa, revealed2);
+      popOrReveal(next, action.b, fb, revealed2);
+      if (isBomb(fa) || isBomb(fb)) shatterAround(next, [action.a, action.b], revealed2);
+      return { grid: next, changed: true, erased: [{ a: action.a, b: action.b, face: fa }], chain: 1 };
+    }
+    const run = runs[action.run];
+    if (!run || !Number.isInteger(action.step) || action.step % run.cells.length === 0) return none();
+    if (run.dir && action.step * run.dir < 0) return none();
+    next = rotate(g, run, action.step);
+    if (signature(next) === signature(g)) return none();
+    affected = new Set(run.cells.map(key));
+    const revealed = /* @__PURE__ */ new Set();
+    const erased = [];
+    let chain = 0;
+    for (; ; ) {
+      const candidates = pairs(next).filter((p) => !revealed.has(key(p.a)) && !revealed.has(key(p.b)) && (affected.has(key(p.a)) || affected.has(key(p.b))));
+      if (!candidates.length) break;
+      const used = /* @__PURE__ */ new Set();
+      let round = 0;
+      for (const p of candidates) {
+        if (used.has(key(p.a)) || used.has(key(p.b))) continue;
+        const fa = top(next, p.a), fb = top(next, p.b);
+        popOrReveal(next, p.a, fa, revealed);
+        popOrReveal(next, p.b, fb, revealed);
+        if (isBomb(fa) || isBomb(fb)) shatterAround(next, [p.a, p.b], revealed);
+        used.add(key(p.a));
+        used.add(key(p.b));
+        affected.add(key(p.a));
+        affected.add(key(p.b));
+        erased.push(p);
+        round++;
+      }
+      if (!round) break;
+      chain++;
+    }
+    return { grid: next, changed: true, erased, chain };
+  }
+  function isDead(g, makeRuns, budget = 2e3) {
+    const total = count(g);
+    if (!total) return false;
+    if (pairs(g).length) return false;
+    const seen = /* @__PURE__ */ new Set([signature(g)]);
+    const queue = [g];
+    let visited = 0;
+    for (let qi = 0; qi < queue.length; qi++) {
+      const cur = queue[qi];
+      const runs = makeRuns(cur);
+      for (let ri = 0; ri < runs.length; ri++) {
+        const len = runs[ri].cells.length;
+        for (let k = 1; k < len; k++) {
+          if (visited >= budget) return false;
+          visited++;
+          let step = k > len / 2 ? k - len : k;
+          const dir = runs[ri].dir;
+          if (dir && step * dir < 0) step += dir * len;
+          const next = transition(cur, runs, { kind: "slide", run: ri, step });
+          if (!next.changed) continue;
+          if (count(next.grid) < total) return false;
+          const sig = signature(next.grid);
+          if (seen.has(sig)) continue;
+          seen.add(sig);
+          queue.push(next.grid);
+        }
+      }
+    }
+    return true;
+  }
+  function searchHint(g, runs, options = {}) {
+    const budget = options.budget ?? 2400, maxDepth = options.maxDepth ?? 3;
+    const total = count(g), direct = pairs(g);
+    if (!total) return { status: "solved", actions: [], visited: 0 };
+    if (direct.length) return { status: "found", actions: [{ kind: "match", a: direct[0].a, b: direct[0].b }], visited: 0 };
+    const queue = [{ grid: g, path: [] }];
+    const seen = /* @__PURE__ */ new Set([signature(g)]);
+    let visited = 0, limited = false;
+    for (let qi = 0; qi < queue.length; qi++) {
+      const cur = queue[qi];
+      if (cur.path.length >= maxDepth) {
+        limited = true;
+        continue;
+      }
+      for (let ri = 0; ri < runs.length; ri++) for (let k = 1; k < runs[ri].cells.length; k++) {
+        if (visited >= budget) return { status: "unknown", actions: [], visited };
+        visited++;
+        let step = k > runs[ri].cells.length / 2 ? k - runs[ri].cells.length : k;
+        const dir = runs[ri].dir;
+        if (dir && step * dir < 0) step += dir * runs[ri].cells.length;
+        const action = { kind: "slide", run: ri, step }, next = transition(cur.grid, runs, action);
+        if (!next.changed) continue;
+        const path = cur.path.concat(action);
+        if (count(next.grid) < total) return { status: "found", actions: path, visited };
+        const sig = signature(next.grid);
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        queue.push({ grid: next.grid, path });
+      }
+    }
+    return { status: limited ? "unknown" : "dead", actions: [], visited };
+  }
+
+  // cocos/assets/scripts/core/levels.ts
+  var LEVELS = [
+    // 第 1 关 · 3x4 · 12 个牌位 · 4 种花色 · 参考解 4 步
+    { map: ["1111", "1111", "1111"], lockR: [], lockC: [], faces: 4, scramble: 2, intro: "basic" },
+    // 第 2 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 3 步
+    { map: ["1111", "..11", "1111"], lockR: [], lockC: [], faces: 4, scramble: 2 },
+    // 第 3 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 2 步
+    { map: [".111", "11#1", "1111"], lockR: [], lockC: [], faces: 4, scramble: 3 },
+    // 第 4 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 3 步
+    { map: ["1111", ".#11", "1111"], lockR: [], lockC: [], faces: 4, scramble: 3 },
+    // 第 5 关 · 3x4 · 8 个牌位 · 4 种花色 · 参考解 2 步
+    { map: ["1111", ".1#1", ".1.1"], lockR: [], lockC: [], faces: 4, scramble: 4 },
+    // 第 6 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 5 步
+    { map: ["1111", "11#1", ".111"], lockR: [], lockC: [], faces: 4, scramble: 4 },
+    // 第 7 关 · 3x4 · 8 个牌位 · 4 种花色 · 参考解 4 步
+    { map: ["1111", "..#1", "11.1"], lockR: [], lockC: [], faces: 4, scramble: 5 },
+    // 第 8 关 · 3x4 · 8 个牌位 · 4 种花色 · 参考解 5 步
+    { map: ["1111", "11#.", "11.."], lockR: [], lockC: [], faces: 4, scramble: 5 },
+    // 第 9 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 5 步
+    { map: ["1.11", "1#11", "1111"], lockR: [], lockC: [], faces: 4, scramble: 6 },
+    // 第 10 关 · 4x4 · 12 个牌位 · 4 种花色 · 参考解 4 步
+    { map: ["1111", ".#11", ".11.", "1111"], lockR: [], lockC: [], faces: 4, scramble: 6 },
+    // 第 11 关 · 4x4 · 14 个牌位 · 4 种花色 · 参考解 3 步
+    { map: ["11.1", "11#1", "1111", "1111"], lockR: [], lockC: [], faces: 4, scramble: 7 },
+    // 第 12 关 · 4x4 · 12 个牌位 · 4 种花色 · 参考解 6 步
+    { map: ["1111", ".#11", "1.11", "1.11"], lockR: [], lockC: [], faces: 4, scramble: 8 },
+    // 第 13 关 · 4x5 · 16 个牌位 · 4 种花色 · 参考解 5 步
+    { map: [".1111", ".##11", "11111", "11111"], lockR: [], lockC: [], faces: 4, scramble: 8 },
+    // 第 14 关 · 4x5 · 14 个牌位 · 4 种花色 · 参考解 7 步
+    { map: ["11111", "11.#1", "1.#..", "11111"], lockR: [], lockC: [], faces: 4, scramble: 9 },
+    // 第 15 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 9 步
+    { map: ["1.11.", "11#21", "12111", "111.1"], lockR: [], lockC: [], faces: 5, scramble: 9, intro: "stack" },
+    // 第 16 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 5 步
+    { map: ["11111", "12##1", ".1111", "11111"], lockR: [], lockC: [], faces: 5, scramble: 10 },
+    // 第 17 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 6 步
+    { map: ["2.11.", "21##1", "11111", "11111"], lockR: [], lockC: [], faces: 5, scramble: 10 },
+    // 第 18 关 · 4x5 · 16 个牌位 · 4 种花色 · 参考解 10 步
+    { map: ["111.1", ".#111", ".#22.", "11111"], lockR: [], lockC: [], faces: 4, scramble: 11 },
+    // 第 19 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 6 步
+    { map: ["1111.", "11#11", ".22#1", "11111"], lockR: [], lockC: [], faces: 5, scramble: 11 },
+    // 第 20 关 · 4x5 · 16 个牌位 · 4 种花色 · 参考解 6 步
+    { map: ["111..", "11#21", "11#11", "1.111"], lockR: [], lockC: [], faces: 4, scramble: 12 },
+    // 第 21 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 11 步
+    { map: ["11111", ".2111", "11111", "1.1.1"], lockR: [], lockC: [], faces: 5, scramble: 13 },
+    // 第 22 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 12 步
+    { map: ["111.11", "111#21", "111111", "1#11.1", "1.1111"], lockR: [], lockC: [], faces: 7, scramble: 13 },
+    // 第 23 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 11 步
+    { map: ["111111", "11#221", "111111", "11#.11", ".1.11."], lockR: [], lockC: [], faces: 7, scramble: 14 },
+    // 第 24 关 · 5x6 · 32 个牌位 · 8 种花色 · 参考解 13 步
+    { map: ["111111", "112211", "121##1", "122121", "1.1.11"], lockR: [], lockC: [], faces: 8, scramble: 14 },
+    // 第 25 关 · 5x6 · 28 个牌位 · 7 种花色 · 参考解 11 步
+    { map: ["111111", "1.#211", "1212#1", "121#11", "1.111."], lockR: [1], lockC: [], faces: 7, scramble: 15, intro: "lockRow" },
+    // 第 26 关 · 5x6 · 24 个牌位 · 6 种花色 · 参考解 11 步
+    { map: [".111.1", "1#1211", "111#11", "11#111", "1111.."], lockR: [1], lockC: [], faces: 6, scramble: 15 },
+    // 第 27 关 · 5x6 · 28 个牌位 · 7 种花色 · 参考解 13 步
+    { map: [".1.111", "121111", "1##211", "121111", "11111."], lockR: [1], lockC: [], faces: 7, scramble: 16 },
+    // 第 28 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 16 步
+    { map: ["11111.", "111211", ".1#121", "11##11", ".11111"], lockR: [1], lockC: [], faces: 7, scramble: 16 },
+    // 第 29 关 · 5x6 · 28 个牌位 · 7 种花色 · 参考解 13 步
+    { map: ["111111", ".#1211", "1#1121", "112#21", ".1111."], lockR: [1], lockC: [], faces: 7, scramble: 17 },
+    // 第 30 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 17 步
+    { map: [".1.111", ".21111", "11.211", "1221#1", "1..11."], lockR: [1], lockC: [], faces: 7, scramble: 17 },
+    // 第 31 关 · 5x6 · 28 个牌位 · 7 种花色 · 限 27 步 · 参考解 18 步
+    { map: ["11111.", "112121", "11#111", "11#111", "1.1111"], lockR: [1], lockC: [], faces: 7, scramble: 18, moveLimit: 27, intro: "moveLimit" },
+    // 第 32 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 14 步
+    { map: ["1111.1", "11#1.1", "1112#1", "12#111", ".11111"], lockR: [1], lockC: [], faces: 7, scramble: 19 },
+    // 第 33 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 15 步
+    { map: [".11111", "11#211", "11#111", ".#1111", "111111"], lockR: [1], lockC: [], faces: 7, scramble: 19 },
+    // 第 34 关 · 5x6 · 24 个牌位 · 6 种花色 · 限 26 步 · 参考解 14 步
+    { map: ["1.1111", "1##121", "111111", "1#1111", "11..1."], lockR: [1], lockC: [], faces: 6, scramble: 20, moveLimit: 26 },
+    // 第 35 关 · 5x6 · 28 个牌位 · 7 种花色 · 参考解 19 步
+    { map: ["111111", "111121", "111.1.", "1.1211", ".11111"], lockR: [1], lockC: [], faces: 7, scramble: 20 },
+    // 第 36 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 19 步
+    { map: ["111111", "1.1#11", ".11111", "1112.1", "1.1111"], lockR: [1], lockC: [], faces: 7, scramble: 21 },
+    // 第 37 关 · 6x7 · 36 个牌位 · 9 种花色 · 限 32 步 · 参考解 19 步
+    { map: ["1111.11", "111112.", ".1#.#11", "12#1211", "1111111", "11111.."], lockR: [2], lockC: [], faces: 9, scramble: 21, moveLimit: 32 },
+    // 第 38 关 · 6x7 · 40 个牌位 · 10 种花色 · 单向轨 · 参考解 22 步
+    { map: ["1...111", "111#111", ".121211", "1121121", "1111111", "1.11111"], lockR: [2], lockC: [], faces: 10, scramble: 22, oneWay: [{ axis: "col", index: 4, dir: 1 }], intro: "oneWay" },
+    // 第 39 关 · 6x7 · 42 个牌位 · 11 种花色 · 参考解 21 步
+    { map: ["111.111", "1121111", "1122#21", "1##2#21", ".111121", "111111."], lockR: [2], lockC: [], faces: 11, scramble: 22 },
+    // 第 40 关 · 6x7 · 32 个牌位 · 8 种花色 · 限 32 步 · 参考解 21 步
+    { map: ["1111111", ".1111.1", "112#.#1", "11111#1", ".1#111.", ".111.11"], lockR: [2], lockC: [2], faces: 8, scramble: 23, moveLimit: 32, intro: "lockCol" },
+    // 第 41 关 · 6x7 · 36 个牌位 · 9 种花色 · 参考解 19 步
+    { map: ["111.111", "11#11#1", "11111#1", "1112221", ".111#1.", "111.11."], lockR: [2], lockC: [2], faces: 9, scramble: 24 },
+    // 第 42 关 · 6x7 · 36 个牌位 · 9 种花色 · 单向轨 · 参考解 17 步
+    { map: [".1111..", "1122111", ".11##11", "..#2111", "11.1211", "1111111"], lockR: [2], lockC: [2], faces: 9, scramble: 24, oneWay: [{ axis: "col", index: 3, dir: 1 }] },
+    // 第 43 关 · 6x7 · 42 个牌位 · 11 种花色 · 限 36 步 · 参考解 21 步
+    { map: ["111111.", ".1121#1", "11#2221", "12##111", "1122211", "1.1111."], lockR: [2], lockC: [2], faces: 11, scramble: 25, moveLimit: 36 },
+    // 第 44 关 · 6x7 · 38 个牌位 · 10 种花色 · 参考解 21 步
+    { map: ["111.111", "1111111", "1#11#21", "1##1211", "1111221", "11..11."], lockR: [2], lockC: [2], faces: 10, scramble: 25 },
+    // 第 45 关 · 6x7 · 38 个牌位 · 10 种花色 · 参考解 20 步
+    { map: ["1111111", ".211#11", ".2##11.", "1111211", "11111#1", "1111111"], lockR: [2], lockC: [2], faces: 10, scramble: 26 },
+    // 第 46 关 · 6x7 · 40 个牌位 · 10 种花色 · 单向轨 · 限 102 步 · 参考解 20 步
+    { map: ["1111.11", "1##1111", "111#11.", "1222#11", "122111.", "1111111"], lockR: [2], lockC: [2], faces: 10, scramble: 26, oneWay: [{ axis: "col", index: 1, dir: -1 }], moveLimit: 102 },
+    // 第 47 关 · 6x7 · 40 个牌位 · 10 种花色 · 参考解 21 步
+    { map: ["1111111", "1122111", ".112111", "1#11#1.", "122##11", "11.1111"], lockR: [2], lockC: [2], faces: 10, scramble: 27 },
+    // 第 48 关 · 6x7 · 38 个牌位 · 10 种花色 · 目标 3s×5 · 参考解 21 步
+    { map: ["11111.1", "1112111", "1111#11", "111#111", "1#11121", "1.11.11"], lockR: [2], lockC: [2], faces: 10, scramble: 27, goal: { kind: "face", face: "3s", count: 5 }, intro: "goal" },
+    // 第 49 关 · 6x7 · 38 个牌位 · 10 种花色 · 限 41 步 · 参考解 27 步
+    { map: ["1111111", "1#21#11", "1#.2221", "1121111", ".#2#111", "1111..."], lockR: [2], lockC: [2], faces: 10, scramble: 28, moveLimit: 41 },
+    // 第 50 关 · 6x7 · 38 个牌位 · 10 种花色 · 单向轨 · 参考解 14 步
+    { map: ["1.11111", "112#1#1", "11#12.1", "11#1211", ".#21111", "1111111"], lockR: [2], lockC: [2], faces: 10, scramble: 28, oneWay: [{ axis: "row", index: 4, dir: -1 }] },
+    // 第 51 关 · 6x7 · 36 个牌位 · 9 种花色 · 1 对冰 · 参考解 74 步
+    { map: [".11.1.1", ".2111#1", "1211211", "1#1#111", "11##21.", "1111111"], lockR: [2, 3], lockC: [2], faces: 9, scramble: 29, ice: 1, intro: "ice" },
+    // 第 52 关 · 7x8 · 52 个牌位 · 13 种花色 · 2 对冰 · 限 44 步 · 参考解 28 步
+    { map: [".1111111", "11221121", "111#1.11", "11#11111", "12#1#111", "112#12.1", "1.111.11"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 30, ice: 2, moveLimit: 44 },
+    // 第 53 关 · 7x8 · 48 个牌位 · 12 种花色 · 1 对冰 · 目标 8s×5 · 参考解 29 步
+    { map: ["11111111", ".11122..", ".2.1111.", ".1111##1", "11111#11", "111#2121", "1.11111."], lockR: [2, 4], lockC: [2], faces: 12, scramble: 30, ice: 1, goal: { kind: "face", face: "8s", count: 5 } },
+    // 第 54 关 · 7x8 · 52 个牌位 · 13 种花色 · 2 对冰 · 单向轨 · 参考解 34 步
+    { map: ["1.111111", "11111121", "11212#1.", "111#1111", ".221#1#1", "11#1.121", ".1111111"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 31, ice: 2, oneWay: [{ axis: "col", index: 6, dir: 1 }] },
+    // 第 55 关 · 7x8 · 50 个牌位 · 13 种花色 · 1 对冰 · 限 48 步 · 参考解 24 步
+    { map: ["1111.111", "11#.121.", "1211.#1.", "12211211", "1112.111", "11#111#1", "1..11111"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 31, ice: 1, flowers: true, moveLimit: 48, intro: "flower" },
+    // 第 56 关 · 7x8 · 54 个牌位 · 14 种花色 · 2 对冰 · 参考解 33 步
+    { map: [".1111111", "121##111", "1#111211", "1#112111", "1212111.", "12#1121.", "1.111111"], lockR: [2, 4], lockC: [2], faces: 14, scramble: 32, ice: 2, flowers: true },
+    // 第 57 关 · 7x8 · 58 个牌位 · 15 种花色 · 1 对冰 · 参考解 29 步
+    { map: ["11111111", "11##221.", "11#1#22.", "1211221.", "111#1121", "11221221", "1..11111"], lockR: [2, 4], lockC: [2], faces: 15, scramble: 32, ice: 1, flowers: true },
+    // 第 58 关 · 7x8 · 52 个牌位 · 13 种花色 · 2 对冰 · 单向轨 · 限 44 步 · 目标 f4×5 · 参考解 28 步
+    { map: ["..111111", ".2221#11", "11#1111.", "111#2111", "12#22#11", "121111.1", "..111111"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 33, ice: 2, flowers: true, oneWay: [{ axis: "col", index: 5, dir: 1 }], moveLimit: 44, goal: { kind: "face", face: "f4", count: 5 } },
+    // 第 59 关 · 7x8 · 56 个牌位 · 14 种花色 · 1 对冰 · 参考解 26 步
+    { map: ["11.11111", "11111211", ".1221111", "1111##1.", ".12#2121", "11111221", ".1111111"], lockR: [2, 4], lockC: [2], faces: 14, scramble: 33, ice: 1, flowers: true },
+    // 第 60 关 · 7x8 · 56 个牌位 · 14 种花色 · 2 对冰 · 花牌百搭 · 参考解 19 步
+    { map: ["111.1111", "1121..11", "131.1211", ".1111121", "1121211.", "11111111", "11.11111"], lockR: [2, 4], lockC: [2], faces: 14, scramble: 34, ice: 2, flowers: true, wild: true, intro: "wild" },
+    // 第 61 关 · 7x8 · 50 个牌位 · 13 种花色 · 1 对冰 · 限 83 步 · 参考解 56 步
+    { map: ["11111.11", "11111211", "1.111111", "122.121.", ".11111.1", ".11.1111", "1111..11"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 35, ice: 1, flowers: true, moveLimit: 83 },
+    // 第 62 关 · 7x8 · 62 个牌位 · 16 种花色 · 2 对冰 · 单向轨 · 参考解 38 步
+    { map: ["1.1.1111", "1.111111", "11231121", "11121111", "1223#.1.", ".1213221", "111.1111"], lockR: [2, 4], lockC: [2], faces: 16, scramble: 35, ice: 2, flowers: true, oneWay: [{ axis: "row", index: 1, dir: -1 }], intro: "stack3" },
+    // 第 63 关 · 7x8 · 56 个牌位 · 14 种花色 · 1 对冰 · 目标 z7×6 · 参考解 67 步
+    { map: [".1.11111", "12112111", "1.11112.", "11311.11", "11111121", "111121#1", "111.1111"], lockR: [2, 4], lockC: [2], faces: 14, scramble: 36, ice: 1, flowers: true, goal: { kind: "face", face: "z7", count: 6 } },
+    // 第 64 关 · 7x8 · 60 个牌位 · 15 种花色 · 2 对冰 · 限 52 步 · 参考解 38 步
+    { map: [".1111.11", ".122#111", "11121121", "11311211", "11131111", "1#.32111", "1.11.111"], lockR: [2, 4], lockC: [2], faces: 15, scramble: 36, ice: 2, flowers: true, moveLimit: 52 },
+    // 第 65 关 · 7x8 · 60 个牌位 · 15 种花色 · 1 对冰 · 参考解 36 步
+    { map: [".1111111", "1##21121", "11311.1.", "12122211", "12.312.1", "1111331.", "..1.1.11"], lockR: [2, 4], lockC: [2], faces: 15, scramble: 37, ice: 1, flowers: true },
+    // 第 66 关 · 7x8 · 56 个牌位 · 14 种花色 · 2 对厚冰 · 单向轨 · 参考解 58 步
+    { map: ["11111111", "12#221#.", "11#2#121", "111111#1", ".1211231", "11221#1.", "11.1111."], lockR: [2, 4], lockC: [2], faces: 14, scramble: 37, ice: 4, ice2: 2, flowers: true, oneWay: [{ axis: "col", index: 6, dir: -1 }], intro: "ice2" },
+    // 第 67 关 · 8x9 · 88 个牌位 · 22 种花色 · 2 对冰 · 限 94 步 · 参考解 69 步
+    { map: [".1111111.", ".21121131", "1221211..", "1#213#131", "112232321", "122.3213.", "11111.131", "11..111.1"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 38, ice: 2, flowers: true, moveLimit: 94 },
+    // 第 68 关 · 8x9 · 86 个牌位 · 22 种花色 · 3 对冰 · 花牌百搭 · 目标 3m×5 · 参考解 34 步
+    { map: ["111.11111", "121221221", "11#221121", "12221#211", "111#32221", "11311#21.", "11##13321", "1111.1.1."], lockR: [3, 5], lockC: [2], faces: 22, scramble: 38, ice: 3, flowers: true, wild: true, goal: { kind: "face", face: "3m", count: 5 } },
+    // 第 69 关 · 8x9 · 84 个牌位 · 21 种花色 · 4 对冰 · 参考解 44 步
+    { map: ["1111.111.", "1221#123.", "12#.2211.", "11#121111", "1211213..", "131221121", "121212121", "111111111"], lockR: [3, 5], lockC: [2], faces: 21, scramble: 39, ice: 4, flowers: true },
+    // 第 70 关 · 8x9 · 90 个牌位 · 23 种花色 · 2 对冰 · 2 对鞭炮 · 单向轨 · 限 99 步 · 参考解 40 步
+    { map: ["11111111.", "111122221", "12131.321", "122321121", "111112221", "111121111", "111111311", "11111..11"], lockR: [3, 5], lockC: [2], faces: 23, scramble: 39, ice: 2, bombs: 2, flowers: true, oneWay: [{ axis: "row", index: 1, dir: -1 }], moveLimit: 99, intro: "bomb" },
+    // 第 71 关 · 8x9 · 84 个牌位 · 21 种花色 · 1 对厚冰 · 参考解 42 步
+    { map: ["1111111.1", "131122231", "111111131", "121121111", "11111.111", "1121..121", "112211131", "1.1111111"], lockR: [3, 5], lockC: [2], faces: 21, scramble: 40, ice: 3, ice2: 1, flowers: true },
+    // 第 72 关 · 8x9 · 84 个牌位 · 21 种花色 · 4 对冰 · 参考解 40 步
+    { map: ["1111.1111", "111131121", "111.11311", ".2111.221", "111312111", "111133.11", "112212211", ".1111.111"], lockR: [3, 5], lockC: [2], faces: 21, scramble: 41, ice: 4, flowers: true },
+    // 第 73 关 · 8x9 · 76 个牌位 · 19 种花色 · 2 对冰 · 限 63 步 · 目标 3m×7 · 参考解 46 步
+    { map: ["111..111.", ".11##3211", "12.2111..", "112112221", "111122.11", "121111131", "112213311", "1..1..1.."], lockR: [3, 5], lockC: [2], faces: 19, scramble: 41, ice: 2, flowers: true, moveLimit: 63, goal: { kind: "face", face: "3m", count: 7 } },
+    // 第 74 关 · 8x9 · 88 个牌位 · 22 种花色 · 3 对冰 · 单向轨 · 参考解 26 步
+    { map: ["..1111111", ".1.1323#1", "111211221", "1.1#13.21", "121121221", "121133111", "11#331321", "1111111.."], lockR: [3, 5], lockC: [2], faces: 22, scramble: 42, ice: 3, flowers: true, oneWay: [{ axis: "row", index: 4, dir: -1 }] },
+    // 第 75 关 · 8x9 · 78 个牌位 · 20 种花色 · 4 对冰 · 1 对鞭炮 · 连锁解锁(消5对) · 参考解 36 步
+    { map: ["11.111.11", "11112#11.", "11122.121", "1231111#1", "123111111", "12..12.11", "112122111", "111111111"], lockR: [3, 5], lockC: [2], faces: 20, scramble: 42, ice: 4, bombs: 1, flowers: true, unlock: [{ axis: "row", index: 2, after: 5 }], intro: "unlock" },
+    // 第 76 关 · 8x9 · 82 个牌位 · 21 种花色 · 2 对厚冰 · 花牌百搭 · 限 50 步 · 参考解 37 步
+    { map: ["1111.1111", "13112111.", "121#12311", "121111121", ".1#212#11", ".1#132221", "13321#121", ".111111.."], lockR: [3, 5], lockC: [2], faces: 21, scramble: 43, ice: 2, ice2: 2, flowers: true, wild: true, moveLimit: 50 },
+    // 第 77 关 · 8x9 · 86 个牌位 · 22 种花色 · 3 对冰 · 参考解 45 步
+    { map: ["111.111.1", "122.21221", "13112.111", ".12321.21", "12121113.", "121.11111", "112133211", "11111..11"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 43, ice: 3, flowers: true },
+    // 第 78 关 · 8x9 · 86 个牌位 · 22 种花色 · 4 对冰 · 单向轨 · 目标 9s×5 · 参考解 45 步
+    { map: ["111111111", "11131.111", "131121111", "112113111", "112111111", "113211111", "111321111", "111111111"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 44, ice: 4, flowers: true, oneWay: [{ axis: "col", index: 4, dir: -1 }], goal: { kind: "face", face: "9s", count: 5 } },
+    // 第 79 关 · 8x9 · 92 个牌位 · 23 种花色 · 2 对冰 · 限 59 步 · 参考解 43 步
+    { map: ["1111111..", "1##1232#1", "121111131", "133113321", "1#1223211", "11#221#21", "12#23232.", "11.11111."], lockR: [3, 5], lockC: [2], faces: 23, scramble: 44, ice: 2, flowers: true, moveLimit: 59 },
+    // 第 80 关 · 8x9 · 86 个牌位 · 22 种花色 · 3 对冰 · 2 对鞭炮 · 参考解 47 步
+    { map: ["111111111", "111312111", "131132111", "131133111", "111111111", "1111211.1", "111231111", "1.1.111.1"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 45, ice: 3, bombs: 2, flowers: true },
+    // 第 81 关 · 8x9 · 88 个牌位 · 22 种花色 · 1 对厚冰 · 连锁解锁(消3对) · 参考解 53 步
+    { map: ["111111111", "111311311", "111321121", "121.11211", "11.111121", "121212131", "111121121", "111111111"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 46, ice: 4, ice2: 1, flowers: true, unlock: [{ axis: "row", index: 2, after: 3 }] },
+    // 第 82 关 · 8x9 · 82 个牌位 · 21 种花色 · 2 对冰 · 单向轨 · 限 90 步 · 参考解 29 步
+    { map: ["11.1..111", "121111221", "12111131.", "12211221.", "121111111", ".2231.111", "13212113.", "1.11.111."], lockR: [3, 5], lockC: [2], faces: 21, scramble: 46, ice: 2, flowers: true, oneWay: [{ axis: "col", index: 5, dir: -1 }], moveLimit: 90 },
+    // 第 83 关 · 8x9 · 82 个牌位 · 21 种花色 · 5 对冰 · 目标 6s×5 · 参考解 48 步
+    { map: [".111.11.1", "1111132.1", "112131121", "1212132.1", "121111121", "111121111", "111112111", "11111111."], lockR: [3, 5], lockC: [2], faces: 21, scramble: 47, ice: 5, flowers: true, goal: { kind: "face", face: "6s", count: 5 } },
+    // 第 84 关 · 8x9 · 88 个牌位 · 22 种花色 · 6 对冰 · 花牌百搭 · 参考解 42 步
+    { map: [".1.11111.", "11212#131", "1#11221..", "11#112321", "122111231", ".23112331", "11223#211", "1.111.111"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 47, ice: 6, flowers: true, wild: true },
+    // 第 85 关 · 8x9 · 102 个牌位 · 26 种花色 · 4 对冰 · 1 对鞭炮 · 限 127 步 · 参考解 51 步
+    { map: ["111111.11", "1212#2221", "132#32111", "123112321", "11.221131", "1121#3331", "1.1223231", "111111111"], lockR: [3, 5], lockC: [2], faces: 26, scramble: 48, ice: 4, bombs: 1, flowers: true, moveLimit: 127 },
+    // 第 86 关 · 8x9 · 76 个牌位 · 19 种花色 · 2 对厚冰 · 单向轨 · 参考解 40 步
+    { map: ["11..11111", ".12221131", "121.12111", "1#.1221#1", "112222111", "11321.111", "1#.1111.1", "1111.1111"], lockR: [3, 5], lockC: [2], faces: 19, scramble: 48, ice: 5, ice2: 2, flowers: true, oneWay: [{ axis: "col", index: 1, dir: 1 }] },
+    // 第 87 关 · 8x9 · 94 个牌位 · 24 种花色 · 6 对冰 · 连锁解锁(消5对) · 参考解 50 步
+    { map: ["1..111111", "123213#21", "121#.211.", "1223333#1", ".232#2331", ".#1#32#11", "1#2232221", "1111.1.11"], lockR: [3, 5], lockC: [2, 6], faces: 24, scramble: 49, ice: 6, flowers: true, unlock: [{ axis: "col", index: 3, after: 5 }] },
+    // 第 88 关 · 8x9 · 78 个牌位 · 20 种花色 · 4 对冰 · 限 108 步 · 目标 f2×4 · 参考解 36 步
+    { map: ["111111111", "111313311", "1111.12#1", "1211321#1", "13111.111", "1221121..", "111111.11", "1.1.11.11"], lockR: [3, 5], lockC: [2, 6], faces: 20, scramble: 49, ice: 4, flowers: true, moveLimit: 108, goal: { kind: "face", face: "f2", count: 4 } },
+    // 第 89 关 · 8x9 · 88 个牌位 · 22 种花色 · 5 对冰 · 参考解 48 步
+    { map: [".1111111.", "1#2322331", "122#1#22.", "1311322..", "1#132#121", ".13222#21", "12#112111", "1111.111."], lockR: [3, 5], lockC: [2, 6], faces: 22, scramble: 50, ice: 5, flowers: true },
+    // 第 90 关 · 8x9 · 82 个牌位 · 21 种花色 · 6 对冰 · 2 对鞭炮 · 单向轨 · 参考解 47 步
+    { map: ["11111...1", "12223#221", "122#1#121", "111222.11", "12#21121.", ".12331211", "11211#121", "11.11..11"], lockR: [3, 5], lockC: [2, 6], faces: 21, scramble: 50, ice: 6, bombs: 2, flowers: true, oneWay: [{ axis: "row", index: 4, dir: -1 }] },
+    // 第 91 关 · 8x9 · 92 个牌位 · 23 种花色 · 1 对厚冰 · 限 77 步 · 参考解 48 步
+    { map: ["11111111.", "132112221", "1#2233.21", "132#11#21", "122111211", "112#1#331", "121221211", "11..11111"], lockR: [3, 5], lockC: [2, 6], faces: 23, scramble: 51, ice: 4, ice2: 1, flowers: true, moveLimit: 77 },
+    // 第 92 关 · 8x9 · 98 个牌位 · 25 种花色 · 5 对冰 · 花牌百搭 · 参考解 46 步
+    { map: ["111111111", "111222211", "13.221211", "113212231", "133122211", "113211111", "1122211.1", "1111111.1"], lockR: [3, 5], lockC: [2, 6], faces: 25, scramble: 52, ice: 5, flowers: true, wild: true },
+    // 第 93 关 · 8x9 · 98 个牌位 · 25 种花色 · 6 对冰 · 连锁解锁(消3对) · 目标 z2×4 · 参考解 49 步
+    { map: ["111111.11", "11231212.", "133112311", ".12121111", ".11132131", "112223111", "112223121", "111111111"], lockR: [3, 5], lockC: [2, 6], faces: 25, scramble: 52, ice: 6, flowers: true, unlock: [{ axis: "col", index: 4, after: 3 }], goal: { kind: "face", face: "z2", count: 4 } },
+    // 第 94 关 · 8x9 · 92 个牌位 · 23 种花色 · 4 对冰 · 单向轨 · 限 76 步 · 参考解 51 步
+    { map: ["111111111", "122.12211", ".22322121", "131111.1.", "112111321", "12311122.", "111121231", "1.1111111"], lockR: [3, 5], lockC: [2, 6], faces: 23, scramble: 53, ice: 4, flowers: true, oneWay: [{ axis: "col", index: 4, dir: -1 }], moveLimit: 76 },
+    // 第 95 关 · 8x9 · 94 个牌位 · 24 种花色 · 5 对冰 · 1 对鞭炮 · 参考解 55 步
+    { map: ["11..111.1", "112#33#21", "1222#1#31", "132122211", ".12223121", "132322111", "1133311#1", "1....1.11"], lockR: [3, 5], lockC: [2, 6], faces: 24, scramble: 53, ice: 5, bombs: 1, flowers: true },
+    // 第 96 关 · 8x9 · 98 个牌位 · 25 种花色 · 2 对厚冰 · 参考解 53 步
+    { map: ["111.11111", "123223131", "12.112111", "112112211", "112121121", "112222221", "122323111", "11.11111."], lockR: [3, 5], lockC: [2, 6], faces: 25, scramble: 54, ice: 6, ice2: 2, flowers: true },
+    // 第 97 关 · 8x9 · 102 个牌位 · 26 种花色 · 4 对冰 · 限 83 步 · 参考解 53 步
+    { map: ["111111111", "1.2222121", "112121311", "113221231", "121332.31", "122122131", "11233111.", "111..1111"], lockR: [3, 5], lockC: [2, 6], faces: 26, scramble: 54, ice: 4, flowers: true, moveLimit: 83 },
+    // 第 98 关 · 8x9 · 92 个牌位 · 23 种花色 · 5 对冰 · 单向轨 · 目标 z1×8 · 参考解 54 步
+    { map: ["11111.1.1", ".3213#311", "133#2332.", "1232###3.", "12332222.", "11#121111", "1212##221", "1..1.1111"], lockR: [3, 5], lockC: [2, 6], faces: 23, scramble: 55, ice: 5, flowers: true, oneWay: [{ axis: "row", index: 2, dir: 1 }], goal: { kind: "face", face: "z1", count: 8 } },
+    // 第 99 关 · 8x9 · 98 个牌位 · 25 种花色 · 6 对冰 · 连锁解锁(消5对) · 参考解 57 步
+    { map: ["1.111.111", "132332211", "121312#1.", "13#21.#31", "13322221.", "112#22211", "131#33221", "11.111.11"], lockR: [3, 5], lockC: [2, 6], faces: 25, scramble: 55, ice: 6, flowers: true, unlock: [{ axis: "col", index: 1, after: 5 }] },
+    // 第 100 关 · 8x9 · 90 个牌位 · 23 种花色 · 4 对冰 · 2 对鞭炮 · 花牌百搭 · 限 52 步 · 参考解 34 步
+    { map: ["1111..1.1", "122323121", "112121121", "1#23213#1", "1133#.211", "1#222#21.", "1#232#221", "111.111.1"], lockR: [3, 5], lockC: [2, 6], faces: 23, scramble: 56, ice: 4, bombs: 2, flowers: true, wild: true, moveLimit: 52 },
+    // 第 101 关 · 8x5 · 40 个牌位 · 10 种花色 · 1 对厚冰 · 参考解 62 步
+    { map: [".1..1", "12311", "11111", "1312.", "11#31", ".221.", ".2#11", ".1.11"], lockR: [3, 5], lockC: [2], faces: 10, scramble: 57, ice: 5, ice2: 1, flowers: true },
+    // 第 102 关 · 8x5 · 40 个牌位 · 10 种花色 · 6 对冰 · 单向轨 · 参考解 153 步
+    { map: ["11111", "13111", "11111", "11111", "12111", "1..11", "11111", "111.1"], lockR: [3, 5], lockC: [2], faces: 10, scramble: 57, ice: 6, flowers: true, oneWay: [{ axis: "row", index: 4, dir: 1 }] },
+    // 第 103 关 · 8x5 · 32 个牌位 · 8 种花色 · 7 对冰 · 限 59 步 · 目标 f4×5 · 参考解 47 步
+    { map: ["11..1", "111.1", "1..1.", "1111.", "12131", "11.2.", "11.11", ".111."], lockR: [3, 5], lockC: [2], faces: 8, scramble: 58, ice: 7, flowers: true, moveLimit: 59, goal: { kind: "face", face: "f4", count: 5 } },
+    // 第 104 关 · 8x5 · 42 个牌位 · 11 种花色 · 8 对冰 · 参考解 55 步
+    { map: [".1111", "32121", "1111.", ".1111", "12123", ".1211", "11.11", "11.1."], lockR: [3, 5], lockC: [2], faces: 11, scramble: 58, ice: 8, flowers: true },
+    // 第 105 关 · 8x5 · 40 个牌位 · 10 种花色 · 5 对冰 · 1 对鞭炮 · 连锁解锁(消3对) · 参考解 39 步
+    { map: ["1.111", "1.311", ".1111", "12121", "1##21", "11211", "112#1", "1111."], lockR: [3, 5], lockC: [2], faces: 10, scramble: 59, ice: 5, bombs: 1, flowers: true, unlock: [{ axis: "row", index: 4, after: 3 }] },
+    // 第 106 关 · 8x5 · 38 个牌位 · 10 种花色 · 2 对厚冰 · 单向轨 · 限 114 步 · 参考解 23 步
+    { map: ["1...1", "11211", "..111", "11311", "11221", "11#11", "11311", "1.1.."], lockR: [3, 5], lockC: [2], faces: 10, scramble: 59, ice: 6, ice2: 2, flowers: true, oneWay: [{ axis: "col", index: 1, dir: -1 }], moveLimit: 114 },
+    // 第 107 关 · 8x5 · 40 个牌位 · 10 种花色 · 7 对冰 · 参考解 53 步
+    { map: ["11111", "11113", "1.211", "11131", "11111", "1.111", "11.21", "..11."], lockR: [3, 5], lockC: [2], faces: 10, scramble: 60, ice: 7, flowers: true },
+    // 第 108 关 · 8x5 · 32 个牌位 · 8 种花色 · 8 对冰 · 花牌百搭 · 目标 f7*×12 · 参考解 39 步
+    { map: ["1.1.1", "1#1#1", "11##.", ".#31.", "12311", ".2311", ".1#11", ".1.1."], lockR: [3, 5], lockC: [2], faces: 8, scramble: 60, ice: 8, flowers: true, wild: true, goal: { kind: "face", face: "f7*", count: 12 } },
+    // 第 109 关 · 8x5 · 40 个牌位 · 10 种花色 · 5 对冰 · 限 74 步 · 参考解 51 步
+    { map: ["11.11", "12111", "11211", "1.111", "12311", "1..11", "11.11", "11111"], lockR: [3, 5], lockC: [2], faces: 10, scramble: 61, ice: 5, flowers: true, moveLimit: 74 },
+    // 第 110 关 · 8x5 · 38 个牌位 · 10 种花色 · 6 对冰 · 2 对鞭炮 · 单向轨 · 参考解 64 步
+    { map: ["11.11", "111.1", "11111", "13111", "1.22.", "11211", "11#11", "11.1."], lockR: [3, 5], lockC: [2], faces: 10, scramble: 61, ice: 6, bombs: 2, flowers: true, oneWay: [{ axis: "col", index: 1, dir: -1 }] },
+    // 第 111 关 · 9x5 · 48 个牌位 · 12 种花色 · 1 对厚冰 · 连锁解锁(消5对) · 参考解 58 步
+    { map: [".1111", "11211", "12111", "12#21", "1111.", "1121.", "11131", "12111", "1.111"], lockR: [3, 6], lockC: [2], faces: 12, scramble: 62, ice: 7, ice2: 1, flowers: true, unlock: [{ axis: "row", index: 4, after: 5 }] },
+    // 第 112 关 · 9x5 · 48 个牌位 · 12 种花色 · 8 对冰 · 限 123 步 · 参考解 102 步
+    { map: [".1111", "11231", ".1111", "12#11", "11131", "11211", "11121", "12.1.", "11.11"], lockR: [3, 6], lockC: [2], faces: 12, scramble: 62, ice: 8, flowers: true, moveLimit: 123 },
+    // 第 113 关 · 9x5 · 48 个牌位 · 12 种花色 · 5 对冰 · 目标 5s×3 · 参考解 53 步
+    { map: ["111.1", "11211", ".1221", "..131", "1211.", "12111", "13111", "1121.", "1.111"], lockR: [3, 6], lockC: [2], faces: 12, scramble: 62, ice: 5, flowers: true, goal: { kind: "face", face: "5s", count: 3 } },
+    // 第 114 关 · 9x5 · 42 个牌位 · 11 种花色 · 6 对冰 · 单向轨 · 参考解 58 步
+    { map: ["11111", "111#.", ".122.", ".##2.", "1##11", "1#221", "12331", "1121.", "..111"], lockR: [3, 6], lockC: [2], faces: 11, scramble: 62, ice: 6, flowers: true, oneWay: [{ axis: "col", index: 3, dir: -1 }] },
+    // 第 115 关 · 9x5 · 46 个牌位 · 12 种花色 · 7 对冰 · 1 对鞭炮 · 限 65 步 · 参考解 40 步
+    { map: ["11.1.", ".332.", ".#12.", ".12#1", "122#1", "1#32.", "1331.", ".2##1", "11111"], lockR: [3, 6], lockC: [2], faces: 12, scramble: 62, ice: 7, bombs: 1, flowers: true, moveLimit: 65 },
+    // 第 116 关 · 10x6 · 74 个牌位 · 19 种花色 · 2 对厚冰 · 花牌百搭 · 参考解 42 步
+    { map: [".1.111", "132131", ".###31", "122231", "132221", "132221", ".1#321", ".1#3#1", "1#22#.", "1.1111"], lockR: [4, 7], lockC: [2], faces: 19, scramble: 62, ice: 8, ice2: 2, flowers: true, wild: true },
+    // 第 117 关 · 10x6 · 68 个牌位 · 17 种花色 · 5 对冰 · 连锁解锁(消3对) · 参考解 68 步
+    { map: ["111..1", "111231", "11223.", "12123.", ".2332.", "113121", "1#1.11", "1#.#21", "121#21", ".11..1"], lockR: [4, 7], lockC: [2], faces: 17, scramble: 62, ice: 5, flowers: true, unlock: [{ axis: "col", index: 3, after: 3 }] },
+    // 第 118 关 · 10x6 · 74 个牌位 · 19 种花色 · 6 对冰 · 单向轨 · 限 78 步 · 目标 9p×3 · 参考解 29 步
+    { map: ["111111", "113221", ".13121", "1.2111", "112331", "11.311", "11231.", "1111..", ".31221", ".11111"], lockR: [4, 7], lockC: [2], faces: 19, scramble: 62, ice: 6, flowers: true, oneWay: [{ axis: "col", index: 4, dir: -1 }], moveLimit: 78, goal: { kind: "face", face: "9p", count: 3 } },
+    // 第 119 关 · 10x6 · 66 个牌位 · 17 种花色 · 7 对冰 · 参考解 61 步
+    { map: ["..1.11", "11232.", ".21221", "131##1", "112.21", "122121", "1.33.1", "12211.", "13.#1.", ".11.11"], lockR: [4, 7], lockC: [2], faces: 17, scramble: 62, ice: 7, flowers: true },
+    // 第 120 关 · 10x6 · 70 个牌位 · 18 种花色 · 8 对冰 · 2 对鞭炮 · 参考解 65 步
+    { map: ["111111", ".11131", "121#21", "122111", "113#31", "121131", "1322#1", ".#2#11", ".12111", ".11111"], lockR: [4, 7], lockC: [2], faces: 18, scramble: 62, ice: 8, bombs: 2, flowers: true }
+  ];
+  function levelAt(index) {
+    const i = Number.isFinite(index) ? Math.max(0, Math.min(LEVELS.length - 1, Math.floor(index))) : 0;
+    return LEVELS[i];
+  }
+
+  // cocos/assets/scripts/core/Generator.ts
+  var BASE_FACES = [];
+  for (let i = 1; i <= 9; i++) for (const suit of ["p", "s", "m"]) BASE_FACES.push(i + suit);
+  for (let i = 1; i <= 7; i++) BASE_FACES.push("z" + i);
+  var FLOWER_FACES = [];
+  for (let i = 1; i <= 8; i++) FLOWER_FACES.push("f" + i);
+  var BOMB_FACE = "b1";
+  var FACES = BASE_FACES.concat(FLOWER_FACES).concat([BOMB_FACE]);
+  var isFace = (f) => {
+    let base = f;
+    while (base.endsWith("~")) base = base.slice(0, -1);
+    if (base.endsWith("*")) base = base.slice(0, -1);
+    return FACES.includes(base);
+  };
+  function activeLocks(def, cleared) {
+    const lockR = def.lockR.slice(), lockC = def.lockC.slice();
+    for (const u of def.unlock || []) {
+      if (u.after > cleared) (u.axis === "row" ? lockR : lockC).push(u.index);
+    }
+    return { lockR, lockC };
+  }
+  function rng(seed) {
+    return () => {
+      seed |= 0;
+      seed = seed + 1831565813 | 0;
+      let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function shuffled(items, random) {
+    const a = items.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  function empty(def) {
+    return def.map.map((row) => row.split("").map((c) => c === "." ? null : c === "#" ? "#" : []));
+  }
+  function locations(def, random) {
+    const left = [], right = [];
+    def.map.forEach((row, r) => row.split("").forEach((v, c) => {
+      for (let d = 0; d < (Number(v) || 0); d++) ((r + c) % 2 ? right : left).push({ r, c });
+    }));
+    const L = shuffled(left, random), R = shuffled(right, random);
+    const edges = L.map((a) => shuffled(R.map((b, i) => ({ b, i })).filter(({ b }) => Math.abs(a.r - b.r) + Math.abs(a.c - b.c) === 1).map((v) => v.i), random));
+    const owner = new Array(R.length).fill(-1);
+    const visit = (li, seen) => {
+      for (const ri of edges[li]) {
+        if (seen.has(ri)) continue;
+        seen.add(ri);
+        if (owner[ri] < 0 || visit(owner[ri], seen)) {
+          owner[ri] = li;
+          return true;
+        }
+      }
+      return false;
+    };
+    for (let i = 0; i < L.length; i++) visit(i, /* @__PURE__ */ new Set());
+    return shuffled(owner.flatMap((li, ri) => li < 0 ? [] : [{ a: L[li], b: R[ri] }]), random);
+  }
+  function certify(start, runs, proposed) {
+    let g = start;
+    const solution = [];
+    for (const a of proposed) {
+      const next = transition(g, runs, a);
+      if (next.changed) {
+        g = next.grid;
+        solution.push(a);
+      }
+    }
+    for (let pair = sameFacePairs(g)[0] || pairs(g)[0]; pair; pair = sameFacePairs(g)[0] || pairs(g)[0]) {
+      const a = { kind: "match", a: pair.a, b: pair.b }, next = transition(g, runs, a);
+      if (!next.changed) break;
+      g = next.grid;
+      solution.push(a);
+    }
+    return count(g) === 0 ? solution : null;
+  }
+  function railConflicts(g, def) {
+    const locked = (p) => def.lockR.includes(p.r) || def.lockC.includes(p.c);
+    const faceAt = (p) => top(g, p);
+    let n = 0;
+    for (let r = 0; r < g.length; r++) for (let c = 0; c < g[r].length; c++) {
+      const p = { r, c };
+      if (!locked(p)) continue;
+      for (const q of [{ r, c: c + 1 }, { r: r + 1, c }]) if (locked(q)) {
+        const a = faceAt(p), b = faceAt(q);
+        if (a && a === b) n++;
+      }
+    }
+    return n;
+  }
+  function construct(def, seed, tokens) {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const s = attempt === 0 ? seed : (seed ^ Math.imul(attempt, 2654435769)) >>> 0;
+      const deal = constructOnce(def, s, tokens);
+      if (deal) return deal;
+    }
+    return null;
+  }
+  function constructOnce(def, seed, tokens) {
+    const random = rng(seed), places = locations(def, random);
+    const pool = shuffled((def.flowers ? FACES : BASE_FACES).filter((f) => f !== BOMB_FACE), random).slice(0, Math.max(1, def.faces));
+    let faces = tokens ? shuffled(tokens, random) : shuffled(pool.concat(pool), random).slice(0, places.length);
+    if (faces.length > places.length) return null;
+    if (def.wild) faces = faces.map((f) => f[0] === "f" && !f.endsWith("*") && !f.endsWith("~") ? f + "*" : f);
+    const bombCount = tokens ? 0 : Math.min(Math.max(0, def.bombs || 0), faces.length);
+    for (let i = 0; i < bombCount; i++) faces[i] = BOMB_FACE;
+    const iceCount = tokens ? 0 : Math.min(Math.max(0, def.ice || 0), faces.length);
+    if (iceCount > 0) {
+      const ice2 = Math.min(Math.max(0, def.ice2 || 0), iceCount);
+      const order = shuffled(faces.map((_, i) => i).filter((i) => !faces[i].startsWith("b") && faces[i][0] !== "f"), random);
+      order.slice(0, iceCount).forEach((i, k) => {
+        if (!faces[i].endsWith("~")) faces[i] = faces[i] + "~".repeat(k < ice2 ? 2 : 1);
+      });
+    }
+    const used = places.slice(0, faces.length);
+    const base = empty(def);
+    used.forEach((p, i) => {
+      base[p.a.r][p.a.c].push(faces[i]);
+      base[p.b.r][p.b.c].push(faces[i]);
+    });
+    const startLocks = activeLocks(def, 0);
+    const runs = runsFor(base, startLocks.lockR, startLocks.lockC, def.oneWay);
+    const removals = [];
+    for (let i = used.length - 1; i >= 0; i--) {
+      const p = used[i];
+      removals.push({ kind: "match", a: p.a, b: p.b });
+      if (faces[i].endsWith("~")) removals.push({ kind: "match", a: p.a, b: p.b });
+    }
+    const ideal = Math.max(1, Math.floor(faces.length / 12));
+    const quality = Math.max(1, Math.floor(count(base) / 6));
+    let best = null, bestRail = Infinity, bestPairs = Infinity;
+    const scrambleRounds = (rounds, stopPairs, steps) => {
+      for (let attempt = 0; attempt < rounds; attempt++) {
+        let g = base;
+        const inverse = [];
+        for (let j = 0; j < steps && runs.length; j++) {
+          const ri = Math.floor(random() * runs.length), step = random() < 0.5 ? -1 : 1;
+          g = rotate(g, runs[ri], step);
+          inverse.unshift({ kind: "slide", run: ri, step: -step });
+        }
+        const solution2 = certify(g, runs, inverse.concat(removals));
+        if (!solution2) continue;
+        const rail = railConflicts(g, def), score = sameFacePairs(g).length;
+        if (rail < bestRail || rail === bestRail && score < bestPairs) {
+          best = { grid: g, runs, solution: solution2, seed, fallback: false };
+          bestRail = rail;
+          bestPairs = score;
+        }
+        if (bestRail === 0 && bestPairs <= stopPairs) return;
+      }
+    };
+    scrambleRounds(32, ideal, def.scramble);
+    if (bestRail > 0 || bestPairs > quality) scrambleRounds(64, quality, def.scramble);
+    if (bestRail > 0) scrambleRounds(64, quality, def.scramble * 2);
+    if (bestRail > 0) scrambleRounds(64, quality, def.scramble * 4);
+    if (best) return best;
+    const solution = certify(base, runs, removals);
+    if (!solution) return null;
+    let current = { grid: base, runs, solution, seed, fallback: true };
+    best = current;
+    bestRail = railConflicts(base, def);
+    bestPairs = sameFacePairs(base).length;
+    for (let j = 0; j < def.scramble * 4 && runs.length; j++) {
+      const ri = Math.floor(random() * runs.length), step = random() < 0.5 ? -1 : 1;
+      const grid = rotate(current.grid, runs[ri], step);
+      const route = certify(grid, runs, [{ kind: "slide", run: ri, step: -step }, ...current.solution]);
+      if (!route) continue;
+      const rail = railConflicts(grid, def), score = sameFacePairs(grid).length;
+      if (rail <= railConflicts(current.grid, def) && score <= sameFacePairs(current.grid).length) current = { grid, runs, solution: route, seed, fallback: false };
+      if (rail < bestRail || rail === bestRail && score < bestPairs) {
+        best = { grid, runs, solution: route, seed, fallback: false };
+        bestRail = rail;
+        bestPairs = score;
+      }
+      if (bestRail === 0 && bestPairs <= ideal) break;
+    }
+    return best;
+  }
+  function generate(index, seed) {
+    if (!Number.isInteger(index) || index < 0 || index >= LEVELS.length) throw new Error("\u5173\u5361\u7D22\u5F15\u8D8A\u754C");
+    const deal = construct(LEVELS[index], seed);
+    if (!deal) throw new Error("\u5173\u5361\u65E0\u6CD5\u751F\u6210\u53EF\u9A8C\u8BC1\u7684\u6E05\u53F0\u8DEF\u7EBF");
+    return deal;
+  }
+  function redeal(index, g, seed) {
+    const freq = /* @__PURE__ */ new Map();
+    g.forEach((row) => row.forEach((cell) => {
+      if (Array.isArray(cell)) for (const f of cell) freq.set(f, (freq.get(f) || 0) + 1);
+    }));
+    const tokens = [];
+    for (const [f, n] of freq) {
+      if (n % 2 !== 0 || n > 4) return null;
+      for (let i = 0; i < n / 2; i++) tokens.push(f);
+    }
+    return construct(LEVELS[index], seed, tokens);
+  }
+
+  // cocos/assets/scripts/core/Session.ts
+  var local = { load: () => null, save: () => {
+  }, feedback: () => {
+  } };
+  var PAGE_SIZE = 16;
+  var Session = class {
+    constructor(seed = Date.now(), platform = local) {
+      this.grid = [];
+      this.runs = [];
+      this.levelIndex = 0;
+      this.maxLevel = 0;
+      this.total = 0;
+      this.moves = 0;
+      this.selected = null;
+      this.hint = [];
+      this.message = "";
+      this.modal = "none";
+      this.reducedMotion = false;
+      this.vibration = true;
+      this.lastChain = 0;
+      this.solution = [];
+      this.lastErased = [];
+      this.revision = 0;
+      this.history = [];
+      this.par = 0;
+      this.hintsUsed = 0;
+      this.shufflesUsed = 0;
+      this.stars = {};
+      this.levelPage = 0;
+      /** 体验版 / 开发版全解锁（视图按 wx envVersion 设置）：选关不再受 maxLevel 限制，但跳关不推进进度。 */
+      this.unlockAll = false;
+      /** 累计「真正消掉」的对数（碎冰不算）——连锁解锁的阈值与目标进度都基于它。 */
+      this.clearedPairs = 0;
+      /** 目标关进度（已达成数）。 */
+      this.goalDone = 0;
+      /** 待展示的说明卡（第 1 关教学 / 机制首现）。非空时牌桌输入被屏蔽。 */
+      this.tip = null;
+      /** 已经看过的机制说明（持久化，避免每次都弹）。 */
+      this.tipsSeen = {};
+      this.returnModal = "none";
+      /** 当前关的关卡定义（reset 时从关卡表取；单测可直接替换）。 */
+      this.def = LEVELS[0];
+      this.seed = seed;
+      this.platform = platform;
+      let data;
+      try {
+        data = platform.load();
+        if (typeof data === "string") data = JSON.parse(data);
+      } catch {
+        data = null;
+      }
+      if (data && typeof data === "object") {
+        if (Number.isInteger(data.maxLevel)) this.maxLevel = Math.max(0, Math.min(LEVELS.length - 1, data.maxLevel));
+        if (data.stars && typeof data.stars === "object") {
+          for (const [i, n] of Object.entries(data.stars)) if (/^\d+$/.test(i) && Number(i) <= this.maxLevel && Number.isInteger(n) && Number(n) >= 1 && Number(n) <= 3) this.stars[i] = Number(n);
+        }
+        if (data.tipsSeen && typeof data.tipsSeen === "object") {
+          for (const [k, v] of Object.entries(data.tipsSeen)) if (v === true) this.tipsSeen[k] = true;
+        }
+        this.reducedMotion = data.reducedMotion === true;
+        this.vibration = data.vibration !== false;
+      }
+      this.reset(this.maxLevel, false);
+      if (data?.version === 2) this.restore(data.run);
+      this.modal = "home";
+    }
+    save() {
+      try {
+        this.platform.save({
+          version: 2,
+          maxLevel: this.maxLevel,
+          stars: this.stars,
+          reducedMotion: this.reducedMotion,
+          vibration: this.vibration,
+          tipsSeen: this.tipsSeen,
+          run: count(this.grid) ? { index: this.levelIndex, seed: this.seed, grid: this.grid, total: this.total, moves: this.moves, par: this.par, hintsUsed: this.hintsUsed, shufflesUsed: this.shufflesUsed, clearedPairs: this.clearedPairs, goalDone: this.goalDone } : null
+        });
+      } catch {
+      }
+    }
+    restore(run) {
+      if (!run || !Number.isInteger(run.index) || run.index < 0 || run.index > this.maxLevel || !Array.isArray(run.grid)) return;
+      const map = levelAt(run.index).map, grid = run.grid;
+      if (grid.length !== map.length || !grid.every((row, r) => Array.isArray(row) && row.length === map[r].length && row.every((cell, c) => map[r][c] === "." ? cell === null : map[r][c] === "#" ? cell === "#" : Array.isArray(cell) && cell.length <= 3 && cell.every((f) => isFace(f))))) return;
+      if (![run.total, run.moves, run.par, run.seed, run.hintsUsed, run.shufflesUsed].every((n) => Number.isInteger(n) && n >= 0) || run.hintsUsed > 3 || run.shufflesUsed > 2 || run.moves > 1e5 || run.par > 1e4) return;
+      const tally = /* @__PURE__ */ new Map();
+      grid.flat().forEach((cell) => {
+        if (Array.isArray(cell)) cell.forEach((f) => tally.set(f, (tally.get(f) || 0) + 1));
+      });
+      if (!count(grid) || count(grid) > run.total || run.total > 136 || Array.from(tally.values()).some((n) => n % 2 || n > 4)) return;
+      this.reset(run.index, false);
+      this.grid = clone(grid);
+      this.seed = run.seed;
+      this.total = run.total;
+      this.moves = run.moves;
+      this.par = run.par;
+      this.hintsUsed = run.hintsUsed;
+      this.shufflesUsed = run.shufflesUsed;
+      this.clearedPairs = Number.isInteger(run.clearedPairs) ? Math.max(0, run.clearedPairs) : 0;
+      this.goalDone = Number.isInteger(run.goalDone) ? Math.max(0, run.goalDone) : 0;
+      this.refreshRuns();
+      this.tip = null;
+      this.solution = [];
+      this.message = "\u724C\u684C\u5DF2\u4FDD\u7559\uFF0C\u63A5\u7740\u4E0A\u4E00\u76D8\u6162\u6162\u60F3\u3002";
+    }
+    /**
+     * 按「当前盘面 + 当前已消对数」重算滑轨。
+     *
+     * 必须每次消除后重算：① 牌消掉后旧 runs 会指着空格，死局判定与提示都会被带偏；
+     * ② 连锁解锁要按进度放开锁轨。
+     */
+    refreshRuns() {
+      const l = activeLocks(this.def, this.clearedPairs);
+      this.runs = runsFor(this.grid, l.lockR, l.lockC, this.def.oneWay);
+    }
+    get levelCount() {
+      return LEVELS.length;
+    }
+    /** 牌面代号 → 中文名（目标关 HUD 等界面文案用）。 */
+    static faceName(face) {
+      const nums = "\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D";
+      const m = /^(\d)([psm])$/.exec(face);
+      if (m) return nums[Number(m[1]) - 1] + (m[2] === "p" ? "\u7B52" : m[2] === "s" ? "\u6761" : "\u4E07");
+      if (/^z[1-7]$/.test(face)) return ["\u6771", "\u5357", "\u897F", "\u5317", "\u4E2D", "\u767C", "\u767D"][Number(face[1]) - 1];
+      if (/^f[1-8]$/.test(face)) return ["\u6625", "\u590F", "\u79CB", "\u51AC", "\u6885", "\u5170", "\u7AF9", "\u83CA"][Number(face[1]) - 1];
+      return face;
+    }
+    /** 难度 1~5，由关卡序号推导；关卡数据本身不再携带章节与名称。 */
+    get difficulty() {
+      return Math.min(5, 1 + Math.floor(this.levelIndex / 20));
+    }
+    get hintsLeft() {
+      return 3 - this.hintsUsed;
+    }
+    get shufflesLeft() {
+      return 2 - this.shufflesUsed;
+    }
+    get canUndo() {
+      return this.history.length > 0;
+    }
+    /** 本关步数上限（0 = 不限步）。 */
+    get moveLimit() {
+      return this.def.moveLimit || 0;
+    }
+    get movesLeft() {
+      return this.moveLimit ? Math.max(0, this.moveLimit - this.moves) : 0;
+    }
+    /** 目标关进度；无目标返回 null。 */
+    get goal() {
+      return this.def.goal || null;
+    }
+    get goalReached() {
+      const g = this.goal;
+      return !!g && this.goalDone >= g.count;
+    }
+    /**
+     * 可靠的死局判定（不是近似搜索）：没有可消对子，且所有可达状态都没有任何一步能减少牌数。
+     * 视图在每次落子后调用；预算用尽时返回 false（不误判）。
+     */
+    get dead() {
+      if (!count(this.grid) || this.goalReached) return false;
+      return isDead(this.grid, (grid) => {
+        const l = activeLocks(this.def, this.clearedPairs);
+        return runsFor(grid, l.lockR, l.lockC, this.def.oneWay);
+      }, 2e3);
+    }
+    /** 待展示的说明卡：第 1 关固定教学；其余机制只在首次出现时弹一次。 */
+    get introTip() {
+      return this.tip;
+    }
+    dismissTip() {
+      const t = this.tip;
+      if (t && t !== "basic") {
+        this.tipsSeen[t] = true;
+        this.save();
+      }
+      this.tip = null;
+      this.revision++;
+    }
+    /** 当前弹窗是从哪一屏打开的：'home' 表示首页，'none' 表示牌桌。
+     *  视图必须据此决定弹窗底下画哪一屏——否则从首页打开设置会露出牌桌。 */
+    get openedFrom() {
+      return this.returnModal;
+    }
+    get rating() {
+      return this.moves <= this.par && !this.hintsUsed && !this.shufflesUsed ? 3 : this.moves <= Math.ceil(this.par * 1.5) ? 2 : 1;
+    }
+    remember() {
+      this.history.push({ grid: clone(this.grid), moves: this.moves, lastChain: this.lastChain, solution: this.solution.slice(), hint: this.hint.slice(), clearedPairs: this.clearedPairs, goalDone: this.goalDone });
+      if (this.history.length > 80) this.history.shift();
+    }
+    reset(index = this.levelIndex, fresh = true) {
+      const chosen = Number.isFinite(index) ? Math.max(0, Math.min(LEVELS.length - 1, Math.floor(index))) : 0;
+      if (fresh) this.seed = this.seed + 2654435769 >>> 0;
+      const deal = generate(chosen, this.seed);
+      this.levelIndex = chosen;
+      this.def = levelAt(chosen);
+      this.grid = deal.grid;
+      this.runs = deal.runs;
+      this.solution = deal.solution;
+      this.total = count(this.grid);
+      this.moves = 0;
+      this.lastChain = 0;
+      this.selected = null;
+      this.hint = [];
+      this.history = [];
+      this.modal = "none";
+      this.lastErased = [];
+      this.par = deal.solution.length;
+      this.hintsUsed = 0;
+      this.shufflesUsed = 0;
+      this.levelPage = Math.floor(chosen / PAGE_SIZE);
+      this.returnModal = "none";
+      this.clearedPairs = 0;
+      this.goalDone = 0;
+      this.tip = chosen === 0 ? "basic" : this.def.intro && !this.tipsSeen[this.def.intro] ? this.def.intro : null;
+      this.message = chosen === 0 ? "\u540C\u724C\u76F8\u90BB\uFF0C\u8F7B\u70B9\u6D88\u9664\uFF1B\u62D6\u52A8\u4E00\u884C\u6216\u4E00\u5217\uFF0C\u677E\u624B\u81EA\u52A8\u6D88\u3002" : "\u770B\u6E05\u8FD9\u76D8\u7684\u969C\u788D\uFF0C\u5148\u627E\u51FA\u7B2C\u4E00\u6B65\u3002";
+      this.revision++;
+    }
+    apply(action) {
+      if (this.modal !== "none" || this.tip) return false;
+      const out = transition(this.grid, this.runs, action);
+      if (!out.changed) return false;
+      this.remember();
+      const planned = this.solution[0], expected = planned ? transition(this.grid, this.runs, planned) : null;
+      if (expected?.changed && signature(expected.grid) === signature(out.grid)) this.solution.shift();
+      else this.solution = [];
+      const hinted = this.hint[0];
+      if (hinted && signature(transition(this.grid, this.runs, hinted).grid) === signature(out.grid)) this.hint.shift();
+      else this.hint = [];
+      this.grid = out.grid;
+      this.selected = null;
+      this.lastChain = out.chain;
+      this.lastErased = out.erased;
+      this.moves++;
+      const cleared = out.erased.filter((p) => !hasIce(p.face)).length;
+      this.clearedPairs += cleared;
+      const g = this.goal;
+      if (g) this.goalDone += g.kind === "face" ? g.face ? out.erased.filter((p) => p.face === g.face || p.face.startsWith(g.face + "~")).length : cleared : out.erased.filter((p) => hasIce(p.face)).length;
+      this.refreshRuns();
+      if (out.erased.length && this.vibration) {
+        try {
+          this.platform.feedback();
+        } catch {
+        }
+      }
+      const brokeIce = out.erased.some((p) => hasIce(p.face));
+      this.message = brokeIce ? "\u51B0\u5C42\u788E\u4E86\uFF0C\u9732\u51FA\u724C\u9762\u518D\u6D88\u4E00\u6B21\u624D\u80FD\u6536\u8D70\u3002" : out.erased.length ? out.chain > 1 ? `\u8FDE\u6D88 ${out.chain} \u5C42\uFF0C\u5E26\u8D70 ${out.erased.length} \u5BF9\uFF01` : `\u78B0\u4E2A\u5BF9\uFF01\u6D88\u6389 ${out.erased.length} \u5BF9\u3002` : "\u518D\u8F6C\u4E2A\u65B9\u5411\uFF0C\u724C\u4F1A\u4ECE\u8F68\u9053\u53E6\u4E00\u5934\u56DE\u6765\u3002";
+      if (this.hint.length) this.message = this.describe(this.hint[0]);
+      const done = count(this.grid) === 0;
+      if (done || this.goalReached) {
+        this.modal = "win";
+        this.maxLevel = Math.max(this.maxLevel, Math.min(LEVELS.length - 1, this.levelIndex + 1));
+        this.stars[this.levelIndex] = Math.max(this.stars[this.levelIndex] || 0, this.rating);
+        this.hint = [];
+        if (!done) this.message = "\u76EE\u6807\u8FBE\u6210\uFF0C\u901A\u5173\uFF01";
+      } else if (this.moveLimit && this.moves >= this.moveLimit) {
+        this.modal = "lose";
+        this.message = `\u6B65\u6570\u7528\u5C3D\uFF0C\u8FD8\u5DEE ${count(this.grid)} \u5F20\u3002`;
+      }
+      this.save();
+      this.revision++;
+      return true;
+    }
+    tap(p) {
+      if (this.modal !== "none" || this.tip) return;
+      this.lastErased = [];
+      if (!top(this.grid, p)) {
+        this.selected = null;
+        this.revision++;
+        return;
+      }
+      if (this.selected && partners(this.grid, this.selected).some((q) => equal(q, p))) {
+        this.apply({ kind: "match", a: this.selected, b: p });
+        return;
+      }
+      const near = partners(this.grid, p);
+      if (near.length === 1) {
+        this.apply({ kind: "match", a: p, b: near[0] });
+        return;
+      }
+      this.selected = equal(this.selected, p) ? null : p;
+      this.message = near.length > 1 ? "\u6709\u4E0D\u6B62\u4E00\u4E2A\u642D\u5B50\uFF0C\u70B9\u4F60\u60F3\u6D88\u7684\u90A3\u5F20\u3002" : "\u62D6\u52A8\u8FD9\u4E00\u884C\u6216\u8FD9\u4E00\u5217\uFF0C\u628A\u642D\u5B50\u63A8\u5230\u65C1\u8FB9\u3002";
+      this.revision++;
+    }
+    /** Feedback for gestures that cannot become an action (locked rail, wood block, hole). */
+    notice(text2) {
+      if (this.modal !== "none" || this.tip) return;
+      this.selected = null;
+      this.lastErased = [];
+      this.message = text2;
+      if (this.vibration) {
+        try {
+          this.platform.feedback();
+        } catch {
+        }
+      }
+      this.revision++;
+    }
+    slide(run, step) {
+      return this.apply({ kind: "slide", run, step });
+    }
+    undo() {
+      if (this.tip) return false;
+      if (this.modal !== "none" && this.modal !== "win" && this.modal !== "lose") return false;
+      const snap = this.history.pop();
+      if (!snap) {
+        this.message = "\u8FD8\u6CA1\u6709\u9700\u8981\u64A4\u9500\u7684\u64CD\u4F5C\u3002";
+        this.revision++;
+        return false;
+      }
+      this.grid = snap.grid;
+      this.moves = snap.moves;
+      this.lastChain = snap.lastChain;
+      this.solution = snap.solution;
+      this.hint = snap.hint;
+      this.clearedPairs = snap.clearedPairs;
+      this.goalDone = snap.goalDone;
+      this.refreshRuns();
+      this.selected = null;
+      this.modal = "none";
+      this.lastErased = [];
+      this.message = "\u521A\u624D\u7684\u6574\u6B21\u64CD\u4F5C\uFF0C\u5DF2\u7ECF\u4E00\u8D77\u64A4\u56DE\u3002";
+      this.save();
+      this.revision++;
+      return true;
+    }
+    shuffle() {
+      if (this.modal !== "none" || this.tip || !count(this.grid)) return false;
+      if (!this.shufflesLeft) {
+        this.notice("\u672C\u5173\u4E24\u6B21\u514D\u8D39\u6D17\u724C\u5DF2\u7528\u5B8C\uFF0C\u53EF\u4EE5\u64A4\u9500\u6216\u91CD\u5F00\u3002");
+        return false;
+      }
+      const deal = redeal(this.levelIndex, this.grid, this.seed + this.revision * 7919 >>> 0);
+      if (!deal) {
+        this.message = "\u8FD9\u6B21\u65E0\u6CD5\u5B89\u5168\u91CD\u6392\uFF0C\u539F\u6765\u7684\u724C\u6CA1\u6709\u6539\u52A8\u3002";
+        this.revision++;
+        return false;
+      }
+      this.remember();
+      this.grid = deal.grid;
+      this.runs = deal.runs;
+      this.solution = deal.solution;
+      this.hint = [];
+      this.selected = null;
+      this.lastChain = 0;
+      this.lastErased = [];
+      this.refreshRuns();
+      this.shufflesUsed++;
+      this.message = "\u539F\u724C\u91CD\u65B0\u6446\u597D\uFF1B\u6D17\u724C\u4E0D\u6539\u724C\u79CD\uFF0C\u4F7F\u7528\u8F85\u52A9\u6700\u591A\u83B7\u4E24\u661F\u3002";
+      this.save();
+      this.revision++;
+      return true;
+    }
+    describe(a) {
+      if (a.kind === "match") return `\u70B9\u4EAE\u7740\u7684\u5BF9\u5B50\uFF1A\u7B2C ${a.a.r + 1} \u884C\u7B2C ${a.a.c + 1} \u5217\u3002`;
+      const r = this.runs[a.run];
+      return `${this.hint.length > 1 ? "\u5148" : ""}\u63A8\u7B2C ${r.index + 1} ${r.axis === "row" ? "\u884C" : "\u5217"}\uFF0C\u5411${r.axis === "row" ? a.step > 0 ? "\u53F3" : "\u5DE6" : a.step > 0 ? "\u4E0B" : "\u4E0A"} ${Math.abs(a.step)} \u683C${this.hint.length > 1 ? "\uFF1B\u4E0B\u4E00\u6B65\u4F1A\u63A5\u7740\u63D0\u793A\u3002" : "\u3002"}`;
+    }
+    requestHint() {
+      if (this.modal !== "none" || this.tip) return;
+      this.lastErased = [];
+      if (this.hint.length) {
+        this.message = this.describe(this.hint[0]);
+        this.revision++;
+        return;
+      }
+      if (!this.hintsLeft) {
+        this.notice("\u672C\u5173\u4E09\u6B21\u514D\u8D39\u63D0\u793A\u5DF2\u7528\u5B8C\uFF0C\u8BD5\u8BD5\u64A4\u9500\u6216\u91CD\u5F00\u3002");
+        return;
+      }
+      const h = searchHint(this.grid, this.runs, { budget: 1800, maxDepth: count(this.grid) <= 6 ? 8 : 3 });
+      this.hint = h.status === "found" ? h.actions : [];
+      if (!this.hint.length && this.solution.length) this.hint = [this.solution[0]];
+      if (this.hint.length) {
+        this.hintsUsed++;
+        this.save();
+      }
+      this.message = this.hint.length ? this.describe(this.hint[0]) : h.status === "dead" ? "\u5F53\u524D\u786E\u5B9E\u6CA1\u6709\u6D88\u9664\u8DEF\u7EBF\uFF0C\u53EF\u4EE5\u64A4\u9500\u3001\u6D17\u724C\u6216\u91CD\u5F00\u3002" : "\u6682\u65F6\u6CA1\u627E\u5230\u77ED\u8DEF\u7EBF\uFF0C\u4E0D\u4EE3\u8868\u65E0\u89E3\u3002\u53EF\u4EE5\u7EE7\u7EED\u63A8\uFF0C\u6216\u8BD5\u8BD5\u6D17\u724C\u3002";
+      this.revision++;
+    }
+    command(id) {
+      if (id === "tip-ok") {
+        this.dismissTip();
+        return;
+      }
+      const open = this.modal;
+      if (open !== "none") {
+        if (id === "close") {
+          this.modal = this.returnModal;
+          this.returnModal = "none";
+          this.revision++;
+          return;
+        }
+        if (open === "home" && id === "continue") {
+          if (!count(this.grid)) this.reset(this.maxLevel);
+          this.modal = "none";
+          this.save();
+          this.revision++;
+          return;
+        }
+        if (open === "home" && ["help", "settings", "levels"].includes(id)) {
+          this.returnModal = "home";
+          this.modal = id;
+          this.levelPage = Math.floor(this.levelIndex / PAGE_SIZE);
+          this.revision++;
+          return;
+        }
+        if (open === "settings" && id === "toggle-motion") {
+          this.reducedMotion = !this.reducedMotion;
+          this.save();
+          this.revision++;
+          return;
+        }
+        if (open === "settings" && id === "toggle-vibration") {
+          this.vibration = !this.vibration;
+          this.save();
+          this.revision++;
+          return;
+        }
+        if (open === "restart" && id === "confirm-restart") {
+          this.reset();
+          this.save();
+          return;
+        }
+        if (open === "win" && id === "next" && this.levelIndex < LEVELS.length - 1) {
+          this.reset(this.levelIndex + 1);
+          this.save();
+          return;
+        }
+        if (open === "win" && id === "home") {
+          this.modal = "home";
+          this.revision++;
+          return;
+        }
+        if (open === "win" && id === "replay") {
+          this.reset();
+          this.save();
+          return;
+        }
+        if (open === "win" && id === "levels") {
+          this.returnModal = "win";
+          this.modal = "levels";
+          this.revision++;
+          return;
+        }
+        if (open === "lose" && (id === "replay" || id === "restart")) {
+          this.reset();
+          this.save();
+          return;
+        }
+        if (open === "lose" && id === "home") {
+          this.modal = "home";
+          this.revision++;
+          return;
+        }
+        if (open === "lose" && id === "undo") {
+          if (this.undo()) this.modal = "none";
+          return;
+        }
+        if (open === "levels" && (id === "page-prev" || id === "page-next")) {
+          this.levelPage = Math.max(0, Math.min(Math.ceil(this.levelCount / PAGE_SIZE) - 1, this.levelPage + (id === "page-next" ? 1 : -1)));
+          this.revision++;
+          return;
+        }
+        if (open === "levels" && id.startsWith("level:")) {
+          const i = Number(id.slice(6));
+          if (Number.isInteger(i) && i >= 0 && (i <= this.maxLevel || this.unlockAll)) {
+            this.reset(i);
+            this.save();
+          }
+          return;
+        }
+        return;
+      }
+      if (this.tip) return;
+      if (id === "hint") {
+        this.requestHint();
+        return;
+      }
+      if (id === "shuffle") {
+        this.shuffle();
+        return;
+      }
+      if (id === "undo") {
+        this.undo();
+        return;
+      }
+      if (["home", "settings", "help", "restart", "levels"].includes(id)) {
+        this.returnModal = "none";
+        this.modal = id;
+        this.levelPage = Math.floor(this.levelIndex / PAGE_SIZE);
+        this.selected = null;
+        this.hint = [];
+        this.lastErased = [];
+        this.save();
+        this.revision++;
+      }
+    }
+  };
+
+  // demo/h5/src/theme.ts
+  var T = {
+    sky1: "#9FD6E8",
+    sky2: "#CFE9E6",
+    sky3: "#DCEFD2",
+    garden: "#8FB65F",
+    gardenDeep: "#6A9548",
+    gardenDark: "#3E6A31",
+    leaf: "#7FB04C",
+    leafDark: "#4A7A31",
+    leafLight: "#A8CE72",
+    cream: "#FBF3DE",
+    creamDeep: "#F3E6C6",
+    creamEdge: "#E4D2A6",
+    gold: "#D8A94E",
+    goldDeep: "#A87C2C",
+    goldLight: "#F3DC9B",
+    jade: "#2E7D4F",
+    jadeDeep: "#1C5B37",
+    jadeLight: "#4FA46A",
+    jadeBright: "#43A860",
+    ink: "#2B3A28",
+    inkSoft: "#5D6B52",
+    inkFaint: "#8A957E",
+    wood: "#8B5A2B",
+    woodDeep: "#5A3714",
+    woodLight: "#B58046",
+    woodInner: "#6E4A22",
+    felt: "#3F6B3A",
+    feltDeep: "#2E5230",
+    tile: "#FDF8E4",
+    tileEdge: "#E8DCBC",
+    white: "#FFFFFF"
+  };
+  var FONT_SANS = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif';
+  var FONT_SERIF = '"STKaiti","KaiTi","Kaiti SC","Songti SC","Noto Serif CJK SC",serif';
+
+  // demo/h5/src/bg.ts
+  var cache = /* @__PURE__ */ new Map();
+  function make(w, h) {
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w));
+    c.height = Math.max(1, Math.round(h));
+    const ctx = c.getContext("2d");
+    paint(ctx, c.width, c.height);
+    return c;
+  }
+  function gardenBg(w, h) {
+    const key2 = Math.round(w) + "x" + Math.round(h);
+    let hit = cache.get(key2);
+    if (!hit) {
+      hit = make(w, h);
+      cache.set(key2, hit);
+      if (cache.size > 6) cache.delete(cache.keys().next().value);
+    }
+    return hit;
+  }
+  function blob(ctx, x, y, rx, ry, col, rot = 0) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = col;
+    ctx.fill();
+    ctx.restore();
+  }
+  function leafCluster(ctx, x, y, s, rot, col, deep) {
+    for (let i = 0; i < 5; i++) {
+      const a = rot + i * 1.05;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(a);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(s * 0.55, -s * 0.5, s * 1.25, 0);
+      ctx.quadraticCurveTo(s * 0.55, s * 0.5, 0, 0);
+      ctx.fillStyle = i % 2 ? col : deep;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  function mountain(ctx, w, h, baseY, amp, col, seed) {
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let x = 0; x <= w; x += w / 48) {
+      const t = x / w;
+      const y = baseY - Math.sin(t * 3.1 + seed) * amp - Math.sin(t * 8.3 + seed * 2.7) * amp * 0.32;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fillStyle = col;
+    ctx.fill();
+  }
+  function paint(ctx, w, h) {
+    const sky = ctx.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, T.sky1);
+    sky.addColorStop(0.34, T.sky2);
+    sky.addColorStop(0.62, "#E7F2DE");
+    sky.addColorStop(1, T.sky3);
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, w, h);
+    const glow = ctx.createRadialGradient(w * 0.74, h * 0.12, 0, w * 0.74, h * 0.12, w * 0.6);
+    glow.addColorStop(0, "rgba(255,255,235,.85)");
+    glow.addColorStop(1, "rgba(255,255,235,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, w, h);
+    mountain(ctx, w, h, h * 0.52, h * 0.1, "#B6D6C9", 0.4);
+    mountain(ctx, w, h, h * 0.6, h * 0.08, "#9CC4B4", 2.1);
+    mountain(ctx, w, h, h * 0.68, h * 0.06, "#84B29A", 4.3);
+    ctx.save();
+    ctx.translate(w * 0.12, h * 0.7);
+    const s = Math.min(w, h) * 0.11;
+    ctx.fillStyle = "rgba(120,86,60,.42)";
+    ctx.beginPath();
+    ctx.moveTo(-s * 1.5, 0);
+    ctx.lineTo(-s * 0.85, -s * 0.5);
+    ctx.lineTo(s * 0.85, -s * 0.5);
+    ctx.lineTo(s * 1.5, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-s * 1.05, 0);
+    ctx.lineTo(-s * 0.55, -s * 0.42);
+    ctx.lineTo(s * 0.55, -s * 0.42);
+    ctx.lineTo(s * 1.05, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(-s * 0.72, 0, s * 0.14, s * 0.95);
+    ctx.fillRect(s * 0.58, 0, s * 0.14, s * 0.95);
+    ctx.fillRect(-s * 0.6, s * 0.78, s * 1.2, s * 0.16);
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.5, s * 0.95);
+    ctx.lineTo(-s * 0.5, s * 1.5);
+    ctx.lineTo(s * 0.5, s * 1.5);
+    ctx.lineTo(s * 0.5, s * 0.95);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(110,78,52,.32)";
+    ctx.fill();
+    ctx.restore();
+    const ground = ctx.createLinearGradient(0, h * 0.82, 0, h);
+    ground.addColorStop(0, "rgba(160,196,124,0)");
+    ground.addColorStop(0.4, "rgba(143,182,95,.75)");
+    ground.addColorStop(1, T.gardenDark);
+    ctx.fillStyle = ground;
+    ctx.fillRect(0, h * 0.8, w, h * 0.2);
+    const edge = Math.min(w, h);
+    ctx.save();
+    const spread = (n, f) => {
+      for (let i = 0; i < n; i++) f(i);
+    };
+    spread(9, (i) => {
+      const t = i / 8;
+      leafCluster(ctx, -edge * 0.04 + Math.sin(i * 1.7) * edge * 0.05, h * (0.06 + t * 0.95), edge * (0.07 + i % 3 * 0.015), t * 3 + i, T.leaf, T.leafDark);
+    });
+    spread(8, (i) => {
+      const t = i / 7;
+      leafCluster(ctx, w + edge * 0.04 - Math.sin(i * 1.3) * edge * 0.05, h * (0.02 + t * 0.9), edge * (0.06 + i % 3 * 0.014), -t * 3 - i, T.leaf, T.leafDark);
+    });
+    spread(7, (i) => {
+      const t = i / 6;
+      leafCluster(ctx, w * (0.05 + t * 0.95), h * 1.02, edge * (0.055 + i % 3 * 0.012), Math.PI * 0.5 + t * 2 + i, T.leafDark, T.gardenDark);
+    });
+    spread(6, (i) => {
+      const t = i / 5;
+      leafCluster(ctx, w * (0.08 + t * 0.9), -edge * 0.02, edge * (0.05 + i % 2 * 0.013), -Math.PI * 0.5 + t * 2 + i, T.leafLight, T.leaf);
+    });
+    ctx.restore();
+    const blossom = (x, y, r) => {
+      for (let i = 0; i < 5; i++) {
+        const a = i * Math.PI * 2 / 5;
+        blob(ctx, x + Math.cos(a) * r * 0.6, y + Math.sin(a) * r * 0.6, r * 0.52, r * 0.52, "#FFFFFF");
+      }
+      blob(ctx, x, y, r * 0.42, r * 0.42, "#F6D46B");
+    };
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    blossom(w * 0.9, h * 0.07, edge * 0.045);
+    blossom(w * 0.05, h * 0.3, edge * 0.035);
+    blossom(w * 0.95, h * 0.62, edge * 0.032);
+    ctx.restore();
+    const vig = ctx.createRadialGradient(w * 0.5, h * 0.48, Math.min(w, h) * 0.28, w * 0.5, h * 0.5, Math.max(w, h) * 0.78);
+    vig.addColorStop(0, "rgba(255,255,255,.28)");
+    vig.addColorStop(1, "rgba(30,60,40,.14)");
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // demo/h5/src/tile.ts
+  var DOTS = {
+    1: [[0.5, 0.5, 0.3]],
+    2: [[0.5, 0.28, 0.18], [0.5, 0.72, 0.18]],
+    3: [[0.26, 0.24, 0.16], [0.5, 0.5, 0.16], [0.74, 0.76, 0.16]],
+    4: [[0.3, 0.29, 0.16], [0.7, 0.29, 0.16], [0.3, 0.71, 0.16], [0.7, 0.71, 0.16]],
+    5: [[0.28, 0.26, 0.15], [0.72, 0.26, 0.15], [0.5, 0.5, 0.15], [0.28, 0.74, 0.15], [0.72, 0.74, 0.15]],
+    6: [[0.3, 0.22, 0.14], [0.7, 0.22, 0.14], [0.3, 0.5, 0.14], [0.7, 0.5, 0.14], [0.3, 0.78, 0.14], [0.7, 0.78, 0.14]],
+    7: [[0.26, 0.17, 0.12], [0.5, 0.27, 0.12], [0.74, 0.37, 0.12], [0.3, 0.63, 0.12], [0.7, 0.63, 0.12], [0.3, 0.85, 0.12], [0.7, 0.85, 0.12]],
+    8: [[0.3, 0.15, 0.12], [0.7, 0.15, 0.12], [0.3, 0.38, 0.12], [0.7, 0.38, 0.12], [0.3, 0.62, 0.12], [0.7, 0.62, 0.12], [0.3, 0.85, 0.12], [0.7, 0.85, 0.12]],
+    9: [[0.24, 0.18, 0.115], [0.5, 0.18, 0.115], [0.76, 0.18, 0.115], [0.24, 0.5, 0.115], [0.5, 0.5, 0.115], [0.76, 0.5, 0.115], [0.24, 0.82, 0.115], [0.5, 0.82, 0.115], [0.76, 0.82, 0.115]]
+  };
+  var NUMERALS = "\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D";
+  var HONORS = ["\u6771", "\u5357", "\u897F", "\u5317", "\u4E2D", "\u767C", "\u767D"];
+  var FLOWERS = ["\u6625", "\u590F", "\u79CB", "\u51AC", "\u6885", "\u5170", "\u7AF9", "\u83CA"];
+  var DECO = { x1: ["\u842C", "#C0392B"], x2: ["\u4E50", "#2E8B57"], x3: ["\u7B52", "#2E7FB8"] };
+  var SUIT_COLOR = { p: "#2E7FB8", s: "#2E8B57", m: "#C0392B", z: "#6B4FA0", f: "#C2678F", x: "#2E7FB8", b: "#8C2318" };
+  var PIP_RED = "#C0392B";
+  var PIP_GREEN = "#2E8B57";
+  var PIP_BLUE = "#2E7FB8";
+  var PIP_PLAN = {
+    2: [PIP_BLUE, PIP_RED],
+    3: [PIP_RED, PIP_BLUE, PIP_RED],
+    4: [PIP_BLUE, PIP_RED, PIP_RED, PIP_BLUE],
+    5: [PIP_GREEN, PIP_GREEN, PIP_RED, PIP_GREEN, PIP_GREEN],
+    6: [PIP_RED, PIP_RED, PIP_GREEN, PIP_GREEN, PIP_BLUE, PIP_BLUE],
+    7: [PIP_RED, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN],
+    8: [PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_RED, PIP_RED, PIP_RED, PIP_RED],
+    9: [PIP_RED, PIP_RED, PIP_RED, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_BLUE, PIP_BLUE, PIP_BLUE]
+  };
+  var STICKS = {
+    2: [{ x: 0.32, y: 0.5, len: 0.6 }, { x: 0.68, y: 0.5, len: 0.6 }],
+    3: [{ x: 0.5, y: 0.23, len: 0.28 }, { x: 0.29, y: 0.72, len: 0.3 }, { x: 0.71, y: 0.72, len: 0.3 }],
+    4: [{ x: 0.26, y: 0.26, len: 0.28 }, { x: 0.74, y: 0.26, len: 0.28 }, { x: 0.26, y: 0.74, len: 0.28 }, { x: 0.74, y: 0.74, len: 0.28 }],
+    5: [{ x: 0.24, y: 0.24, len: 0.26 }, { x: 0.76, y: 0.24, len: 0.26 }, { x: 0.5, y: 0.5, len: 0.26, red: true }, { x: 0.24, y: 0.76, len: 0.26 }, { x: 0.76, y: 0.76, len: 0.26 }],
+    6: [{ x: 0.24, y: 0.27, len: 0.26 }, { x: 0.5, y: 0.27, len: 0.26, red: true }, { x: 0.76, y: 0.27, len: 0.26 }, { x: 0.24, y: 0.73, len: 0.26 }, { x: 0.5, y: 0.73, len: 0.26, red: true }, { x: 0.76, y: 0.73, len: 0.26 }],
+    7: [{ x: 0.5, y: 0.14, len: 0.16, red: true }, { x: 0.25, y: 0.44, len: 0.18 }, { x: 0.5, y: 0.44, len: 0.18 }, { x: 0.75, y: 0.44, len: 0.18 }, { x: 0.25, y: 0.78, len: 0.18 }, { x: 0.5, y: 0.78, len: 0.18 }, { x: 0.75, y: 0.78, len: 0.18 }],
+    8: [{ x: 0.28, y: 0.14, len: 0.14 }, { x: 0.72, y: 0.14, len: 0.14 }, { x: 0.28, y: 0.38, len: 0.14 }, { x: 0.72, y: 0.38, len: 0.14 }, { x: 0.28, y: 0.62, len: 0.14 }, { x: 0.72, y: 0.62, len: 0.14 }, { x: 0.28, y: 0.86, len: 0.14 }, { x: 0.72, y: 0.86, len: 0.14 }],
+    9: [{ x: 0.22, y: 0.18, len: 0.17 }, { x: 0.5, y: 0.18, len: 0.17 }, { x: 0.78, y: 0.18, len: 0.17 }, { x: 0.22, y: 0.5, len: 0.17 }, { x: 0.5, y: 0.5, len: 0.17, red: true }, { x: 0.78, y: 0.5, len: 0.17 }, { x: 0.22, y: 0.82, len: 0.17 }, { x: 0.5, y: 0.82, len: 0.17 }, { x: 0.78, y: 0.82, len: 0.17 }]
+  };
+  function parseFace(face) {
+    const f = face.replace(/[~*]+$/, "");
+    const lead = /[a-z]/i.test(f[0] || "");
+    return { suit: lead ? f[0] : f[1] || "", n: Number(lead ? f.slice(1) : f[0]) };
+  }
+  function footColor(face) {
+    const { suit, n } = parseFace(face);
+    if (suit === "x") return ["#C0392B", "#2E8B57", "#2E7FB8"][n - 1] || T.jade;
+    return SUIT_COLOR[suit] || T.jade;
+  }
+  function rr(ctx, x, y, w, h, r) {
+    const rad = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+  function pip(ctx, x, y, r, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.62, 0, Math.PI * 2);
+    ctx.fillStyle = T.tile;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.32, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  function stick(ctx, x, y, len, w, color) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - len / 2);
+    ctx.lineTo(x, y + len / 2);
+    ctx.lineWidth = w;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    const ticks = len > w * 4 ? [-len * 0.22, len * 0.22] : [0];
+    for (const t of ticks) {
+      ctx.beginPath();
+      ctx.moveTo(x - w * 0.32, y + t);
+      ctx.lineTo(x + w * 0.32, y + t);
+      ctx.lineWidth = Math.max(1, w * 0.22);
+      ctx.strokeStyle = T.tile;
+      ctx.stroke();
+    }
+  }
+  function bird(ctx, x, y, w, h) {
+    const cx = x + w * 0.5, cy = y + h * 0.55;
+    const circle = (ax, ay, r, col) => {
+      ctx.beginPath();
+      ctx.arc(ax, ay, r, 0, Math.PI * 2);
+      ctx.fillStyle = col;
+      ctx.fill();
+    };
+    const line = (pts, col, lw) => {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.lineWidth = lw;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = col;
+      ctx.stroke();
+    };
+    circle(cx - w * 0.04, cy + h * 0.06, w * 0.2, "#2E8B57");
+    circle(cx + w * 0.14, cy - h * 0.16, w * 0.12, "#2E8B57");
+    circle(cx + w * 0.17, cy - h * 0.18, w * 0.03, "#22301F");
+    line([[cx + w * 0.25, cy - h * 0.2], [cx + w * 0.38, cy - h * 0.14], [cx + w * 0.25, cy - h * 0.1]], "#C0392B", Math.max(1, w * 0.05));
+    line([[cx - w * 0.2, cy + h * 0.14], [cx - w * 0.38, cy + h * 0.34], [cx - w * 0.08, cy + h * 0.26]], "#C0392B", Math.max(1, w * 0.06));
+    line([[cx - w * 0.16, cy], [cx - w * 0.3, cy - h * 0.16], [cx - w * 0.04, cy - h * 0.1]], "#2E7FB8", Math.max(1, w * 0.05));
+  }
+  function drawFrost(ctx, x, y, w, h, layers = 1) {
+    const rim = (inset, lw, col, fill) => {
+      rr(ctx, x + w * inset, y + h * inset, w * (1 - inset * 2), h * (1 - inset * 2), Math.min(w, h) * 0.14);
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = col;
+      ctx.stroke();
+    };
+    if (layers >= 2) rim(0.015, Math.max(2, w * 0.05), "rgba(120,190,240,.95)", null);
+    rim(layers >= 2 ? 0.075 : 0.04, Math.max(1.5, w * 0.05), "rgba(150,205,245,.95)", "rgba(205,235,255,.42)");
+    const crystal = (cx, cy, s) => {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.strokeStyle = "rgba(235,248,255,.95)";
+      ctx.lineWidth = Math.max(1, s * 0.22);
+      ctx.lineCap = "round";
+      for (let i = 0; i < 4; i++) {
+        const a = i * Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(-Math.cos(a) * s, -Math.sin(a) * s);
+        ctx.lineTo(Math.cos(a) * s, Math.sin(a) * s);
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+    crystal(x + w * 0.78, y + h * 0.22, w * 0.07);
+    crystal(x + w * 0.22, y + h * 0.76, w * 0.06);
+  }
+  function iceLayers(face) {
+    let n = 0;
+    while (face.endsWith("~")) {
+      face = face.slice(0, -1);
+      n++;
+    }
+    return n;
+  }
+  function drawFaceArt(ctx, face, x, y, w, h) {
+    const { suit, n } = parseFace(face);
+    if (suit === "p" && DOTS[n]) {
+      if (n === 1) {
+        const cx = x + w / 2, cy = y + h / 2, r = w * 0.37;
+        const ring = (rr22, col) => {
+          ctx.beginPath();
+          ctx.arc(cx, cy, rr22, 0, Math.PI * 2);
+          ctx.fillStyle = col;
+          ctx.fill();
+        };
+        ring(r, "#2E8B57");
+        ring(r * 0.78, T.tile);
+        ring(r * 0.6, "#C0392B");
+        ring(r * 0.36, T.tile);
+        ring(r * 0.2, "#2E7FB8");
+        return;
+      }
+      const plan = PIP_PLAN[n] || PIP_PLAN[2];
+      DOTS[n].forEach(([px, py, pr], i) => pip(ctx, x + px * w, y + py * h, pr * w, plan[i % plan.length]));
+      return;
+    }
+    if (suit === "s") {
+      if (n === 1) {
+        bird(ctx, x, y, w, h);
+        return;
+      }
+      if (STICKS[n]) {
+        const sw = w * 0.13;
+        for (const { x: px, y: py, len, red } of STICKS[n]) {
+          const cx = x + px * w, cy = y + py * h, cl = len * h;
+          const cwd = cl > h * 0.34 ? sw * 1.16 : sw;
+          stick(ctx, cx, cy, cl, cwd, red ? PIP_RED : PIP_GREEN);
+        }
+        return;
+      }
+    }
+    if (suit === "m" && n >= 1 && n <= 9) {
+      const a = Math.min(h * 0.34, w * 0.74), b = Math.min(h * 0.38, w * 0.78);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `700 ${a}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
+      ctx.fillStyle = "#2B4A7A";
+      ctx.fillText(NUMERALS[n - 1], x + w / 2, y + h * 0.06);
+      ctx.font = `700 ${b}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
+      ctx.fillStyle = "#C0392B";
+      ctx.fillText("\u842C", x + w / 2, y + h * 0.48);
+      return;
+    }
+    if (suit === "z" && n >= 1 && n <= 7) {
+      if (n === 7) {
+        rr(ctx, x + w * 0.16, y + h * 0.18, w * 0.68, h * 0.64, w * 0.09);
+        ctx.lineWidth = Math.max(2, w * 0.07);
+        ctx.strokeStyle = "#4F8FB0";
+        ctx.stroke();
+        return;
+      }
+      const size2 = Math.min(h * 0.5, w * 0.84);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `700 ${size2}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
+      ctx.fillStyle = n === 5 ? "#C0392B" : n === 6 ? "#2E8B57" : "#2B4A7A";
+      ctx.fillText(HONORS[n - 1], x + w / 2, y + (h - size2) / 2);
+      return;
+    }
+    if (suit === "f" && n >= 1 && n <= 8) {
+      const size2 = Math.min(h * 0.5, w * 0.8);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `700 ${size2}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
+      ctx.fillStyle = "#1C5B37";
+      ctx.fillText(FLOWERS[n - 1], x + w / 2, y + h * 0.04);
+      const fx = x + w / 2, fy = y + h * 0.84, fr = w * 0.09;
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + i * Math.PI * 2 / 5;
+        ctx.beginPath();
+        ctx.arc(fx + Math.cos(a) * fr, fy + Math.sin(a) * fr, fr * 0.62, 0, Math.PI * 2);
+        ctx.fillStyle = PIP_RED;
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.arc(fx, fy, fr * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#F6D46B";
+      ctx.fill();
+      return;
+    }
+    if (DECO[face]) {
+      const [ch, col] = DECO[face];
+      const size2 = Math.min(h * 0.56, w * 0.86);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `700 ${size2}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
+      ctx.fillStyle = col;
+      ctx.fillText(ch, x + w / 2, y + (h - size2) / 2);
+      return;
+    }
+    const size = Math.min(h * 0.4, w * 0.6);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.font = `700 ${size}px sans-serif`;
+    ctx.fillStyle = "#8A957E";
+    if (suit === "b") {
+      const cx = x + w / 2, bw = w * 0.3, bh = h * 0.46, top2 = y + h * 0.5 - bh / 2 + h * 0.06;
+      ctx.beginPath();
+      ctx.moveTo(cx, top2);
+      ctx.quadraticCurveTo(cx + bw * 0.8, top2 - bh * 0.5, cx + bw * 1.5, top2 - bh * 0.3);
+      ctx.lineWidth = Math.max(2, w * 0.045);
+      ctx.strokeStyle = "#8A6A33";
+      ctx.lineCap = "round";
+      ctx.stroke();
+      ctx.strokeStyle = "#E8873B";
+      ctx.lineWidth = Math.max(2, w * 0.038);
+      for (const [dx, dy] of [[0.55, -0.62], [0.95, -0.34], [0.42, -0.9]]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + dx * bw, top2 + dy * bh * 0.5);
+        ctx.lineTo(cx + dx * bw + w * 0.035, top2 + dy * bh * 0.5 - h * 0.05);
+        ctx.stroke();
+      }
+      rr(ctx, cx - bw / 2, top2, bw, bh, bw * 0.3);
+      ctx.fillStyle = "#C0392B";
+      ctx.fill();
+      ctx.lineWidth = Math.max(2, w * 0.04);
+      ctx.strokeStyle = "#8C2318";
+      ctx.stroke();
+      ctx.fillStyle = "#E8C56B";
+      rr(ctx, cx - bw / 2, top2 + bh * 0.3, bw, bh * 0.12, 2);
+      ctx.fill();
+      rr(ctx, cx - bw / 2, top2 + bh * 0.58, bw, bh * 0.1, 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.42)";
+      rr(ctx, cx - bw * 0.34, top2 + bh * 0.1, bw * 0.16, bh * 0.52, bw * 0.08);
+      ctx.fill();
+      return;
+    }
+    ctx.fillText("?", x + w / 2, y + (h - size) / 2);
+  }
+  function drawTile(ctx, cx, cy, o) {
+    const { w, h } = o;
+    const lift = o.lift ?? Math.max(2, h * 0.07);
+    const x = cx - w / 2, y = cy - h / 2;
+    const r = Math.min(w, h) * 0.17;
+    const foot = footColor(o.face);
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    rr(ctx, x + w * 0.02, y + h * 0.05, w, h - lift, r);
+    ctx.fillStyle = "#1E3A22";
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    rr(ctx, x, y + lift, w, h - lift, r);
+    ctx.fillStyle = foot;
+    ctx.fill();
+    rr(ctx, x, y, w, h - lift, r);
+    const g = ctx.createLinearGradient(x, y, x, y + h - lift);
+    g.addColorStop(0, "#FFFFFF");
+    g.addColorStop(0.55, T.tile);
+    g.addColorStop(1, "#F0E7CC");
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, w * 0.022);
+    ctx.strokeStyle = T.tileEdge;
+    ctx.stroke();
+    rr(ctx, x + w * 0.08, y + h * 0.07, w * 0.84, (h - lift) * 0.16, r * 0.6);
+    ctx.fillStyle = "rgba(255,255,255,.75)";
+    ctx.fill();
+    if (o.glow) {
+      rr(ctx, x - w * 0.04, y - h * 0.04, w * 1.08, h * 1.02, r * 1.15);
+      ctx.lineWidth = Math.max(2, w * 0.06);
+      ctx.strokeStyle = "#FFD84D";
+      ctx.stroke();
+    }
+    ctx.save();
+    drawFaceArt(ctx, o.face, x + w * 0.09, y + h * 0.07, w * 0.82, (h - lift) * 0.84);
+    ctx.restore();
+    const ice = iceLayers(o.face);
+    if (ice > 0) drawFrost(ctx, x + w * 0.06, y + h * 0.06, w * 0.88, (h - lift) * 0.88, ice);
+    ctx.restore();
+  }
+
+  // demo/h5/src/icons.ts
+  function rrPath(ctx, x, y, w, h, r) {
+    const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+  function arrowHead(ctx, x, y, ang, s) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(ang);
+    ctx.beginPath();
+    ctx.moveTo(s, 0);
+    ctx.lineTo(-s * 0.72, s * 0.64);
+    ctx.lineTo(-s * 0.72, -s * 0.64);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  var INK = {
+    sound: { w: 0.84, h: 0.859, cx: 0.078, cy: -2e-3 },
+    music: { w: 0.727, h: 0.832, cx: -0.037, cy: -0.035 },
+    vibrate: { w: 1, h: 0.781, cx: -2e-3, cy: -2e-3 },
+    book: { w: 0.938, h: 0.676, cx: -2e-3, cy: -0.031 },
+    hint: { w: 1, h: 0.891, cx: -2e-3, cy: -0.057 },
+    shuffle: { w: 0.949, h: 0.664, cx: 0.023, cy: -2e-3 },
+    undo: { w: 0.832, h: 0.508, cx: -0.027, cy: 0.033 },
+    restart: { w: 0.742, h: 0.738, cx: -2e-3, cy: 0 },
+    play: { w: 0.523, h: 0.602, cx: 0.037, cy: -2e-3 },
+    home: { w: 0.938, h: 0.801, cx: -2e-3, cy: -0.012 },
+    progress: { w: 0.88, h: 0.8, cx: -2e-3, cy: 2e-3 }
+  };
+  var TARGET_H = 0.74;
+  var MAX_W = 0.92;
+  function icon(ctx, name, cx, cy, s, col, weight) {
+    const ink = INK[name];
+    const k = Math.min(TARGET_H / ink.h, MAX_W / ink.w);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(k, k);
+    ctx.translate(-ink.cx * s, -ink.cy * s);
+    ctx.strokeStyle = col;
+    ctx.fillStyle = col;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = (weight ?? Math.max(1.6, s * 0.095)) / k;
+    switch (name) {
+      // 喇叭 + 声波
+      case "sound": {
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.34, -s * 0.16);
+        ctx.lineTo(-s * 0.14, -s * 0.16);
+        ctx.lineTo(s * 0.08, -s * 0.4);
+        ctx.lineTo(s * 0.08, s * 0.4);
+        ctx.lineTo(-s * 0.14, s * 0.16);
+        ctx.lineTo(-s * 0.34, s * 0.16);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(s * 0.1, 0, s * 0.24, -Math.PI / 3, Math.PI / 3);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(s * 0.1, 0, s * 0.44, -Math.PI / 3, Math.PI / 3);
+        ctx.stroke();
+        break;
+      }
+      // 双联音符
+      case "music": {
+        ctx.beginPath();
+        ctx.ellipse(-s * 0.24, s * 0.26, s * 0.16, s * 0.115, -0.34, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(s * 0.14, s * 0.16, s * 0.16, s * 0.115, -0.34, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.1, s * 0.22);
+        ctx.lineTo(-s * 0.1, -s * 0.3);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(s * 0.28, s * 0.12);
+        ctx.lineTo(s * 0.28, -s * 0.4);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.1, -s * 0.3);
+        ctx.lineTo(s * 0.28, -s * 0.4);
+        ctx.stroke();
+        break;
+      }
+      // 手机 + 两侧震动波纹
+      case "vibrate": {
+        rrPath(ctx, -s * 0.21, -s * 0.34, s * 0.42, s * 0.68, s * 0.1);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.34, -s * 0.12);
+        ctx.lineTo(-s * 0.34, s * 0.12);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.45, -s * 0.24);
+        ctx.lineTo(-s * 0.45, s * 0.24);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(s * 0.34, -s * 0.12);
+        ctx.lineTo(s * 0.34, s * 0.12);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(s * 0.45, -s * 0.24);
+        ctx.lineTo(s * 0.45, s * 0.24);
+        ctx.stroke();
+        break;
+      }
+      // 摊开的书
+      case "book": {
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.26);
+        ctx.bezierCurveTo(-s * 0.14, -s * 0.35, -s * 0.3, -s * 0.33, -s * 0.42, -s * 0.26);
+        ctx.lineTo(-s * 0.42, s * 0.24);
+        ctx.bezierCurveTo(-s * 0.3, s * 0.18, -s * 0.14, s * 0.16, 0, s * 0.26);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.26);
+        ctx.bezierCurveTo(s * 0.14, -s * 0.35, s * 0.3, -s * 0.33, s * 0.42, -s * 0.26);
+        ctx.lineTo(s * 0.42, s * 0.24);
+        ctx.bezierCurveTo(s * 0.3, s * 0.18, s * 0.14, s * 0.16, 0, s * 0.26);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.26);
+        ctx.lineTo(0, s * 0.26);
+        ctx.stroke();
+        break;
+      }
+      // 灯泡 + 光芒（球体下缘留口，接灯座；不留口会读成「棒棒糖」）
+      case "hint": {
+        ctx.beginPath();
+        ctx.arc(0, -s * 0.12, s * 0.3, Math.PI * 0.7, Math.PI * 0.3, false);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.14, s * 0.05);
+        ctx.lineTo(-s * 0.14, s * 0.2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(s * 0.14, s * 0.05);
+        ctx.lineTo(s * 0.14, s * 0.2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.17, s * 0.22);
+        ctx.lineTo(s * 0.17, s * 0.22);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.12, s * 0.34);
+        ctx.lineTo(s * 0.12, s * 0.34);
+        ctx.stroke();
+        for (const a of [-Math.PI * 0.8, -Math.PI * 0.2, Math.PI * 1.2, Math.PI * 1.8]) {
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * s * 0.44, -s * 0.12 + Math.sin(a) * s * 0.44);
+          ctx.lineTo(Math.cos(a) * s * 0.56, -s * 0.12 + Math.sin(a) * s * 0.56);
+          ctx.stroke();
+        }
+        break;
+      }
+      // 两条交叉箭头
+      case "shuffle": {
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.4, s * 0.26);
+        ctx.bezierCurveTo(-s * 0.12, s * 0.26, s * 0.12, -s * 0.26, s * 0.3, -s * 0.26);
+        ctx.stroke();
+        arrowHead(ctx, s * 0.42, -s * 0.26, -Math.PI * 0.16, s * 0.17);
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.4, -s * 0.26);
+        ctx.bezierCurveTo(-s * 0.12, -s * 0.26, s * 0.12, s * 0.26, s * 0.3, s * 0.26);
+        ctx.stroke();
+        arrowHead(ctx, s * 0.42, s * 0.26, Math.PI * 0.16, s * 0.17);
+        break;
+      }
+      // 回退箭头
+      case "undo": {
+        ctx.beginPath();
+        ctx.moveTo(s * 0.34, s * 0.24);
+        ctx.bezierCurveTo(s * 0.34, -s * 0.26, -s * 0.2, -s * 0.28, -s * 0.26, s * 0.06);
+        ctx.stroke();
+        arrowHead(ctx, -s * 0.3, s * 0.1, Math.PI * 0.78, s * 0.18);
+        break;
+      }
+      // 环形刷新箭头
+      case "restart": {
+        const r = s * 0.32, a0 = -Math.PI * 0.32, a1 = Math.PI * 1.36;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, a0, a1);
+        ctx.stroke();
+        const ex = Math.cos(a1) * r, ey = Math.sin(a1) * r;
+        arrowHead(ctx, ex, ey, a1 + Math.PI / 2, s * 0.18);
+        break;
+      }
+      // 播放三角
+      case "play": {
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.22, -s * 0.3);
+        ctx.lineTo(s * 0.3, 0);
+        ctx.lineTo(-s * 0.22, s * 0.3);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      // 房子
+      case "home": {
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.42, s * 0.02);
+        ctx.lineTo(0, -s * 0.36);
+        ctx.lineTo(s * 0.42, s * 0.02);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.3, -s * 0.04);
+        ctx.lineTo(-s * 0.3, s * 0.34);
+        ctx.lineTo(s * 0.3, s * 0.34);
+        ctx.lineTo(s * 0.3, -s * 0.04);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.08, s * 0.34);
+        ctx.lineTo(-s * 0.08, s * 0.12);
+        ctx.lineTo(s * 0.08, s * 0.12);
+        ctx.lineTo(s * 0.08, s * 0.34);
+        ctx.stroke();
+        break;
+      }
+      // 三根上升的柱 + 顶部一颗星位圆点：进度概览
+      case "progress": {
+        const bars = [[-s * 0.26, 0.3], [0, 0.48], [s * 0.26, 0.68]];
+        for (const [bx, bh] of bars) {
+          ctx.beginPath();
+          ctx.moveTo(bx - s * 0.11, s * 0.34);
+          ctx.lineTo(bx - s * 0.11, s * 0.34 - bh * s);
+          ctx.lineTo(bx + s * 0.11, s * 0.34 - bh * s);
+          ctx.lineTo(bx + s * 0.11, s * 0.34);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.beginPath();
+        ctx.arc(s * 0.26, s * 0.34 - 0.68 * s - s * 0.12, s * 0.075, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+    }
+    ctx.restore();
+  }
+
+  // demo/h5/src/ui.ts
+  function rr2(ctx, x, y, w, h, r) {
+    const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+  function fillRR(ctx, b, r, fill) {
+    rr2(ctx, b.x, b.y, b.w, b.h, r);
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  function strokeRR(ctx, b, r, col, lw) {
+    rr2(ctx, b.x, b.y, b.w, b.h, r);
+    ctx.lineWidth = lw;
+    ctx.strokeStyle = col;
+    ctx.stroke();
+  }
+  function text(ctx, str, x, y, size, color, align = "center", bold = false, serif = false, baseline = "middle") {
+    ctx.font = `${bold ? "700 " : ""}${size}px ${serif ? FONT_SERIF : FONT_SANS}`;
+    ctx.textAlign = align;
+    ctx.textBaseline = baseline;
+    ctx.fillStyle = color;
+    ctx.fillText(str, x, y);
+  }
+  function fit(ctx, str, size, maxW, bold = false, serif = false) {
+    ctx.font = `${bold ? "700 " : ""}${size}px ${serif ? FONT_SERIF : FONT_SANS}`;
+    if (ctx.measureText(str).width <= maxW) return str;
+    let out = "";
+    for (const ch of str) {
+      if (ctx.measureText(out + ch + "\u2026").width > maxW) break;
+      out += ch;
+    }
+    return out + "\u2026";
+  }
+  function panel(ctx, b, o = {}) {
+    const r = o.r ?? Math.min(b.w, b.h) * 0.09;
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    fillRR(ctx, { x: b.x, y: b.y + b.h * 0.012, w: b.w, h: b.h }, r, "#3B2A12");
+    ctx.restore();
+    const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+    g.addColorStop(0, o.fill ?? "#FFFBF0");
+    g.addColorStop(1, o.fill ? o.fill : T.creamDeep);
+    fillRR(ctx, b, r, g);
+    strokeRR(ctx, b, r, o.stroke ?? T.gold, o.lw ?? Math.max(2, b.w * 6e-3));
+    if (o.inner !== false) strokeRR(ctx, { x: b.x + b.w * 0.022, y: b.y + b.h * 0.016, w: b.w * 0.956, h: b.h * 0.968 }, r * 0.9, "rgba(216,169,78,.5)", 1.5);
+  }
+  var KIND = {
+    jade: { top: "#5FBE72", bottom: "#2E7D4F", edge: "#1C5B37", ink: "#FFFFFF" },
+    cream: { top: "#FFFDF6", bottom: "#F1E4C4", edge: "#D8B872", ink: "#3E5A3A" },
+    gold: { top: "#F5D27A", bottom: "#D8A94E", edge: "#A87C2C", ink: "#5A3F0E" },
+    dark: { top: "#4A6B4A", bottom: "#2E4A32", edge: "#20361F", ink: "#F3EAD2" },
+    disabled: { top: "#EFE8D6", bottom: "#E0D6BE", edge: "#CBBE9E", ink: "#A79B7E" }
+  };
+  function button(ctx, b, label, o = {}) {
+    const k = KIND[o.kind ?? "jade"];
+    const r = o.r ?? b.h * 0.34;
+    const dy = o.pressed ? b.h * 0.06 : 0;
+    const body = { x: b.x, y: b.y + b.h * 0.05, w: b.w, h: b.h * 0.95 };
+    fillRR(ctx, body, r, k.edge);
+    const face = { x: b.x, y: b.y + dy, w: b.w, h: b.h * 0.9 };
+    const g = ctx.createLinearGradient(face.x, face.y, face.x, face.y + face.h);
+    g.addColorStop(0, k.top);
+    g.addColorStop(1, k.bottom);
+    fillRR(ctx, face, r, g);
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = "#FFFFFF";
+    fillRR(ctx, { x: face.x + face.w * 0.06, y: face.y + face.h * 0.09, w: face.w * 0.88, h: face.h * 0.2 }, r * 0.6, "#FFFFFF");
+    ctx.restore();
+    strokeRR(ctx, face, r, k.edge, Math.max(1.5, b.h * 0.022));
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = o.kind === "jade" ? T.goldLight : T.gold;
+    for (const sx of [face.x + face.w * 0.07, face.x + face.w * 0.93]) {
+      ctx.beginPath();
+      ctx.arc(sx, face.y + face.h * 0.5, b.h * 0.045, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    const size = o.size ?? b.h * 0.4;
+    const labelY = o.sub ? face.y + face.h * 0.36 : face.y + face.h * 0.5;
+    if (o.icon) {
+      ctx.font = `700 ${size}px ${FONT_SANS}`;
+      const lw = ctx.measureText(label).width;
+      const gap = size * 0.44;
+      const total = size * 1.05 + gap + lw;
+      const x0 = face.x + face.w / 2 - total / 2;
+      icon(ctx, o.icon, x0 + size * 0.52, labelY, size * 1.05, k.ink, Math.max(2, size * 0.1));
+      text(ctx, label, x0 + size * 1.05 + gap, labelY, size, k.ink, "left", true);
+    } else {
+      text(ctx, label, face.x + face.w / 2, labelY, size, k.ink, "center", true);
+    }
+    if (o.sub) text(ctx, o.sub, face.x + face.w / 2, face.y + face.h * 0.74, size * 0.62, k.ink, "center", false);
+    return face;
+  }
+  function pill(ctx, b, label, o = {}) {
+    const r = o.r ?? b.h / 2;
+    const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+    g.addColorStop(0, o.fill ?? "#3E7A48");
+    g.addColorStop(1, o.fill ? o.fill : "#22552F");
+    fillRR(ctx, b, r, g);
+    strokeRR(ctx, { x: b.x + 1, y: b.y + 1, w: b.w - 2, h: b.h - 2 }, r, o.edge ?? T.gold, Math.max(1.5, b.h * 0.05));
+    text(ctx, label, b.x + b.w / 2, b.y + b.h / 2, o.size ?? b.h * 0.46, o.ink ?? "#FBF3DE", "center", true, o.serif);
+  }
+  function stars(ctx, cx, cy, r, got, total = 3, gap = 0) {
+    const step = r * 2.35 + gap;
+    const x0 = cx - step * (total - 1) / 2;
+    for (let i = 0; i < total; i++) star(ctx, x0 + i * step, cy, r, i < got);
+  }
+  function star(ctx, cx, cy, r, filled) {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? r * 0.47 : r;
+      const x = cx + Math.cos(a) * rad, y = cy + Math.sin(a) * rad;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+    const g = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+    if (filled) {
+      g.addColorStop(0, "#FFE27A");
+      g.addColorStop(1, "#E8A526");
+    } else {
+      g.addColorStop(0, "#DCD3BC");
+      g.addColorStop(1, "#C2B79C");
+    }
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, r * 0.1);
+    ctx.strokeStyle = filled ? "#B8851A" : "#AFA489";
+    ctx.stroke();
+  }
+  function toggle(ctx, x, y, w, on) {
+    const h = w * 0.58, b = { x, y: y - h / 2, w, h };
+    const r = h / 2;
+    const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + h);
+    if (on) {
+      g.addColorStop(0, "#4FA46A");
+      g.addColorStop(1, "#2E7D4F");
+    } else {
+      g.addColorStop(0, "#D9D2C0");
+      g.addColorStop(1, "#C3BAA4");
+    }
+    fillRR(ctx, b, r, g);
+    ctx.beginPath();
+    ctx.arc(on ? b.x + w - r : b.x + r, y, r * 0.82, 0, Math.PI * 2);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0,0,0,.08)";
+    ctx.stroke();
+    return b;
+  }
+  function chevron(ctx, x, y, s, col, lw) {
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.3, y - s * 0.5);
+    ctx.lineTo(x + s * 0.3, y);
+    ctx.lineTo(x - s * 0.3, y + s * 0.5);
+    ctx.lineWidth = lw;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = col;
+    ctx.stroke();
+  }
+  function backChevron(ctx, x, y, s, col, lw) {
+    ctx.beginPath();
+    ctx.moveTo(x + s * 0.28, y - s * 0.5);
+    ctx.lineTo(x - s * 0.3, y);
+    ctx.lineTo(x + s * 0.28, y + s * 0.5);
+    ctx.lineWidth = lw;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = col;
+    ctx.stroke();
+  }
+
+  // demo/h5/src/app.ts
+  var DW = 750;
+  var APP_VERSION = "0.3.1";
+  var TIP_CONTENT = {
+    basic: { title: "\u600E\u4E48\u73A9", lines: ["\u6309\u4F4F\u4EFB\u610F\u4E00\u884C\u6216\u4E00\u5217\u62D6\u52A8\uFF0C\u6574\u6BB5\u724C\u4F1A\u5FAA\u73AF\u6ED1\u52A8\uFF1B", "\u677E\u624B\u65F6\uFF0C\u78B0\u5728\u4E00\u8D77\u7684\u540C\u724C\u81EA\u52A8\u6D88\u9664\u3002", "\u4E5F\u53EF\u4EE5\u76F4\u63A5\u70B9\u4E24\u5F20\u76F8\u90BB\u7684\u540C\u724C\uFF0C\u7ACB\u523B\u6D88\u9664\u3002", "\u628A\u724C\u5168\u90E8\u6D88\u5B8C\u5C31\u901A\u5173\uFF0C\u9047\u5230\u56F0\u96BE\u7528\u4E0B\u9762\u7684\u9053\u5177\u3002"] },
+    stack: { title: "\u53E0\u8D77\u6765\u7684\u724C", lines: ["\u4E00\u683C\u4E0A\u53E0\u7740\u4E24\u5F20\u724C\u65F6\uFF0C\u8981\u6D88\u4E24\u6B21\u624D\u80FD\u6E05\u7A7A\u8FD9\u4E00\u683C\u3002", "\u724C\u9762\u53F3\u4E0A\u89D2\u7684\u6570\u5B57\u5C31\u662F\u53E0\u4E86\u51E0\u5C42\u3002"] },
+    lockRow: { title: "\u9501\u4F4F\u7684\u884C", lines: ["\u5E26\u6728\u6761\u548C\u9501\u6807\u7684\u884C\u4E0D\u80FD\u5DE6\u53F3\u63A8\u3002", "\u53EA\u80FD\u7AD6\u7740\u63A8\uFF0C\u6216\u76F4\u63A5\u70B9\u6D88\u3002"] },
+    moveLimit: { title: "\u9650\u6B65\u5173", lines: ["\u672C\u5173\u6709\u6B65\u6570\u4E0A\u9650\uFF08\u53F3\u4E0A\u89D2\u5B9E\u65F6\u663E\u793A\uFF09\u3002", "\u6B65\u6570\u7528\u5C3D\u8FD8\u6CA1\u6E05\u53F0\uFF0C\u8FD9\u4E00\u5173\u5C31\u5931\u8D25\u4E86\u3002"] },
+    oneWay: { title: "\u5355\u5411\u8F68", lines: ["\u4E24\u7AEF\u5E26\u7BAD\u5934\u7684\u8F68\u53EA\u80FD\u671D\u7BAD\u5934\u65B9\u5411\u63A8\u3002", "\u53CD\u65B9\u5411\u662F\u63A8\u4E0D\u52A8\u7684\u3002"] },
+    lockCol: { title: "\u9501\u4F4F\u7684\u5217", lines: ["\u5E26\u6728\u6761\u548C\u9501\u6807\u7684\u5217\u4E0D\u80FD\u4E0A\u4E0B\u63A8\u3002", "\u53EA\u80FD\u6A2A\u7740\u63A8\uFF0C\u6216\u76F4\u63A5\u70B9\u6D88\u3002"] },
+    goal: { title: "\u76EE\u6807\u5173", lines: ["\u4E0D\u5FC5\u6E05\u7A7A\u68CB\u76D8\uFF1A\u5148\u8FBE\u6210\u5DE6\u4E0A\u89D2\u7684\u76EE\u6807\u5C31\u901A\u5173\u3002", "\u8FDB\u5EA6\u4F1A\u5B9E\u65F6\u663E\u793A\u5728\u5DE6\u4E0A\u89D2\u3002"] },
+    ice: { title: "\u51B0\u9762\u724C", lines: ["\u8986\u7740\u971C\u9762\u7684\u724C\u8981\u6D88\u4E24\u6B21\uFF1A", "\u7B2C\u4E00\u4E0B\u788E\u51B0\u9732\u51FA\u724C\u9762\uFF0C\u7B2C\u4E8C\u4E0B\u624D\u6536\u8D70\u3002"] },
+    flower: { title: "\u82B1\u724C", lines: ["\u6625\u590F\u79CB\u51AC\u3001\u6885\u5170\u7AF9\u83CA\u516B\u5F20\u82B1\u724C\u52A0\u5165\u724C\u6C60\u3002", "\u914D\u5BF9\u89C4\u5219\u4E0D\u53D8\uFF1A\u540C\u724C\u76F8\u90BB\uFF0C\u4E24\u4E24\u6D88\u3002"] },
+    wild: { title: "\u82B1\u724C\u767E\u642D", lines: ["\u8FD9\u4E00\u5173\u7684\u82B1\u724C\u662F\u767E\u642D\uFF1A\u53EF\u4EE5\u548C\u4EFB\u4F55\u724C\u914D\u5BF9\u3002", "\u5361\u4F4F\u7684\u65F6\u5019\uFF0C\u7528\u5B83\u4EEC\u89E3\u56F4\u3002"] },
+    stack3: { title: "\u4E09\u5C42\u724C", lines: ["\u4E00\u683C\u53E0\u4E09\u5C42\uFF1A\u8981\u8FDE\u6D88\u4E09\u6B21\u624D\u80FD\u6E05\u7A7A\u3002", "\u53F3\u4E0A\u89D2\u6570\u5B57\u5C31\u662F\u5C42\u6570\u3002"] },
+    ice2: { title: "\u539A\u51B0", lines: ["\u53CC\u5708\u539A\u971C\u7684\u724C\u8981\u788E\u4E24\u6B21\u51B0\u3001\u518D\u6D88\u4E00\u6B21\u3002", "\u4E00\u5171\u4E09\u6B65\u624D\u80FD\u6536\u8D70\u3002"] },
+    bomb: { title: "\u97AD\u70AE\u724C", lines: ["\u97AD\u70AE\u914D\u5BF9\u65F6\uFF0C\u4F1A\u628A\u5168\u573A\u540C\u6B3E\u51B0\u9762\u4E00\u6B21\u9707\u788E\u3002", "\u51B0\u9762\u5173\u91CC\u7684\u7834\u51B0\u597D\u5E2E\u624B\u3002"] },
+    unlock: { title: "\u8FDE\u9501\u89E3\u9501", lines: ["\u5E26\u6570\u5B57\u7684\u9501\u8F68\u662F\u6682\u65F6\u9501\u4F4F\u7684\uFF1A", "\u6BCF\u6D88\u4E00\u5BF9\u5C31\u8BA1\u6570\uFF0C\u51D1\u591F\u6570\u5B57\u81EA\u52A8\u89E3\u9501\u3002"] }
+  };
+  var App = class {
+    constructor(canvas2) {
+      this.screen = "home";
+      /** Screen the current overlay was opened from, so closing returns correctly. */
+      this.returnScreen = "home";
+      this.hits = [];
+      this.pressed = null;
+      this.page = 0;
+      this.s = 1;
+      this.W = DW;
+      this.H = 1334;
+      this.raf = 0;
+      this.needsPaint = true;
+      // drag state
+      this.drag = null;
+      this.press = null;
+      this.boardBox = null;
+      /* ── frame loop ─────────────────────────────────────────── */
+      this.loop = () => {
+        this.raf = requestAnimationFrame(this.loop);
+        if (!this.needsPaint) return;
+        this.needsPaint = false;
+        this.draw();
+      };
+      this.music = true;
+      this.sound = true;
+      this.canvas = canvas2;
+      this.ctx = canvas2.getContext("2d");
+      const KEY = "majiang-xiaoxiao:h5";
+      this.session = new Session(Date.now() >>> 0, {
+        load: () => {
+          try {
+            return localStorage.getItem(KEY);
+          } catch {
+            return null;
+          }
+        },
+        save: (d) => {
+          try {
+            localStorage.setItem(KEY, JSON.stringify(d));
+          } catch {
+          }
+        },
+        feedback: () => {
+          try {
+            navigator.vibrate?.(16);
+          } catch {
+          }
+        }
+      });
+      this.page = Math.floor(this.session.levelIndex / 16);
+      const q = new URLSearchParams(location.search);
+      const lv = Number(q.get("level"));
+      if (Number.isFinite(lv) && q.has("level")) this.session.reset(lv, false);
+      const scr = q.get("screen");
+      const valid = ["home", "levels", "board", "settings", "progress", "win", "lose", "pause", "help"];
+      this.setScreen(scr && valid.includes(scr) ? scr : "home");
+      this.bindEvents();
+      this.resize();
+      window.addEventListener("resize", () => this.resize());
+      this.loop();
+    }
+    invalidate() {
+      this.needsPaint = true;
+    }
+    resize() {
+      const dpr = Math.min(3, window.devicePixelRatio || 1);
+      const cssW = Math.min(window.innerWidth, Math.round(window.innerHeight * 0.62));
+      const cssH = window.innerHeight;
+      this.canvas.style.width = cssW + "px";
+      this.canvas.style.height = cssH + "px";
+      this.canvas.width = Math.round(cssW * dpr);
+      this.canvas.height = Math.round(cssH * dpr);
+      this.s = cssW / DW;
+      this.W = DW;
+      this.H = cssH / this.s;
+      this.invalidate();
+    }
+    /* ── input ──────────────────────────────────────────────── */
+    bindEvents() {
+      const at = (e) => {
+        const r = this.canvas.getBoundingClientRect();
+        return { x: (e.clientX - r.left) / this.s, y: (e.clientY - r.top) / this.s };
+      };
+      this.canvas.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        const { x, y } = at(e);
+        this.canvas.setPointerCapture(e.pointerId);
+        this.onDown(x, y);
+      });
+      this.canvas.addEventListener("pointermove", (e) => {
+        const { x, y } = at(e);
+        this.onMove(x, y);
+      });
+      const up = (e) => {
+        const { x, y } = at(e);
+        this.onUp(x, y);
+      };
+      this.canvas.addEventListener("pointerup", up);
+      this.canvas.addEventListener("pointercancel", () => this.onCancel());
+      this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    }
+    hitAt(x, y) {
+      for (let i = this.hits.length - 1; i >= 0; i--) {
+        const h = this.hits[i];
+        if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return h;
+      }
+      return null;
+    }
+    onDown(x, y) {
+      const hit = this.hitAt(x, y);
+      this.pressed = hit ? hit.id : null;
+      this.invalidate();
+      if (hit) {
+        this.press = null;
+        this.drag = null;
+        return;
+      }
+      if (this.screen !== "board") {
+        this.press = null;
+        return;
+      }
+      const cell = this.cellAt(x, y);
+      this.press = { x, y, cell, id: null, blocked: false, axis: null };
+      this.drag = null;
+    }
+    onMove(x, y) {
+      const p = this.press;
+      if (!p || !p.cell || p.blocked) return;
+      const dx = x - p.x, dy = y - p.y;
+      const b = this.boardBox;
+      if (!b) return;
+      const cellW = b.w / this.cols(), cellH = b.h / this.rows();
+      if (!p.axis) {
+        const slop = Math.max(8, Math.min(cellW, cellH) * 0.22);
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < slop) return;
+        p.axis = Math.abs(dx) >= Math.abs(dy) ? "row" : "col";
+        const run = this.runAt(p.cell, p.axis);
+        if (run < 0) {
+          p.blocked = true;
+          this.session.notice(p.axis === "row" ? "\u8FD9\u4E00\u884C\u88AB\u9501\u4F4F\u63A8\u4E0D\u52A8\uFF1B\u8BD5\u8BD5\u7AD6\u7740\u62D6\u3002" : "\u8FD9\u4E00\u5217\u88AB\u9501\u4F4F\u63A8\u4E0D\u52A8\uFF1B\u8BD5\u8BD5\u6A2A\u7740\u62D6\u3002");
+          this.invalidate();
+          return;
+        }
+        this.drag = { run, axis: p.axis, offset: 0, cellW, cellH, x: p.x, y: p.y, cell: p.cell };
+      }
+      if (!this.drag) return;
+      const len = this.session.runs[this.drag.run].cells.length;
+      const raw = this.drag.axis === "row" ? dx / cellW : dy / cellH;
+      this.drag = { ...this.drag, offset: Math.max(-len, Math.min(len, raw)) };
+      this.invalidate();
+    }
+    onUp(x, y) {
+      const hit = this.hitAt(x, y);
+      const wasPressed = this.pressed;
+      this.pressed = null;
+      const drag = this.drag;
+      this.drag = null;
+      const p = this.press;
+      this.press = null;
+      if (hit && hit.id === wasPressed && hit.enabled) {
+        this.activate(hit.id);
+        return;
+      }
+      if (!p) {
+        this.invalidate();
+        return;
+      }
+      if (drag) {
+        const len = this.session.runs[drag.run].cells.length;
+        const k = (Math.round(drag.offset) % len + len) % len;
+        if (k) this.act(() => this.session.slide(drag.run, k > len / 2 ? k - len : k));
+        else this.invalidate();
+        return;
+      }
+      if (p.cell && !p.blocked && !p.axis) {
+        const end = this.cellAt(x, y);
+        if (end && end.r === p.cell.r && end.c === p.cell.c) this.act(() => this.session.tap(p.cell));
+        else this.invalidate();
+        return;
+      }
+      this.invalidate();
+    }
+    onCancel() {
+      this.press = null;
+      this.drag = null;
+      this.pressed = null;
+      this.invalidate();
+    }
+    /** Runs a session mutation and refreshes derived demo state. */
+    act(fn) {
+      const before = this.session.modal;
+      fn();
+      if (this.session.modal === "win") this.setScreen("win");
+      else if (this.session.modal === "lose") {
+        this.returnScreen = "board";
+        this.setScreen("lose");
+      } else if (this.session.modal === "none" && before === "none" && this.session.dead) {
+        this.returnScreen = "board";
+        this.setScreen("lose");
+      }
+      this.invalidate();
+    }
+    /* ── actions ────────────────────────────────────────────── */
+    go(scr) {
+      this.returnScreen = this.screen;
+      this.setScreen(scr);
+      this.invalidate();
+    }
+    /** Keeps Session.modal aligned with the visible screen so Session.command() stays valid. */
+    setScreen(scr) {
+      this.screen = scr;
+      const overlay = { settings: "settings", levels: "levels", win: "win", help: "help", progress: "settings" };
+      if (scr === "board") this.session.modal = "none";
+      else if (scr === "home") this.session.modal = "home";
+      else if (overlay[scr]) this.session.modal = overlay[scr];
+      if (scr === "levels") this.page = Math.floor(this.session.levelIndex / 16);
+    }
+    /** 弹框的固定父级：关闭时回哪一屏。选关/设置从首页打开，进度/玩法说明从设置打开。 */
+    dialogParent() {
+      switch (this.screen) {
+        case "progress":
+        case "help":
+          return "settings";
+        default:
+          return "home";
+      }
+    }
+    activate(id) {
+      switch (id) {
+        case "home":
+          this.go("home");
+          break;
+        case "start":
+          this.startLevel(this.session.maxLevel);
+          break;
+        case "levels":
+          this.go("levels");
+          break;
+        case "progress":
+          this.go("progress");
+          break;
+        case "settings":
+          this.go("settings");
+          break;
+        case "back-home":
+        case "__back":
+          this.go(this.dialogParent());
+          break;
+        case "about":
+          this.go("help");
+          break;
+        case "pause":
+          this.returnScreen = "board";
+          this.setScreen("pause");
+          break;
+        case "resume":
+          this.setScreen("board");
+          break;
+        case "restart":
+        case "replay":
+          this.act(() => {
+            this.session.reset();
+            this.setScreen("board");
+          });
+          break;
+        case "undo-lose":
+          this.act(() => {
+            if (this.session.undo()) this.setScreen("board");
+          });
+          break;
+        case "tip-ok":
+          this.act(() => this.session.command("tip-ok"));
+          break;
+        case "next":
+          this.startLevel(Math.min(this.session.levelIndex + 1, LEVELS.length - 1));
+          break;
+        case "hint":
+          this.act(() => this.session.command("hint"));
+          break;
+        case "shuffle":
+          this.act(() => this.session.command("shuffle"));
+          break;
+        case "undo":
+          this.act(() => this.session.command("undo"));
+          break;
+        case "toggle-music":
+          this.music = !this.music;
+          this.persist();
+          break;
+        case "toggle-sound":
+          this.sound = !this.sound;
+          this.persist();
+          break;
+        case "toggle-vibration":
+          this.act(() => this.session.command("toggle-vibration"));
+          break;
+        case "page-prev":
+          this.page = Math.max(0, this.page - 1);
+          break;
+        case "page-next": {
+          const shown = this.session.unlockAll ? LEVELS.length : this.session.maxLevel + 1;
+          this.page = Math.min(Math.ceil(shown / 16) - 1, this.page + 1);
+          break;
+        }
+        default:
+          if (id.startsWith("level:")) this.startLevel(Number(id.slice(6)));
+      }
+      this.invalidate();
+    }
+    startLevel(i) {
+      const idx = Math.max(0, Math.min(LEVELS.length - 1, i));
+      this.act(() => {
+        this.session.reset(idx);
+      });
+      this.returnScreen = "home";
+      this.setScreen("board");
+    }
+    persist() {
+      this.invalidate();
+    }
+    /* ── board geometry ─────────────────────────────────────── */
+    rows() {
+      return this.session.grid.length;
+    }
+    cols() {
+      return this.session.grid[0]?.length ?? 0;
+    }
+    cellAt(x, y) {
+      const b = this.boardBox;
+      if (!b || x < b.x || y < b.y || x > b.x + b.w || y > b.y + b.h) return null;
+      const c = Math.floor((x - b.x) / (b.w / this.cols()));
+      const r = Math.floor((y - b.y) / (b.h / this.rows()));
+      return r >= 0 && r < this.rows() && c >= 0 && c < this.cols() ? { r, c } : null;
+    }
+    runAt(cell, axis) {
+      return this.session.runs.findIndex((run) => run.axis === axis && run.cells.some((q) => q.r === cell.r && q.c === cell.c));
+    }
+    /* ── draw ───────────────────────────────────────────────── */
+    draw() {
+      const ctx = this.ctx;
+      const dpr = this.canvas.width / (this.W * this.s);
+      ctx.setTransform(this.s * dpr, 0, 0, this.s * dpr, 0, 0);
+      ctx.clearRect(0, 0, this.W, this.H);
+      this.hits = [];
+      const bg = gardenBg(this.W, this.H);
+      ctx.drawImage(bg, 0, 0, this.W, this.H);
+      switch (this.screen) {
+        case "home":
+          this.drawHome(ctx);
+          break;
+        // 设置 / 选关 / 进度 / 玩法说明都是「首页上的弹框」：底图仍是首页，上面盖遮罩 + 面板
+        case "levels":
+          this.drawHome(ctx);
+          this.drawLevels(ctx);
+          break;
+        case "settings":
+          this.drawHome(ctx);
+          this.drawSettings(ctx);
+          break;
+        case "progress":
+          this.drawHome(ctx);
+          this.drawProgress(ctx);
+          break;
+        case "board":
+          this.drawBoard(ctx);
+          break;
+        case "win":
+          this.drawBoard(ctx);
+          this.drawWin(ctx);
+          break;
+        case "lose":
+          this.drawBoard(ctx);
+          this.drawLose(ctx);
+          break;
+        case "pause":
+          this.drawBoard(ctx);
+          this.drawPause(ctx);
+          break;
+        case "help":
+          this.drawHome(ctx);
+          this.drawHelp(ctx);
+          break;
+      }
+      if (this.session.introTip) this.drawTipCard(ctx);
+    }
+    /** 「新玩法」说明卡：遮罩 + 面板 + 匾额标题 + 文案 + 知道了。展示期间牌桌输入被 Session 屏蔽。 */
+    drawTipCard(ctx) {
+      const W = this.W;
+      this.veil(ctx);
+      const tip = this.session.introTip;
+      const content = TIP_CONTENT[tip] || { title: "\u65B0\u73A9\u6CD5", lines: ["\u8FD9\u4E00\u5173\u51FA\u73B0\u4E86\u65B0\u673A\u5236\uFF0C\u6CE8\u610F\u89C2\u5BDF\u68CB\u76D8\u4E0A\u7684\u6807\u8BC6\u3002"] };
+      const lineH = 54, padTop = 104;
+      const ph = padTop + 36 + content.lines.length * lineH + 26 + 96 + 30;
+      const py = this.centeredTop(ph);
+      const b = { x: 60, y: py, w: W - 120, h: ph };
+      panel(ctx, b, { r: 34 });
+      pill(ctx, { x: W / 2 - 160, y: py + 34, w: 320, h: 72 }, content.title, { size: 34, serif: true });
+      content.lines.forEach((ln, i) => text(ctx, ln, b.x + 56, py + padTop + 36 + i * lineH, 25, T.ink, "left"));
+      const btn = { x: W / 2 - 170, y: py + ph - 30 - 96, w: 340, h: 92 };
+      this.push("tip-ok", btn);
+      button(ctx, btn, "\u77E5\u9053\u4E86\uFF0C\u5F00\u59CB", { kind: "jade", size: 30, pressed: this.isPressed("tip-ok") });
+    }
+    push(id, b, enabled = true) {
+      this.hits.push({ id, x: b.x, y: b.y, w: b.w, h: b.h, enabled });
+    }
+    isPressed(id) {
+      return this.pressed === id;
+    }
+    /* ══ HOME ══════════════════════════════════════════════ */
+    drawHome(ctx) {
+      const W = this.W, H = this.H;
+      const av = 46, ax = 30 + av / 2, ay = 74;
+      ctx.beginPath();
+      ctx.arc(ax, ay, av / 2 + 4, 0, Math.PI * 2);
+      ctx.fillStyle = T.jadeDeep;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(ax, ay, av / 2, 0, Math.PI * 2);
+      const ag = ctx.createLinearGradient(ax, ay - av / 2, ax, ay + av / 2);
+      ag.addColorStop(0, "#F7E9C4");
+      ag.addColorStop(1, "#E2C68C");
+      ctx.fillStyle = ag;
+      ctx.fill();
+      this.faceIcon(ctx, ax, ay, av * 0.62);
+      text(ctx, `\u7B2C ${Math.min(this.session.maxLevel + 1, LEVELS.length)} \u5173`, 30 + av + 16, ay, 27, T.ink, "left", true);
+      const gear = { x: W - 108, y: 44, w: 66, h: 66 };
+      this.gearButton(ctx, gear, "settings");
+      const ty = H * 0.352, subY = H * 0.432;
+      text(ctx, "\u5FEB\u4E50\u63A8\u9EBB", W / 2 - 47, ty, 96, T.jadeDeep, "center", true, true);
+      const seal = { x: W / 2 + 204 - 35, y: ty - 78, w: 70, h: 156 };
+      fillRR(ctx, seal, 16, "#C0392B");
+      strokeRR(ctx, seal, 16, "#8C2318", 3);
+      ["\u5BF9", "\u5BF9", "\u6D88"].forEach((ch, i) => text(ctx, ch, seal.x + seal.w / 2, ty - 50 + i * 50, 36, "#FFF3DE", "center", true, true));
+      text(ctx, "\u63A8\u4E00\u63A8 \xB7 \u78B0\u4E2A\u5BF9", W / 2, subY, 34, T.ink, "center", true, true);
+      this.table(ctx, H * 0.655);
+      const baseY = H * 0.585, tw = 170, th = 215;
+      ctx.save();
+      ctx.translate(W / 2 - 130, baseY);
+      ctx.rotate(-0.16);
+      drawTile(ctx, 0, 0, { face: "x1", w: tw * 0.82, h: th * 0.82 });
+      ctx.restore();
+      ctx.save();
+      ctx.translate(W / 2 - 4, baseY - 30);
+      ctx.rotate(-0.04);
+      drawTile(ctx, 0, 0, { face: "x2", w: tw, h: th });
+      ctx.restore();
+      ctx.save();
+      ctx.translate(W / 2 + 122, baseY + 4);
+      ctx.rotate(0.13);
+      drawTile(ctx, 0, 0, { face: "x3", w: tw, h: th });
+      ctx.restore();
+      const bw = W - 168, bx = (W - bw) / 2;
+      const start = { x: bx, y: H * 0.735, w: bw, h: 104 };
+      this.push("start", start);
+      button(ctx, start, "\u5F00\u59CB\u6E38\u620F", { kind: "jade", size: 42, icon: "play", pressed: this.isPressed("start") });
+      const lv = { x: bx, y: start.y + 128, w: bw, h: 92 };
+      this.push("levels", lv);
+      button(ctx, lv, "\u5173\u5361\u9009\u62E9", { kind: "cream", size: 32, pressed: this.isPressed("levels") });
+    }
+    faceIcon(ctx, cx, cy, r) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#8FBF62";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx, cy - r * 0.16, r * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = "#F2D9A8";
+      ctx.fill();
+      ctx.fillStyle = "#2B3A28";
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.12, cy - r * 0.2, r * 0.045, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx + r * 0.12, cy - r * 0.2, r * 0.045, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx, cy + r * 0, r * 0.09, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.fill();
+    }
+    gearButton(ctx, b, id) {
+      this.push(id, b);
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2, r = b.w / 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      const g = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+      g.addColorStop(0, "#3E7A48");
+      g.addColorStop(1, "#1F4F2C");
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = T.gold;
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.fillStyle = "#F3EAD2";
+      for (let i = 0; i < 8; i++) {
+        ctx.save();
+        ctx.rotate(i * Math.PI / 4);
+        ctx.fillRect(-r * 0.09, -r * 0.62, r * 0.18, r * 0.26);
+        ctx.restore();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.42, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    /* ══ LEVELS（首页上的弹框） ═══════════════════════════ */
+    drawLevels(ctx) {
+      const W = this.W;
+      this.veil(ctx);
+      const PER = 16, COLS = 4, gap = 20;
+      const shown = this.session.unlockAll ? LEVELS.length : this.session.maxLevel + 1;
+      const pages = Math.ceil(shown / PER);
+      this.page = Math.max(0, Math.min(this.page, pages - 1));
+      const count2 = Math.max(0, Math.min(PER, shown - this.page * PER));
+      const rows = Math.max(1, Math.ceil(count2 / COLS));
+      const pw = W - 68;
+      const cw = (pw - 80 - gap * (COLS - 1)) / COLS, chh = 110;
+      const gridH = rows * chh + (rows - 1) * gap;
+      const ph = 30 + 72 + 28 + gridH + 38 + 56 + 30;
+      const py = this.centeredTop(ph);
+      const b = { x: 34, y: py, w: pw, h: ph };
+      panel(ctx, b, { r: 30 });
+      const cur = { x: 34 + 40, y: py + 30, w: 300, h: 72 };
+      pill(ctx, cur, "\u9009\u62E9\u5173\u5361", { size: 32, fill: "#2E6B3A", edge: T.gold, r: 36, serif: true });
+      const close = { x: b.x + b.w - 96, y: py + 30, w: 58, h: 58 };
+      this.push("__back", close);
+      this.circleBtn(ctx, close, "close");
+      const gy = py + 30 + 72 + 28;
+      for (let i = 0; i < count2; i++) {
+        const idx = this.page * PER + i;
+        const col = i % COLS, row = Math.floor(i / COLS);
+        const bx = b.x + 40 + col * (cw + gap), by = gy + row * (chh + gap);
+        const isCur = idx === this.session.levelIndex;
+        const st = this.session.stars[String(idx)] || 0;
+        const box = { x: bx, y: by, w: cw, h: chh };
+        this.push("level:" + idx, box);
+        const g = ctx.createLinearGradient(bx, by, bx, by + chh);
+        g.addColorStop(0, "#6FC46F");
+        g.addColorStop(1, "#2E7D4F");
+        fillRR(ctx, { x: bx, y: by + 4, w: cw, h: chh - 4 }, 18, "#1C5B37");
+        fillRR(ctx, box, 18, g);
+        strokeRR(ctx, box, 18, isCur ? "#FFD84D" : "rgba(255,255,255,.35)", isCur ? 4 : 2);
+        text(ctx, String(idx + 1), bx + cw / 2, by + chh * 0.32, 36, "#FFFFFF", "center", true);
+        stars(ctx, bx + cw / 2, by + chh * 0.72, 12, st);
+      }
+      const pyy = py + ph - 58;
+      const prev = { x: b.x + 40, y: pyy - 26, w: 70, h: 52 };
+      const next = { x: b.x + b.w - 110, y: pyy - 26, w: 70, h: 52 };
+      if (this.page > 0) {
+        this.push("page-prev", prev);
+        backChevron(ctx, prev.x + 35, pyy, 30, T.ink, 5);
+      }
+      if (this.page < pages - 1) {
+        this.push("page-next", next);
+        chevron(ctx, next.x + 35, pyy, 30, T.ink, 5);
+      }
+      for (let i = 0; i < pages; i++) {
+        const dotX = W / 2 + (i - (pages - 1) / 2) * 26;
+        ctx.beginPath();
+        ctx.arc(dotX, pyy, i === this.page ? 9 : 6, 0, Math.PI * 2);
+        ctx.fillStyle = i === this.page ? T.jade : "rgba(90,110,80,.4)";
+        ctx.fill();
+      }
+    }
+    lockIcon(ctx, cx, cy, r, col) {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = Math.max(2, r * 0.22);
+      ctx.beginPath();
+      ctx.arc(cx, cy - r * 0.35, r * 0.45, Math.PI, 0);
+      ctx.stroke();
+      fillRR(ctx, { x: cx - r * 0.75, y: cy - r * 0.3, w: r * 1.5, h: r * 1.15 }, r * 0.25, col);
+    }
+    /** 连锁解锁的数字徽标（消够这个数就解锁）。 */
+    badge(ctx, cx, cy, r, num) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#C0392B";
+      ctx.fill();
+      ctx.lineWidth = Math.max(1.5, r * 0.18);
+      ctx.strokeStyle = "rgba(255,240,210,.85)";
+      ctx.stroke();
+      text(ctx, String(num), cx, cy, Math.max(12, r * 0.95), "#FFFFFF", "center", true);
+    }
+    /** 单向轨的箭头（画在木框边带上，方向 = 允许推动的方向）。 */
+    railArrow(ctx, cx, cy, size, dir, axis) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      const angle = axis === "row" ? dir === 1 ? 0 : Math.PI : dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+      ctx.rotate(angle);
+      ctx.strokeStyle = "#E8C56B";
+      ctx.lineWidth = Math.max(2, size * 0.3);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.45, -size * 0.55);
+      ctx.lineTo(size * 0.45, 0);
+      ctx.lineTo(-size * 0.45, size * 0.55);
+      ctx.stroke();
+      ctx.restore();
+    }
+    /* ══ BOARD ═════════════════════════════════════════════ */
+    drawBoard(ctx) {
+      const W = this.W, H = this.H;
+      const S = this.session;
+      const back = { x: 26, y: 34, w: 68, h: 68 };
+      this.push("back-home", back);
+      this.circleBtn(ctx, back, "back");
+      const title = { x: W / 2 - 165, y: 30, w: 330, h: 76 };
+      pill(ctx, title, `\u7B2C ${S.levelIndex + 1} \u5173`, { size: 38, fill: "#2E6B3A", edge: T.gold, serif: true });
+      const gear = { x: W - 94, y: 34, w: 68, h: 68 };
+      this.gearButton(ctx, gear, "pause");
+      const left = S.total ? count(S.grid) : 0;
+      const goal = S.goal;
+      const goalText = goal ? goal.kind === "face" ? `\u76EE\u6807 ${Session.faceName(goal.face)} \xD7${S.goalDone}/${goal.count}` : `\u76EE\u6807 \u788E\u51B0 \xD7${S.goalDone}/${goal.count}` : null;
+      text(ctx, goalText || `\u5269\u4F59 ${left} / ${S.total} \u5F20`, 40, 134, 25, goalText ? T.jadeDeep : T.ink, "left", true);
+      const par = S.par || 0;
+      const moveText = S.moveLimit ? `\u6B65\u6570 ${S.moves}/${S.moveLimit}` : `${S.moves} \u6B65 \xB7 \u4E09\u661F \u2264 ${par} \u6B65`;
+      text(ctx, moveText, W - 40, 134, 25, S.moveLimit && S.movesLeft <= 3 ? T.red : T.ink, "right", true);
+      const pbar = { x: 40, y: 158, w: W - 80, h: 16 };
+      fillRR(ctx, pbar, 8, "rgba(60,90,50,.3)");
+      const done = S.total ? (S.total - left) / S.total : 0;
+      if (done > 0) {
+        const g = ctx.createLinearGradient(pbar.x, pbar.y, pbar.x + pbar.w, pbar.y);
+        g.addColorStop(0, "#8FD98F");
+        g.addColorStop(1, "#4FA46A");
+        fillRR(ctx, { x: pbar.x, y: pbar.y, w: Math.max(12, pbar.w * done), h: pbar.h }, 8, g);
+      }
+      const msg = { x: 34, y: 190, w: W - 68, h: 62 };
+      const mg = ctx.createLinearGradient(msg.x, msg.y, msg.x, msg.y + msg.h);
+      mg.addColorStop(0, "#FFF9E6");
+      mg.addColorStop(1, "#F6EBCB");
+      fillRR(ctx, msg, 31, mg);
+      strokeRR(ctx, msg, 31, T.creamEdge, 2);
+      fillRR(ctx, { x: msg.x + 22, y: msg.y + 16, w: 6, h: msg.h - 32 }, 3, T.jade);
+      const line = this.drag ? (() => {
+        const r = S.runs[this.drag.run];
+        return `\u6B63\u5728\u5411${this.drag.axis === "row" ? this.drag.offset > 0 ? "\u53F3" : "\u5DE6" : this.drag.offset > 0 ? "\u4E0B" : "\u4E0A"}\u63A8 ${Math.max(1, Math.abs(Math.round(this.drag.offset)))} \u683C \xB7 \u677E\u624B\u6D88\u9664\u78B0\u8D77\u7684\u5BF9\u5B50`;
+      })() : S.message || "\u8F7B\u70B9\u914D\u5BF9 / \u6A2A\u7AD6\u62D6\u52A8\u6574\u6BB5";
+      text(ctx, fit(ctx, line, 24, msg.w - 76), msg.x + 42, msg.y + msg.h / 2, 24, T.ink, "left", false);
+      const top2 = msg.y + msg.h + 18;
+      const hintY = H - 214;
+      const availW = W - 108, availH = hintY - 52 - top2;
+      const rows = this.rows(), cols = this.cols();
+      const cellW = Math.min(availW / cols, availH / rows / 1.24, 116);
+      const cellH = cellW * 1.24;
+      const bw = cellW * cols, bh = cellH * rows;
+      const pad = Math.max(22, cellH * 0.2);
+      const bx = (W - bw) / 2, by = top2 + Math.min(pad + 8, Math.max(0, (availH - bh) / 2));
+      this.boardBox = { x: bx, y: by, w: bw, h: bh };
+      const frame = { x: bx - pad, y: by - pad, w: bw + pad * 2, h: bh + pad * 2 };
+      this.woodFrame(ctx, frame);
+      ctx.save();
+      rr2(ctx, frame.x, frame.y, frame.w, frame.h, 26);
+      ctx.clip();
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const x0 = bx + c * cellW, y0 = by + r * cellH;
+          const cell = S.grid[r][c];
+          const slot = { x: x0 + cellW * 0.07, y: y0 + cellH * 0.07, w: cellW * 0.86, h: cellH * 0.86 };
+          if (cell === "#" || cell === null) {
+            fillRR(ctx, slot, 12, "rgba(96,64,28,.42)");
+            strokeRR(ctx, slot, 12, "rgba(60,38,14,.55)", 2.5);
+            ctx.save();
+            ctx.lineCap = "round";
+            ctx.lineWidth = Math.max(2, slot.w * 0.06);
+            ctx.strokeStyle = "rgba(60,38,14,.4)";
+            ctx.beginPath();
+            ctx.moveTo(slot.x + slot.w * 0.3, slot.y + slot.h * 0.3);
+            ctx.lineTo(slot.x + slot.w * 0.7, slot.y + slot.h * 0.7);
+            ctx.moveTo(slot.x + slot.w * 0.7, slot.y + slot.h * 0.3);
+            ctx.lineTo(slot.x + slot.w * 0.3, slot.y + slot.h * 0.7);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+      }
+      const def = levelAt(S.levelIndex);
+      const tileable = (row) => !!row && row.split("").some((v) => v === "1" || v === "2" || v === "3");
+      const railBar = (x, y, w, h) => {
+        fillRR(ctx, { x, y, w, h }, 5, "rgba(96,64,28,.30)");
+        strokeRR(ctx, { x: x + 1, y: y + 1, w: w - 2, h: h - 2 }, 5, "rgba(60,38,14,.35)", 2);
+      };
+      for (const r of def.lockR) {
+        if (r < 0 || r >= rows || !tileable(def.map[r])) continue;
+        const cy = by + r * cellH + cellH / 2;
+        railBar(bx, cy - cellH * 0.46, bw, cellH * 0.92);
+        this.lockIcon(ctx, bx - pad * 0.45, cy, pad * 0.34, "#5A3F14");
+      }
+      for (const c of def.lockC) {
+        if (c < 0 || c >= cols || !def.map.some((row) => tileable(row[c] || ""))) continue;
+        const cx = bx + c * cellW + cellW / 2;
+        railBar(cx - cellW * 0.46, by, cellW * 0.92, bh);
+        this.lockIcon(ctx, cx, by - pad * 0.45, pad * 0.34, "#5A3F14");
+      }
+      for (const u of def.unlock || []) {
+        if (u.after <= S.clearedPairs) continue;
+        if (u.axis === "row") {
+          if (u.index < 0 || u.index >= rows || !tileable(def.map[u.index])) continue;
+          const cy = by + u.index * cellH + cellH / 2;
+          railBar(bx, cy - cellH * 0.46, bw, cellH * 0.92);
+          this.lockIcon(ctx, bx - pad * 0.45, cy, pad * 0.3, "#5A3F14");
+          this.badge(ctx, bx - pad * 1.15, cy, pad * 0.34, u.after);
+        } else {
+          if (u.index < 0 || u.index >= cols) continue;
+          const cx = bx + u.index * cellW + cellW / 2;
+          railBar(cx - cellW * 0.46, by, cellW * 0.92, bh);
+          this.lockIcon(ctx, cx, by - pad * 0.45, pad * 0.3, "#5A3F14");
+          this.badge(ctx, cx, by - pad * 1.15, pad * 0.34, u.after);
+        }
+      }
+      for (const o of def.oneWay || []) {
+        if (o.axis === "row") {
+          if (o.index < 0 || o.index >= rows || !tileable(def.map[o.index])) continue;
+          const cy = by + o.index * cellH + cellH / 2;
+          railBar(bx, cy - cellH * 0.46, bw, cellH * 0.92);
+          this.railArrow(ctx, bx - pad * 0.45, cy, pad * 0.4, o.dir, "row");
+          this.railArrow(ctx, bx + bw + pad * 0.45, cy, pad * 0.4, o.dir, "row");
+        } else {
+          if (o.index < 0 || o.index >= cols) continue;
+          const cx = bx + o.index * cellW + cellW / 2;
+          railBar(cx - cellW * 0.46, by, cellW * 0.92, bh);
+          this.railArrow(ctx, cx, by - pad * 0.45, pad * 0.4, o.dir, "col");
+          this.railArrow(ctx, cx, by + bh + pad * 0.45, pad * 0.4, o.dir, "col");
+        }
+      }
+      const dragRun = this.drag ? S.runs[this.drag.run] : null;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cell = S.grid[r][c];
+          if (!Array.isArray(cell) || !cell.length) continue;
+          let x0 = bx + c * cellW, y0 = by + r * cellH;
+          if (dragRun && dragRun.cells.some((p) => p.r === r && p.c === c)) {
+            const i = dragRun.cells.findIndex((p) => p.r === r && p.c === c);
+            const step = this.drag.axis === "row" ? cellW : cellH;
+            let off = i + this.drag.offset;
+            const len = dragRun.cells.length;
+            while (off > len - 1 + 0.5) off -= len;
+            while (off < -0.5) off += len;
+            const delta = off - i;
+            if (this.drag.axis === "row") x0 += delta * step;
+            else y0 += delta * step;
+          }
+          const visible = Math.min(cell.length, 3);
+          const liftY = cellH * 0.05;
+          for (let k = 0; k < visible; k++) {
+            const depth = visible - 1 - k;
+            const tw = cellW * 0.84, th = cellH * 0.84;
+            const isTop = k === visible - 1;
+            const cx = x0 + cellW / 2, cy = y0 + cellH * 0.5 - depth * liftY;
+            drawTile(ctx, cx, cy, { face: cell[k], w: tw, h: th, lift: th * 0.08 });
+            if (isTop && cell.length > 1) this.countBadge(ctx, cx + tw * 0.42, cy - th * 0.38, cell.length);
+          }
+        }
+      }
+      const hl = (p, col) => {
+        const x0 = bx + p.c * cellW, y0 = by + p.r * cellH;
+        ctx.save();
+        ctx.globalAlpha = 0.85;
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = col;
+        rr2(ctx, x0 + cellW * 0.04, y0 + cellH * 0.04, cellW * 0.92, cellH * 0.92, 14);
+        ctx.stroke();
+        ctx.restore();
+      };
+      if (S.selected) hl(S.selected, "#FF8A3D");
+      for (const a of S.hint) {
+        if (a.kind === "match") {
+          hl(a.a, "#7EE3FF");
+          hl(a.b, "#7EE3FF");
+        } else {
+          const run = S.runs[a.run];
+          for (const p of run.cells) hl(p, "rgba(126,227,255,.8)");
+        }
+      }
+      ctx.restore();
+      const tools = [
+        { id: "hint", icon: "hint", label: "\u63D0\u793A", sub: `\u514D\u8D39 ${S.hintsLeft} \u6B21` },
+        { id: "shuffle", icon: "shuffle", label: "\u6D17\u724C", sub: `\u514D\u8D39 ${S.shufflesLeft} \u6B21` },
+        { id: "undo", icon: "undo", label: "\u64A4\u9500", sub: "\u9000\u56DE\u4E0A\u4E00\u6B65" },
+        { id: "restart", icon: "restart", label: "\u91CD\u5F00", sub: "\u91CD\u65B0\u53D1\u724C" }
+      ];
+      const tw2 = (W - 68 - 3 * 16) / 4;
+      const ty2 = H - 168;
+      tools.forEach((t, i) => {
+        const bb = { x: 34 + i * (tw2 + 16), y: ty2, w: tw2, h: 116 };
+        this.push(t.id, bb);
+        this.toolButton(ctx, bb, t.icon, t.label, t.sub, this.isPressed(t.id));
+      });
+    }
+    circleBtn(ctx, b, kind) {
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2, r = b.w / 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      const g = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+      g.addColorStop(0, "#3E7A48");
+      g.addColorStop(1, "#1F4F2C");
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = T.gold;
+      ctx.stroke();
+      if (kind === "back") backChevron(ctx, cx + 2, cy, r * 0.85, "#F3EAD2", 5);
+      else {
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.34, cy - r * 0.34);
+        ctx.lineTo(cx + r * 0.34, cy + r * 0.34);
+        ctx.moveTo(cx + r * 0.34, cy - r * 0.34);
+        ctx.lineTo(cx - r * 0.34, cy + r * 0.34);
+        ctx.lineWidth = 5;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "#F3EAD2";
+        ctx.stroke();
+      }
+    }
+    /** Wooden table surface with grain and a front apron, for the home screen. */
+    table(ctx, y) {
+      const W = this.W, H = this.H;
+      const h = H - y + 20;
+      const b = { x: -20, y, w: W + 40, h };
+      const g = ctx.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, "#C08B52");
+      g.addColorStop(0.16, "#A9723F");
+      g.addColorStop(1, "#7B4C22");
+      fillRR(ctx, b, 0, g);
+      ctx.save();
+      ctx.globalAlpha = 0.16;
+      ctx.strokeStyle = "#5A3714";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 26; i++) {
+        const gy = y + 10 + i * (h / 26);
+        ctx.beginPath();
+        ctx.moveTo(-20, gy);
+        ctx.bezierCurveTo(W * 0.3, gy + 5, W * 0.7, gy - 5, W + 20, gy + 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      fillRR(ctx, { x: -20, y, w: W + 40, h: 14 }, 0, "#F0C892");
+      ctx.restore();
+    }
+    woodFrame(ctx, b) {
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      fillRR(ctx, { x: b.x + 4, y: b.y + 8, w: b.w, h: b.h }, 26, "#20361F");
+      ctx.restore();
+      const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+      g.addColorStop(0, T.woodLight);
+      g.addColorStop(0.5, T.wood);
+      g.addColorStop(1, T.woodDeep);
+      fillRR(ctx, b, 26, g);
+      strokeRR(ctx, b, 26, "#4A2C10", 5);
+      const inner = { x: b.x + 12, y: b.y + 12, w: b.w - 24, h: b.h - 24 };
+      fillRR(ctx, inner, 18, "#4E6B33");
+      strokeRR(ctx, inner, 18, "rgba(30,50,20,.5)", 3);
+    }
+    countBadge(ctx, cx, cy, n) {
+      const r = 15;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#E8873B";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.stroke();
+      text(ctx, String(n), cx, cy + 1, 20, "#FFFFFF", "center", true);
+    }
+    toolButton(ctx, b, ic, label, sub, pressed) {
+      const dy = pressed ? 3 : 0;
+      fillRR(ctx, { x: b.x, y: b.y + 6, w: b.w, h: b.h }, 20, "#1B3A22");
+      const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+      g.addColorStop(0, "#3E7A48");
+      g.addColorStop(1, "#245530");
+      fillRR(ctx, { x: b.x, y: b.y + dy, w: b.w, h: b.h - 6 }, 20, g);
+      strokeRR(ctx, { x: b.x, y: b.y + dy, w: b.w, h: b.h - 6 }, 20, "rgba(216,169,78,.55)", 2);
+      icon(ctx, ic, b.x + b.w / 2, b.y + 36 + dy, 34, "#F3EAD2", 3.2);
+      text(ctx, label, b.x + b.w / 2, b.y + 74 + dy, 26, "#FFFFFF", "center", true);
+      text(ctx, sub, b.x + b.w / 2, b.y + 98 + dy, 18, "rgba(243,234,210,.75)", "center");
+    }
+    /**
+     * 把一块 `contentH` 高的内容在「顶栏之下、屏幕底部之上」垂直居中，返回它的顶边 y。
+     *
+     * 面板不要按屏高取比例撑大：屏一高面板会拉到很高，而里面的内容还是固定尺寸，
+     * 结果就是「上面几行 + 下面一大片空面板」。按内容定高再居中，任何屏高下都成立。
+     */
+    centeredTop(contentH, topInset = 118, bottomInset = 40) {
+      return (topInset + (this.H - bottomInset)) / 2 - contentH / 2;
+    }
+    /* ══ SETTINGS（首页上的弹框） ══════════════════════════ */
+    drawSettings(ctx) {
+      const W = this.W;
+      this.veil(ctx);
+      const rows = [
+        { id: "progress", icon: "progress", label: "\u6211\u7684\u8FDB\u5EA6" },
+        { id: "toggle-sound", icon: "sound", label: "\u97F3\u6548", toggle: this.sound },
+        { id: "toggle-music", icon: "music", label: "\u80CC\u666F\u97F3\u4E50", toggle: this.music },
+        { id: "toggle-vibration", icon: "vibrate", label: "\u9707\u52A8", toggle: this.session.vibration },
+        { id: "about", icon: "book", label: "\u73A9\u6CD5\u8BF4\u660E" }
+      ];
+      const rh = 104;
+      const ph = 94 + rh * rows.length + 34 + 40;
+      const py = this.centeredTop(ph);
+      const b = { x: 40, y: py, w: W - 80, h: ph };
+      panel(ctx, b, { r: 28 });
+      pill(ctx, { x: b.x + 40, y: py + 28, w: 240, h: 66 }, "\u8BBE\u7F6E", { size: 32, fill: "#2E6B3A", edge: T.gold, r: 33, serif: true });
+      const close = { x: b.x + b.w - 98, y: py + 28, w: 58, h: 58 };
+      this.push("__back", close);
+      this.circleBtn(ctx, close, "close");
+      rows.forEach((r, i) => {
+        const y = py + 94 + i * rh;
+        const box = { x: b.x + 24, y, w: b.w - 48, h: rh - 8 };
+        if (i % 2 === 0) fillRR(ctx, box, 16, "rgba(255,255,255,.5)");
+        icon(ctx, r.icon, box.x + 42, y + rh / 2 - 4, 34, T.jade, 3);
+        text(ctx, r.label, box.x + 82, y + rh / 2 - 4, 27, T.ink, "left");
+        if (r.toggle) {
+          const tw2 = 74;
+          const tb = toggle(ctx, box.x + box.w - tw2 - 8, y + rh / 2 - 4, tw2, !!r.toggle);
+          this.push(r.id, tb, true);
+        } else {
+          chevron(ctx, box.x + box.w - 20, y + rh / 2 - 4, 26, T.inkFaint, 3);
+          this.push(r.id, box);
+        }
+      });
+      text(ctx, `\u7248\u672C ${APP_VERSION}`, W / 2, py + ph - 34, 22, T.inkSoft, "center");
+    }
+    /* ══ PROGRESS（设置里的弹框） ══════════════════════════ */
+    drawProgress(ctx) {
+      const W = this.W;
+      this.veil(ctx);
+      const total = LEVELS.length;
+      const starsMap = this.session.stars;
+      const got = Object.values(starsMap).reduce((n, v) => n + v, 0);
+      const cleared = Object.keys(starsMap).length;
+      const COLS = 10, gap = 8;
+      const cw = (W - 160 - gap * (COLS - 1)) / COLS;
+      const gridH = COLS * (cw + gap) - gap;
+      const oTitle = 124, oNum = 170, oBar = 214, oMap = 262, oGrid = 296;
+      const oLegend = oGrid + gridH + 30;
+      const oFoot = oLegend + 52;
+      const ph = oFoot + 15 + 34;
+      const py = this.centeredTop(ph);
+      const b = { x: 40, y: py, w: W - 80, h: ph };
+      panel(ctx, b, { r: 28 });
+      pill(ctx, { x: b.x + 40, y: py + 28, w: 240, h: 66 }, "\u6211\u7684\u8FDB\u5EA6", { size: 32, fill: "#2E6B3A", edge: T.gold, r: 33, serif: true });
+      const close = { x: b.x + b.w - 98, y: py + 28, w: 58, h: 58 };
+      this.push("__back", close);
+      this.circleBtn(ctx, close, "close");
+      text(ctx, "\u603B\u661F\u6570", b.x + 40, b.y + oTitle, 26, T.inkSoft, "left", true);
+      text(ctx, String(got), b.x + 40, b.y + oNum, 46, T.jadeDeep, "left", true);
+      ctx.font = `700 46px ${FONT_SANS}`;
+      const nw = ctx.measureText(String(got)).width;
+      text(ctx, `/ ${total * 3}`, b.x + 44 + nw, b.y + oNum + 10, 24, T.inkFaint, "left", true);
+      star(ctx, b.x + b.w - 62, b.y + oNum - 16, 20, true);
+      const bar = { x: b.x + 40, y: b.y + oBar - 10, w: b.w - 80, h: 20 };
+      fillRR(ctx, bar, 10, "rgba(60,90,50,.22)");
+      fillRR(ctx, { x: bar.x, y: bar.y, w: Math.max(10, bar.w * Math.min(1, got / (total * 3))), h: bar.h }, 10, "#4FA46A");
+      text(ctx, "\u661F\u56FE", b.x + 40, b.y + oMap, 27, T.ink, "left", true);
+      const gy = b.y + oGrid;
+      for (let i = 0; i < total; i++) {
+        const col = i % COLS, row = Math.floor(i / COLS);
+        const cell = { x: b.x + 40 + col * (cw + gap), y: gy + row * (cw + gap), w: cw, h: cw };
+        const st = starsMap[String(i)] || 0;
+        const unlocked = i <= this.session.maxLevel;
+        const fill = !unlocked ? "rgba(222,216,198,.6)" : st === 0 ? "rgba(255,255,255,.66)" : st === 1 ? "#BFE3B6" : st === 2 ? "#7EC77F" : "#2E7D4F";
+        fillRR(ctx, cell, 9, fill);
+        strokeRR(ctx, cell, 9, unlocked ? "rgba(196,176,136,.65)" : "rgba(190,180,158,.45)", 1.2);
+        text(
+          ctx,
+          String(i + 1),
+          cell.x + cw / 2,
+          cell.y + cw / 2 + 1,
+          Math.round(cw * 0.34),
+          !unlocked ? "#B3A98F" : st >= 2 ? "#FFFFFF" : T.inkSoft,
+          "center",
+          st >= 2
+        );
+        if (unlocked) this.push("level:" + i, cell);
+      }
+      const ly = b.y + oLegend;
+      const legend = [["\u672A\u89E3\u9501", "rgba(222,216,198,.6)"], ["0 \u661F", "rgba(255,255,255,.66)"], ["1 \u661F", "#BFE3B6"], ["2 \u661F", "#7EC77F"], ["3 \u661F", "#2E7D4F"]];
+      const lw = 100, lgap = 4;
+      let lx = W / 2 - (legend.length * lw + (legend.length - 1) * lgap) / 2;
+      for (const [label, col] of legend) {
+        fillRR(ctx, { x: lx, y: ly - 9, w: 18, h: 18 }, 5, col);
+        strokeRR(ctx, { x: lx, y: ly - 9, w: 18, h: 18 }, 5, "rgba(150,140,116,.5)", 1);
+        text(ctx, label, lx + 26, ly, 19, T.inkSoft, "left");
+        lx += lw + lgap;
+      }
+      text(ctx, `\u5DF2\u901A\u5173 ${cleared} / ${total} \u5173`, W / 2, b.y + oFoot, 24, T.ink, "center", true);
+    }
+    /* ══ OVERLAYS ══════════════════════════════════════════ */
+    veil(ctx) {
+      ctx.fillStyle = "rgba(18,40,22,.55)";
+      ctx.fillRect(0, 0, this.W, this.H);
+    }
+    drawWin(ctx) {
+      const W = this.W;
+      this.veil(ctx);
+      const S = this.session;
+      const oLevel = 76, oStars = 182, oR1 = 272, oR2 = 326, oNext = 424, oHome = 522;
+      const ph = oHome + 38 + 42;
+      const py = this.centeredTop(ph);
+      const b = { x: 78, y: py, w: W - 156, h: ph };
+      panel(ctx, b, { r: 34 });
+      const ban = { x: W / 2 - 232, y: py - 54, w: 464, h: 100 };
+      const bg = ctx.createLinearGradient(ban.x, ban.y, ban.x, ban.y + ban.h);
+      bg.addColorStop(0, "#B4763C");
+      bg.addColorStop(1, "#7C4A1E");
+      fillRR(ctx, ban, 26, bg);
+      strokeRR(ctx, ban, 26, "#5A3714", 5);
+      text(ctx, "\u606D\u559C\u901A\u5173", W / 2, ban.y + ban.h / 2, 50, "#F7DFA0", "center", true, true);
+      text(ctx, `\u7B2C ${S.levelIndex + 1} \u5173`, W / 2, py + oLevel, 34, T.ink, "center", true, true);
+      stars(ctx, W / 2, py + oStars, 44, S.rating);
+      const best = this.session.stars[String(S.levelIndex)] || S.rating;
+      text(ctx, "\u5269\u4F59\u6B65\u6570", b.x + 70, py + oR1, 26, T.inkSoft, "left");
+      text(ctx, `${S.moves} \u6B65`, b.x + b.w - 70, py + oR1, 26, T.ink, "right", true);
+      text(ctx, "\u6700\u4F73\u8BB0\u5F55", b.x + 70, py + oR2, 26, T.inkSoft, "left");
+      text(ctx, `${Math.min(best, S.moves)} \u6B65`, b.x + b.w - 70, py + oR2, 26, T.ink, "right", true);
+      const nb = { x: b.x + 46, y: py + oNext - 46, w: b.w - 92, h: 92 };
+      this.push("next", nb);
+      button(ctx, nb, "\u4E0B\u4E00\u5173", { kind: "jade", size: 36, icon: "play", pressed: this.isPressed("next") });
+      const hb = { x: b.x + 46, y: py + oHome - 38, w: b.w - 92, h: 76 };
+      this.push("home", hb);
+      button(ctx, hb, "\u8FD4\u56DE\u9996\u9875", { kind: "cream", size: 30, pressed: this.isPressed("home") });
+    }
+    drawLose(ctx) {
+      const W = this.W;
+      this.veil(ctx);
+      const S = this.session;
+      const oSub = 76, oTile = 188, oLevel = 298, oLeft = 340, oMoves = 376, oBtn = 490, oFoot = 566;
+      const ph = oFoot + 15 + 40;
+      const py = this.centeredTop(ph);
+      const b = { x: 84, y: py, w: W - 168, h: ph };
+      panel(ctx, b, { r: 34 });
+      const ban = { x: W / 2 - 214, y: py - 50, w: 428, h: 96 };
+      const bg = ctx.createLinearGradient(ban.x, ban.y, ban.x, ban.y + ban.h);
+      bg.addColorStop(0, "#A83B32");
+      bg.addColorStop(1, "#6E211B");
+      fillRR(ctx, ban, 24, bg);
+      strokeRR(ctx, ban, 24, "#5A1913", 5);
+      text(ctx, "\u5F88\u9057\u61BE", W / 2, ban.y + ban.h / 2, 48, "#F7DFA0", "center", true, true);
+      const reason = S.modal === "lose" ? S.message : "\u724C\u8D70\u6B7B\u4E86\uFF1A\u5269\u4E0B\u7684\u724C\u51D1\u4E0D\u51FA\u53EF\u6D88\u7684\u7EC4\u5408\u3002";
+      text(ctx, reason, W / 2, py + oSub, 28, T.inkSoft, "center", true, true);
+      drawTile(ctx, W / 2, py + oTile, { face: "5z", w: 116, h: 144 });
+      text(ctx, `\u7B2C ${S.levelIndex + 1} \u5173`, W / 2, py + oLevel, 30, T.ink, "center", true);
+      text(ctx, `\u5269\u4F59 ${count(S.grid)} / ${S.total} \u5F20`, W / 2, py + oLeft, 25, T.inkSoft, "center");
+      text(ctx, `${S.moves} \u6B65 \xB7 \u4E09\u661F \u2264 ${S.par} \u6B65`, W / 2, py + oMoves, 25, T.inkSoft, "center");
+      const half = (b.w - 116) / 2;
+      const again = { x: b.x + 46, y: py + oBtn - 42, w: half, h: 84 };
+      const restart = { x: b.x + 70 + half, y: py + oBtn - 42, w: half, h: 84 };
+      this.push("undo-lose", again);
+      this.push("restart", restart);
+      button(ctx, again, "\u64A4\u9500\u4E00\u6B65", { kind: "cream", size: 28, pressed: this.isPressed("undo-lose") });
+      button(ctx, restart, "\u91CD\u65B0\u5F00\u59CB", { kind: "jade", size: 28, pressed: this.isPressed("restart") });
+      text(ctx, "\u518D\u63A5\u518D\u5389\uFF0C\u4E0B\u4E00\u6B21\u4E00\u5B9A\uFF01", W / 2, py + oFoot, 26, T.inkSoft, "center", true);
+    }
+    drawPause(ctx) {
+      const W = this.W;
+      this.veil(ctx);
+      const items = [
+        { id: "resume", icon: "play", label: "\u7EE7\u7EED\u6E38\u620F", kind: "jade" },
+        { id: "restart", icon: "restart", label: "\u91CD\u65B0\u5F00\u59CB", kind: "cream" },
+        { id: "home", icon: "home", label: "\u8FD4\u56DE\u9996\u9875", kind: "cream" }
+      ];
+      const oStart = 83, step = 100;
+      const ph = oStart + (items.length - 1) * step + 41 + 42;
+      const py = this.centeredTop(ph);
+      const b = { x: 96, y: py, w: W - 192, h: ph };
+      panel(ctx, b, { r: 30 });
+      const ban = { x: W / 2 - 150, y: py - 42, w: 300, h: 84 };
+      pill(ctx, ban, "\u5DF2\u6682\u505C", { size: 40, fill: "#2E6B3A", edge: T.gold, serif: true });
+      const close = { x: b.x + b.w - 52, y: py - 30, w: 62, h: 62 };
+      this.push("resume", close);
+      this.circleBtn(ctx, close, "close");
+      items.forEach((it, i) => {
+        const bb = { x: b.x + 44, y: py + oStart + i * step - 41, w: b.w - 88, h: 82 };
+        this.push(it.id, bb);
+        button(ctx, bb, it.label, { kind: it.kind, size: 30, icon: it.icon, pressed: this.isPressed(it.id) });
+      });
+    }
+    drawHelp(ctx) {
+      const W = this.W;
+      this.veil(ctx);
+      const lines = ["\u8F7B\u70B9\u4E24\u5F20\u76F8\u90BB\u7684\u540C\u724C\uFF0C\u5373\u53EF\u6D88\u9664\u3002", "\u6309\u4F4F\u4E00\u884C\u6A2A\u62D6\u3001\u4E00\u5217\u7AD6\u62D6\uFF0C\u6574\u6BB5\u5FAA\u73AF\u6ED1\u52A8\u3002", "\u6ED1\u52A8\u677E\u624B\u540E\u4F1A\u81EA\u52A8\u6D88\u9664\u78B0\u8D77\u7684\u5BF9\u5B50\uFF0C\u53EF\u8FDE\u6D88\u3002", "\u6728\u5757\u4E0E\u7A7A\u6D1E\u4F1A\u622A\u65AD\u6ED1\u8F68\uFF1B\u9501\u4F4F\u7684\u884C / \u5217\u63A8\u4E0D\u52A8\u3002", "\u51B0\u9762\u724C\u8981\u6D88\u4E24\u6B21\uFF1A\u7B2C\u4E00\u4E0B\u788E\u51B0\uFF0C\u7B2C\u4E8C\u4E0B\u6536\u724C\u3002", "\u63D0\u793A / \u6D17\u724C\u5404\u6709\u9650\u91CF\uFF0C\u7528\u8F85\u52A9\u6700\u591A\u4E24\u661F\u3002"];
+      const oLines = 150, lstep = 54;
+      const oBtn = oLines + (lines.length - 1) * lstep + 16 + 40 + 43;
+      const ph = oBtn + 43 + 40;
+      const py = this.centeredTop(ph);
+      const b = { x: 70, y: py, w: W - 140, h: ph };
+      panel(ctx, b, { r: 30 });
+      text(ctx, "\u73A9\u6CD5", W / 2, py + 70, 42, T.jadeDeep, "center", true, true);
+      lines.forEach((s, i) => text(ctx, s, b.x + 56, py + oLines + i * lstep, 25, T.ink, "left"));
+      const ok = { x: W / 2 - 170, y: py + oBtn - 43, w: 340, h: 86 };
+      this.push("back-home", ok);
+      button(ctx, ok, "\u77E5\u9053\u4E86", { kind: "jade", size: 30, pressed: this.isPressed("back-home") });
+    }
+  };
+
+  // demo/h5/src/entry.ts
+  var canvas = document.getElementById("cv");
+  var app = new App(canvas);
+  window.mj = app;
+  window.__mjReady = true;
+})();
+</script>
+</body>
+</html>
