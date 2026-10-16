@@ -246,3 +246,27 @@ test('没钉种子的关仍按老行为每次换牌（无尽池依赖这条）',
     s.reset(i,true);assert.notEqual(R.signature(s.grid),a,'删了 seed 还不换牌，说明翻种子的分支被删掉了');
   }finally{GEN.LEVELS[i].seed=keep;}
 });
+
+/* 发版兼容：1.1.0 玩家手里的档是 version 2 + 120 关时代的牌桌，
+ * 这次 224 关重排会改掉大多数关的形状。中盘牌桌必须**安全回退**（重新发一局本关的钉死盘），
+ * 而进度（maxLevel / 星级 / 已看过的说明卡 / 设置）必须原样保住——不能因为换表把老玩家打回第 1 关。
+ */
+test('老存档遇到新关卡表：进度保住、形状对不上的中盘牌桌安全回退',()=>{
+  const G=require('../.test/core/Generator.js');
+  const L=G.LEVELS;
+  const idx=40;
+  const deal=G.generate(idx,L[idx].seed);
+  const stale=deal.grid.slice(0,deal.grid.length-1);      // 少一行＝旧表那一关的形状，形状校验必须拦下
+  const store={value:JSON.stringify({version:2,maxLevel:idx,stars:{'7':3},tipsSeen:{ice:true},vibration:false,
+    run:{index:idx,seed:deal.seed,grid:stale,total:R.count(deal.grid),moves:5,par:20,
+      hintsUsed:1,shufflesUsed:0,clearedPairs:2,goalDone:0}}),
+    load(){return this.value;},save(v){this.value=typeof v==='string'?v:JSON.stringify(v);},feedback(){}};
+  const s=new mod.Session(7,store);
+  assert.equal(s.maxLevel,idx,'进度关号要保住');
+  assert.equal(s.stars['7'],3,'历史星级要保住');
+  assert.equal(s.tipsSeen.ice,true,'看过的说明卡不能重弹');
+  assert.equal(s.vibration,false,'设置项要保住');
+  assert.equal(s.moves,0,'形状对不上的中盘牌桌必须丢掉，不能带着旧步数开局');
+  assert.equal(R.signature(s.grid),R.signature(deal.grid),'回退到本关钉死的那一盘，而不是旧形状残局');
+  assert.ok(G.stateLegal(s.grid),'回退后的盘面照样要过存档校验');
+});
