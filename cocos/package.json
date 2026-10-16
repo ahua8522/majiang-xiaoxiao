@@ -1,17 +1,15 @@
 {
   "name": "majiang-xiaoxiao",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "麻将小茶馆 · Cocos Creator 微信小游戏（核心规则引擎与卡通绘图层）",
+  "description": "快乐推麻对对消 · Cocos Creator 微信小游戏（规则引擎 + cc 原生视图层）",
   "scripts": {
-    "build:core": "tsc assets/scripts/core/Rules.ts assets/scripts/core/Generator.ts assets/scripts/core/Session.ts --outDir .test/core --target ES2020 --module commonjs --strict",
-    "build:view": "tsc assets/scripts/view/Drawing.ts assets/scripts/view/GameView.ts assets/scripts/view/Input.ts --outDir .view-test/view --target ES2020 --module commonjs --strict",
-    "test": "npm run build:core && node --test tests/core.test.cjs tests/generation.test.cjs tests/session.test.cjs",
-    "test:all": "npm run build:core && npm run build:view && node --test tests/ && npm run check:cocos",
-    "test:legacy": "node ../demo/verify.cjs",
+    "build:core": "tsc assets/scripts/core/levels.ts assets/scripts/core/Rules.ts assets/scripts/core/Generator.ts assets/scripts/core/Session.ts --outDir .test/core --target ES2020 --module commonjs --strict --skipLibCheck",
+    "author:levels": "npm run build:core && node tools/author-levels.cjs && npm run build:core",
+    "test": "npm run build:core && node --test tests/core.test.cjs tests/generation.test.cjs tests/session.test.cjs tests/transpile.test.cjs tests/view-source.test.cjs tests/levels-meta.test.cjs",
+    "test:stress": "npm run build:core && node --test tests/stress-review.test.cjs",
+    "test:all": "npm run test && npm run check:cocos",
     "check:cocos": "tsc -p tsconfig.check.json",
-    "preview:build": "esbuild preview/main.ts --bundle --format=iife --target=es2020 --tsconfig=tsconfig.check.json --outfile=preview/dist/main.js",
-    "preview": "npm run preview:build && esbuild preview/main.ts --bundle --format=iife --target=es2020 --tsconfig=tsconfig.check.json --outdir=preview/dist --servedir=preview --serve=8080",
     "upload:ci": "node tools/upload-ci.cjs"
   },
   "devDependencies": {

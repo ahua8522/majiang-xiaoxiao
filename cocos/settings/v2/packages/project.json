@@ -4,6 +4,25 @@
     "designResolution": {
       "width": 750,
       "height": 1334
+    },
+    "splashScreen": {
+      "displayRatio": 1,
+      "totalTime": 0,
+      "autoFit": true,
+      "background": {
+        "type": "default",
+        "color": {
+          "x": 0.9450980392156862,
+          "y": 0.9215686274509803,
+          "z": 0.8666666666666667,
+          "w": 1
+        }
+      },
+      "logo": {
+        "type": "default",
+        "base64": "",
+        "image": ""
+      }
     }
   },
   "custom_joint_texture_layouts": []

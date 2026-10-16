@@ -7,38 +7,55 @@
   "debug": false,
   "buildMode": "normal",
   "mangleProperties": false,
-  "md5Cache": false,
+  "md5Cache": true,
   "skipCompressTexture": false,
   "sourceMaps": false,
   "overwriteProjectSettings": {
     "macroConfig": {
       "cleanupImageCache": "on"
     },
+    "general": {
+        "splashScreen": {
+          "displayRatio": 1,
+          "totalTime": 0,
+          "autoFit": true,
+          "background": {
+            "type": "default",
+            "color": {
+              "x": 0.8117647058823529,
+              "y": 0.9137254901960784,
+              "z": 0.9019607843137255,
+              "w": 1
+            }
+          }
+        }
+    },
     "includeModules": {
       "physics": "off",
       "physics-2d": "off",
-      "gfx-webgl2": "off",
       "3d": "off",
-      "animation": "off",
       "skeletal-animation": "off",
-      "audio": "off",
       "dragon-bones": "off",
-      "intersection-2d": "off",
       "light-probe": "off",
       "marionette": "off",
-      "mask": "off",
       "particle": "off",
-      "particle-2d": "off",
       "primitive": "off",
-      "profiler": "off",
-      "rich-text": "off",
       "spine-3.8": "off",
       "terrain": "off",
       "tiled-map": "off",
       "video": "off",
       "websocket": "off",
       "webview": "off",
-      "ui-skew": "off"
+      "gfx-webgl2": "on",
+      "tween": "on",
+      "animation": "on",
+      "audio": "on",
+      "particle-2d": "on",
+      "intersection-2d": "on",
+      "mask": "on",
+      "rich-text": "on",
+      "ui-skew": "on",
+      "profiler": "off"
     }
   },
   "nativeCodeBundleMode": "wasm",
@@ -77,15 +94,22 @@
   },
   "packages": {},
   "__version__": "1.3.9",
-  "logDest": "project://temp/builder/log/wechatgame2026-10-10 09-11.log",
   "includeModules": [
     "base",
     "gfx-webgl",
+    "gfx-webgl2",
     "2d",
-    "graphics",
     "ui",
+    "graphics",
     "affine-transform",
     "tween",
+    "animation",
+    "audio",
+    "particle-2d",
+    "intersection-2d",
+    "mask",
+    "rich-text",
+    "ui-skew",
     "custom-pipeline",
     "custom-pipeline-builtin-scripts"
   ]

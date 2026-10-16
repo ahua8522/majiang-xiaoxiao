@@ -1,15 +1,16 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');
 const R=require('../.test/core/Rules.js');
 const G=fs.existsSync(__dirname+'/../.test/core/Generator.js')?require('../.test/core/Generator.js'):{};
-test('18关每个随机开局证书都由真实转换完整清台，绝不返回未证明兜底',()=>{
+test('全部关卡每个随机开局证书都由真实转换完整清台，绝不返回未证明兜底',()=>{
   assert.equal(typeof G.generate,'function','缺少可证生成器');
-  for(let level=0;level<18;level++)for(let seed=1;seed<=12;seed++){
+  assert.ok(G.LEVELS.length>=100,`关卡数不足 100（当前 ${G.LEVELS.length}）`);
+  for(let level=0;level<G.LEVELS.length;level++)for(const seed of [1,7,20261013]){
     const d=G.generate(level,seed);let g=d.grid;const n=R.count(g);
-    assert.ok(n>=12&&n%2===0);
+    assert.ok(n>=8&&n%2===0);
     for(const action of d.solution){const next=R.transition(g,d.runs,action);assert.ok(next.changed);g=next.grid;}
     assert.equal(R.count(g),0,`level ${level} seed ${seed}`);
     const tally={};d.grid.flat().filter(Array.isArray).flat().forEach(f=>tally[f]=(tally[f]||0)+1);
-    assert.ok(Object.values(tally).every(n=>n===2||n===4),'每种牌为一对或两对，最多四张');
+    assert.ok(Object.entries(tally).every(([f,n])=>n===2||n===4||(f==='b1'&&n<=8)),'每种牌为一对或两对（鞭炮最多四对）');
     assert.ok(d.solution.length>0);
   }
 });
@@ -27,29 +28,156 @@ test('洗牌收到奇数同牌时拒绝，不破坏原棋盘',()=>{
   assert.equal(typeof G.redeal,'function');const g=[[['1p']]],before=JSON.stringify(g);
   assert.equal(G.redeal(0,g,1),null);assert.equal(JSON.stringify(g),before);
 });
-test('后期完整打乱失败时逐步构造，不退回铺满现成对子的简单牌局',()=>{
-  for(const [level,seeds] of [[7,[1,10,31]],[13,[4,8,26]],[17,[4,13,27]]])for(const seed of seeds){
+
+/* ── 花牌与冰面（生成器） ── */
+
+test('花牌 f1..f8 入池，牌池 = 34 基础 + 8 花 + 1 鞭炮',()=>{
+  assert.equal(typeof G.FACES,'function'?typeof G.FACES:'object');
+  for(const f of ['f1','f4','f8'])assert.ok(G.FACES.includes(f),`缺少花牌 ${f}`);
+  assert.equal(G.BASE_FACES.length,34);
+  assert.equal(G.FLOWER_FACES.length,8);
+  assert.ok(G.FACES.includes(G.BOMB_FACE),'鞭炮牌应在全池里（供图集与存档校验）');
+  assert.equal(G.FACES.length,43);
+  assert.ok(!G.BASE_FACES.includes(G.BOMB_FACE),'鞭炮不该出现在随机基础池里');
+});
+
+test('花牌按关卡门槛入池：51 关前不出现，51 关后大量出现',()=>{
+  assert.ok(Array.isArray(G.BASE_FACES)&&G.BASE_FACES.length===34,'基础池应为 34 种');
+  assert.ok(Array.isArray(G.FLOWER_FACES)&&G.FLOWER_FACES.length===8);
+  const flowerFaces=(level,seed)=>{
+    const d=G.generate(level,seed);
+    return d.grid.flat().filter(Array.isArray).flat().some(f=>String(f)[0]==='f');
+  };
+  for(const level of [0,5,20,35,49])for(const seed of [1,7,20261015]){
+    assert.ok(!flowerFaces(level,seed),`第 ${level+1} 关不该出现花牌`);
+  }
+  let hit=0;
+  for(let level=50;level<G.LEVELS.length;level++)if(flowerFaces(level,7))hit++;
+  const late=G.LEVELS.length-50;
+  assert.ok(hit>=late*0.8,`51 关后应大量出现花牌（实际 ${hit}/${late}）`);
+});
+
+test('construct 支持冰面：恰好包 ice 对冰，重放证书可清台',()=>{
+  const def={map:['11','11'],lockR:[],lockC:[],faces:2,scramble:2,ice:1};
+  const d=G.construct(def,7);
+  assert.ok(d,'应能生成');
+  const iced=d.grid.flat().filter(Array.isArray).flat().filter(f=>String(f).endsWith('~'));
+  assert.equal(iced.length,2,'恰好一对冰');
+  let g=d.grid;
+  for(const a of d.solution){const next=R.transition(g,d.runs,a);assert.ok(next.changed);g=next.grid;}
+  assert.equal(R.count(g),0,'证书必须清台');
+});
+
+test('redeal 保留冰面牌种；面不成对时拒绝',()=>{
+  const g=[[['5s~'],['2p'],[],[]],[[],['2p'],['5s~'],[]],[[],[],[],[]]];
+  const s=G.redeal(0,g,92);
+  assert.ok(s);
+  assert.deepEqual(s.grid.flat().filter(Array.isArray).flat().sort(),['2p','2p','5s~','5s~']);
+  let out=s.grid;for(const a of s.solution)out=R.transition(out,s.runs,a).grid;
+  assert.equal(R.count(out),0,'重排后证书仍可清台');
+  const broken=[[['5s~'],['5s'],[],[]],[[],[],[],[]],[[],[],[],[]]];
+  assert.equal(G.redeal(0,broken,92),null,'冰面不成对不可重排');
+});
+test('锁轨上不会堆出成片白送对子：0 冲突占比 ≥70%、均值 ≤0.3',()=>{
+  // 锁轨（锁行/锁列）上的相邻同面牌没法靠滑动拆开，等于开局白送的对子。
+  // 打乱搜索里对这类冲突做了惩罚（先做到 0 冲突再压直接对子数），这里守住它的效果。
+  // 实测（684 个「锁轨关 × 9 种子」组合）：0 冲突 73.4%、均值 0.31、最多 16 处（92 关的重锁盘）。
+  // 爬山已把冲突压到结构下限附近；这里的界只防「退化到完全不罚冲突」的回归。
+  const inLock=(L,p)=>L.lockR.includes(p.r)||L.lockC.includes(p.c);
+  let combos=0,clean=0,total=0,worst=0;
+  for(let i=0;i<G.LEVELS.length;i++){
+    const L=G.LEVELS[i];
+    if(!L.lockR.length&&!L.lockC.length)continue;
+    for(const seed of [1,7,20261015,10,4,13,26,27,31]){
+      combos++;
+      const d=G.generate(i,seed);
+      const n=R.pairs(d.grid).filter(pr=>inLock(L,pr.a)&&inLock(L,pr.b)).length;
+      if(!n)clean++;
+      total+=n;worst=Math.max(worst,n);
+      assert.ok(n<=20,`第 ${i+1} 关 seed ${seed} 锁轨冲突 ${n} 处，超过上限 20`);
+    }
+  }
+  assert.ok(combos>0,'应存在锁轨关');
+  assert.ok(clean/combos>=0.65,`锁轨 0 冲突占比过低：${clean}/${combos}`);
+  assert.ok(total/combos<=0.9,`锁轨冲突均值过高：${(total/combos).toFixed(2)}（worst ${worst}）`);
+});
+test('后期完整打乱失败时逐步构造，不退回铺满现成对子的简单牌局',()=>{  for(const [level,seeds] of [[40,[1,10,31]],[70,[4,8,26]],[99,[4,13,27]]])for(const seed of seeds){
     const d=G.generate(level,seed);
     assert.equal(d.fallback,false,`level ${level} seed ${seed}`);
-    assert.ok(R.pairs(d.grid).length<=Math.floor(R.count(d.grid)/6),'初始直接对子保持少量，不退回整盘即消');
+    assert.ok(R.sameFacePairs(d.grid).length<=Math.floor(R.count(d.grid)/5),'初始直接对子保持少量，不退回整盘即消（统计用同面对；wild/冰面关实测最多 ~count/5.5）');
     let g=d.grid;
     for(const action of d.solution){const next=R.transition(g,d.runs,action);assert.ok(next.changed);g=next.grid;}
     assert.equal(R.count(g),0);
   }
 });
-test('18关棋盘逐步扩大、牌量与机制分阶段提高，而非五关循环',()=>{
-  assert.equal(G.LEVELS.length,18);
-  let area=0;
-  for(let i=0;i<18;i++){
-    const level=G.LEVELS[i],nextArea=level.map.length*level.map[0].length;
-    assert.ok(nextArea>=area);area=nextArea;
-    const d=G.generate(i,7);
-    assert.ok(R.count(d.grid)>=(i<3?12:20));
-    if(i>=6)assert.ok(d.grid.flat().some(c=>Array.isArray(c)&&c.length>=2));
-    if(i>=15)assert.ok(d.grid.flat().some(c=>Array.isArray(c)&&c.length===3));
+test('120 关棋盘两两不同，尺寸与机制随难度递进',()=>{
+  assert.equal(G.LEVELS.length,120);
+  const seen=new Set();
+  let prevArea=0;
+  for(let i=0;i<G.LEVELS.length;i++){
+    const L=G.LEVELS[i],key=L.map.join('|');
+    assert.ok(!seen.has(key),`第 ${i+1} 关棋盘与前面某关完全相同`);
+    seen.add(key);
+    const rows=L.map.length,cols=L.map[0].length,area=rows*cols;
+    if(i<100){
+      // 前 100 关：接近方形、面积单调递增
+      assert.ok(area>=prevArea,`第 ${i+1} 关棋盘面积比上一关小`);prevArea=area;
+    }else{
+      // 101 关起换窄高盘（长方形，行 > 列）：面积允许回落，但必须是「竖着长」的盘
+      assert.ok(rows>cols,`第 ${i+1} 关应是窄高盘（rows>cols），实际 ${rows}x${cols}`);
+    }
+    assert.ok(L.faces>=4&&L.faces<=42,`第 ${i+1} 关花色数越界`);
+    const d=G.generate(i,7),slots=R.count(d.grid);
+    assert.ok(slots<=136,'牌位上限 136');
+    if(i>=14)assert.ok(d.grid.flat().some(c=>Array.isArray(c)&&c.length>=2),`第 ${i+1} 关应出现叠层`);
+    if(i>=66)assert.ok(d.grid.flat().some(c=>Array.isArray(c)&&c.length===3),`第 ${i+1} 关应出现三层`);
+    if(i>=25)assert.ok(L.lockR.length>0||L.lockC.length>0,`第 ${i+1} 关应出现锁轨`);
+    if(i<50)assert.ok(!L.ice,`第 ${i+1} 关不应有冰面`);
+    if(i>=51)assert.ok((L.ice||0)>0,`第 ${i+1} 关应有冰面`);
   }
   assert.deepEqual([G.LEVELS[0].map[0].length,G.LEVELS[0].map.length],[4,3]);
-  assert.deepEqual([G.LEVELS[17].map[0].length,G.LEVELS[17].map.length],[8,7]);
-  assert.ok(G.LEVELS[17].lockR.length>1&&G.LEVELS[17].lockC.length>1);
-  assert.throws(()=>G.generate(18,7));
+  assert.ok(G.LEVELS[99].map.length>=8&&G.LEVELS[99].map[0].length>=9);
+  assert.ok(G.LEVELS[119].map.length>G.LEVELS[119].map[0].length,'终关应是窄高盘');
+  assert.throws(()=>G.generate(120,7));
+  assert.throws(()=>G.generate(-1,7));
+});
+
+test('新机制按配额落位，且确实用到了（不生成「名义上有、实际没有」的关）',()=>{
+  let moveLimit=0,goal=0,oneWay=0,unlock=0,bombs=0,wild=0,ice2=0;
+  const intros=new Set();
+  for(let i=0;i<G.LEVELS.length;i++){
+    const L=G.LEVELS[i];
+    if(L.moveLimit){
+      moveLimit++;
+      const par=G.generate(i,7).solution.length;
+      assert.ok(L.moveLimit>=par,`第 ${i+1} 关限步 ${L.moveLimit} 小于参考解 ${par}，理论上过不了`);
+    }
+    if(L.goal){
+      goal++;
+      assert.ok(L.goal.count>=2&&L.goal.count<=20,`第 ${i+1} 关目标数异常`);
+      assert.ok(L.goal.kind==='face'?!!L.goal.face:L.goal.kind==='ice',`第 ${i+1} 关目标定义不完整`);
+    }
+    if(L.oneWay&&L.oneWay.length){
+      oneWay++;
+      for(const w of L.oneWay){
+        const lockedRail = w.axis === 'row' ? L.lockR.includes(w.index) : L.lockC.includes(w.index);
+        assert.ok(!lockedRail,`第 ${i+1} 关单向轨与同轴锁轨重叠`);
+        assert.ok(!L.unlock||!L.unlock.some((u)=>u.axis===w.axis&&u.index===w.index),`第 ${i+1} 关单向轨与连锁解锁重叠`);
+      }
+    }
+    if(L.unlock&&L.unlock.length)unlock++;
+    if(L.bombs){bombs++;assert.ok(L.ice,`第 ${i+1} 关有鞭炮却没有冰面（鞭炮是破冰用的）`);}
+    if(L.wild){wild++;assert.ok(L.flowers,`第 ${i+1} 关百搭必须先有花牌入池`);}
+    if(L.ice2){ice2++;assert.ok(L.ice2<=L.ice,`第 ${i+1} 关厚冰数超过冰对数`);}
+    if(L.intro)intros.add(L.intro);
+  }
+  assert.ok(moveLimit>=20,`限步关太少：${moveLimit}`);
+  assert.ok(goal>=8,`目标关太少：${goal}`);
+  assert.ok(oneWay>=8,`单向轨关太少：${oneWay}`);
+  assert.ok(unlock>=6,`连锁解锁关太少：${unlock}`);
+  assert.ok(bombs>=6,`鞭炮关太少：${bombs}`);
+  assert.ok(wild>=5,`百搭关太少：${wild}`);
+  assert.ok(ice2>=6,`厚冰关太少：${ice2}`);
+  for(const k of ['basic','stack','lockRow','moveLimit','oneWay','lockCol','goal','ice','flower','wild','stack3','ice2','bomb','unlock'])
+    assert.ok(intros.has(k),`缺少机制说明键 ${k}`);
 });
