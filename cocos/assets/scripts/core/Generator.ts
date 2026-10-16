@@ -1,4 +1,4 @@
-import {Action,Grid,Pos,Run,count,iceLayers,isWild,pairs,runsFor,rotate,sameFacePairs,slidable,stripIce,top,transition,unwild} from './Rules';
+import {Action,Dialect,Grid,Pos,Run,count,iceLayers,isWild,liveCount,pairs,pairable,runsFor,rotate,sameFacePairs,slidable,stripIce,suitOf,top,transition,unwild} from './Rules';
 import {LevelDef,LEVELS,levelAt} from './levels';
 
 export {LEVELS,levelAt};
@@ -85,19 +85,20 @@ const pairOf=(t:Token):[string,string]=>Array.isArray(t)?[t[0],t[1]]:[t,t];
  * 重算会让逆操作打到别的轨上，重放跑偏、留下一堆没有搭子的孤儿牌（实测：第 79 关直接生成失败）。
  * 动态解锁（unlock）只影响「初始哪些轨被标成 locked」，而路线里的滑轨都在开局状态下合法，所以用初始 runs 就够。
  */
-function certify(start:Grid,runs:Run[],proposed:Action[]):Action[]|null{
+function certify(start:Grid,runs:Run[],proposed:Action[],d?:Dialect):Action[]|null{
   let g=start;const solution:Action[]=[];
   for(const a of proposed){
-    const next=transition(g,runs,a);
+    const next=transition(g,runs,a,d);
     if(next.changed){g=next.grid;solution.push(a);}
   }
   // 收尾：优先消同面对，百搭留到最后——否则百搭可能把别人的搭子吃掉、留下孤儿
-  for(let pair=sameFacePairs(g)[0]||pairs(g)[0];pair;pair=sameFacePairs(g)[0]||pairs(g)[0]){
-    const a:Action={kind:'match',a:pair.a,b:pair.b},next=transition(g,runs,a);
+  for(let pair=sameFacePairs(g,d)[0]||pairs(g,d)[0];pair;pair=sameFacePairs(g,d)[0]||pairs(g,d)[0]){
+    const a:Action={kind:'match',a:pair.a,b:pair.b},next=transition(g,runs,a,d);
     if(!next.changed)break;
     g=next.grid;solution.push(a);
   }
-  return count(g)===0?solution:null;
+  // 方言关的终点是"还能配的都消光了"，哑弹留在盘上；非方言关 liveCount 等于 count，行为不变。
+  return liveCount(g,d)===0?solution:null;
 }
 /**
  * 锁轨上「相邻两格同面」= 开局白送的对子。
@@ -121,7 +122,7 @@ function railConflicts(g: Grid, def: LevelDef): number {
 /** 越小越好：先看限步能否满足，再看锁轨冲突、白送对子，最后才是参考解长度。 */
 function rankOf(def:LevelDef,grid:Grid,par:number):number[]{
   const limit=def.moveLimit||0;
-  return [limit&&par>limit?1:0,railConflicts(grid,def),sameFacePairs(grid).length,par];
+  return [limit&&par>limit?1:0,railConflicts(grid,def),sameFacePairs(grid,def.dialect).length,par];
 }
 /** 逐元素字典序比较（JS 里 `[1,2]<[3,4]` 是按字符串比的，不能用 `<`）。 */
 function cmp(a:number[],b:number[]):number{
@@ -153,11 +154,17 @@ export function construct(def:LevelDef,seed:number,tokens?:Token[]):Deal|null{
 
 function constructOnce(def:LevelDef,seed:number,tokens?:Token[]):Deal|null{
   const random=rng(seed),places=locations(def,random);
+  const d=def.dialect;
   // 花牌只在 def.flowers 的关卡入池（否则第 1 关就可能摸到「春/梅」，与教学节奏打架）
   // 鞭炮只由 def.bombs 注入，绝不能留在随机池里（否则数量翻倍、难度失控）
   const source=def.flowers?FACES:BASE_FACES;
   const goalBase=def.goal&&def.goal.kind==='face'?unwild(def.goal.face!):null;
-  const pool=shuffled(source.filter(f=>f!==BOMB_FACE),random).slice(0,Math.max(1,def.faces));
+  const kinds=source.filter(f=>f!==BOMB_FACE);
+  // 方言关把牌池一分为二：**有效面**（能配对，必须消光）与**哑弹面**（永远配不上，只当滑块）。
+  // 放置逻辑完全不动——哑弹照样成对放，所以二分图匹配和证书路线都不用改。
+  const liveKinds=kinds.filter(f=>pairable(f,d));
+  const dudKinds=kinds.filter(f=>!pairable(f,d));
+  const pool=shuffled(liveKinds,random).slice(0,Math.max(1,def.faces));
   // 目标关：目标牌面**一定**要上盘。老写法是从牌池随机切 def.faces 种，
   // 于是 15 个目标关经常整局摸不到目标牌（实测 20 个种子里只在 3~12 次里出现）。
   if(!tokens&&goalBase&&source.includes(goalBase)&&!pool.includes(goalBase))pool[pool.length-1]=goalBase;
@@ -166,23 +173,34 @@ function constructOnce(def:LevelDef,seed:number,tokens?:Token[]):Deal|null{
   let faces:Token[];
   if(tokens)faces=shuffled(tokens,random);
   else{
-    let list:string[]=goalBase&&source.includes(goalBase)
+    let liveList:string[]=goalBase&&source.includes(goalBase)
       ?[goalBase,goalBase].concat(shuffled(doubled.filter(f=>f!==goalBase),random))
       :shuffled(doubled,random);
-    list=list.slice(0,places.length);
-    // 百搭：花牌加 `*` 后缀（redeal 的 tokens 已自带，不重复加）
-    if(def.wild)list=list.map(f=>f[0]==='f'&&!f.endsWith('*')&&!f.endsWith('~')?f+'*':f);
-    faces=list;
+    // 哑弹最多占四成（设计线是"哑弹比例 ≤55%"，这里给证书留出更宽松的余量）。
+    // 每种哑弹最多两对 = 4 张，守住的还是「每面 ≤4 张」那条存档不变量。
+    const dudPairs=d&&dudKinds.length?Math.min(Math.floor(places.length*0.4),dudKinds.length*2):0;
+    const livePairs=places.length-dudPairs;
+    if(liveList.length<livePairs)return null;      // 有效面撑不起这一盘：参数太窄，换参数
+    const dudList=shuffled(dudKinds.concat(dudKinds),random);
+    // 先保证目标对在切片里（截断之前把 goal 顶到最前），再整体洗序
+    const combined=liveList.slice(0,livePairs).concat(dudList.slice(0,dudPairs));
+    // 只有真掺了哑弹才整体洗序（否则哑全会挤在末尾连成一片）。没有哑弹时保持原顺序——
+    // 这不是洁癖：无条件洗序会改变每一关的发牌，让已经钉死的 120 关集体换盘。
+    faces=dudPairs?shuffled(combined,random):combined;
   }
+  // 百搭：花牌加 `*` 后缀（redeal 的 tokens 已自带，不重复加）
+  if(!tokens&&def.wild)faces=faces.map(f=>typeof f==='string'&&f[0]==='f'&&!f.endsWith('*')&&!f.endsWith('~')?f+'*':f);
   if(faces.length>places.length)return null;
-  // 鞭炮：把前若干对换成鞭炮（只在随机开局注入，redeal 的 tokens 自带）
-  const bombCount=tokens?0:Math.min(Math.max(0,def.bombs||0),faces.length);
+  // 鞭炮：把前若干对换成鞭炮（只在随机开局注入，redeal 的 tokens 自带）。
+  // 方言关不注入：鞭炮牌面是 `b1`，在白名单方言里属于哑弹，注入就成了一张"会炸但配不掉"的牌。
+  const bombCount=tokens||d?0:Math.min(Math.max(0,def.bombs||0),faces.length);
   for(let i=0;i<bombCount;i++)faces[i]=BOMB_FACE;
   // 冰面：只在新开局包冰。厚冰（两层 `~~`）优先落在 ice2 对里；花牌与鞭炮不包冰。
+  // 哑弹也不包冰——冰意味着"要消两次"，而哑弹永远消不掉，包冰只会造出看不懂的死格。
   const iceCount=tokens?0:Math.min(Math.max(0,def.ice||0),faces.length);
   if(iceCount>0){
     const ice2=Math.min(Math.max(0,def.ice2||0),iceCount);
-    const order=shuffled(faces.map((_,i)=>i).filter(i=>{const f=faces[i];return typeof f==='string'&&!f.startsWith('b')&&f[0]!=='f';}),random);
+    const order=shuffled(faces.map((_,i)=>i).filter(i=>{const f=faces[i];return typeof f==='string'&&!f.startsWith('b')&&f[0]!=='f'&&pairable(f,d);}),random);
     order.slice(0,iceCount).forEach((i,k)=>{const f=faces[i] as string;if(!f.endsWith('~'))faces[i]=f+'~'.repeat(k<ice2?2:1);});
   }
   const used=places.slice(0,faces.length);
@@ -192,17 +210,21 @@ function constructOnce(def:LevelDef,seed:number,tokens?:Token[]):Deal|null{
   const runs=runsFor(base,startLocks.lockR,startLocks.lockC,def.oneWay);
   // 打乱只从「此刻推得动」的轨里抽：锁轨现在也占数组下标，抽中它只是白跑一次证书
   const free=slidable(runs);
-  // 逆推证书：冰面对要消两次（碎冰 + 收牌），其余一对一次
+  // 逆推证书：冰面对要消两次（碎冰 + 收牌），其余一对一次。
+  // 哑弹**不进路线**——它本来就配不动，写进路线只会让 `certify` 在那一步拿到 changed:false、
+  // 于是证书缺步、`liveCount` 归零的判据也被一起作废。
   const removals:Action[]=[];
   for(let i=used.length-1;i>=0;i--){
     const p=used[i];
+    if(!pairable(pairOf(faces[i])[0],d))continue;
     removals.push({kind:'match',a:p.a,b:p.b});
     if(pairOf(faces[i])[0].endsWith('~'))removals.push({kind:'match',a:p.a,b:p.b});
   }
   // 质量线：开局直接对子不超过牌位的 1/6；锁轨上的相邻同面单独罚（那些对子没法靠滑动拆开）。
   // 目标按字典序：先保限步能满足，再做到锁轨 0 冲突，然后压直接对子数。
   const ideal=Math.max(1,Math.floor(faces.length/12));
-  const quality=Math.max(1,Math.floor(count(base)/6));
+  // 预算按"还能消的牌"算：哑弹不可能被白送消掉，算进去会稀释质量线（方言关会显得异常干净）。
+  const quality=Math.max(1,Math.floor(liveCount(base,d)/6));
   let best:Deal|null=null,bestRank:number[]|null=null;
   const scrambleRounds=(rounds:number,stopPairs:number,steps:number)=>{
     for(let attempt=0;attempt<rounds;attempt++){
@@ -211,7 +233,7 @@ function constructOnce(def:LevelDef,seed:number,tokens?:Token[]):Deal|null{
         const ri=free[Math.floor(random()*free.length)],step=random()<0.5?-1:1;
         g=rotate(g,runs[ri],step);inverse.unshift({kind:'slide',run:ri,step:-step});
       }
-      const solution=certify(g,runs,inverse.concat(removals));
+      const solution=certify(g,runs,inverse.concat(removals),def.dialect);
       if(!solution)continue;
       const r=rankOf(def,g,solution.length);
       if(!bestRank||cmp(r,bestRank)<0){best={grid:g,runs,solution,seed,fallback:false};bestRank=r;}
@@ -223,14 +245,14 @@ function constructOnce(def:LevelDef,seed:number,tokens?:Token[]):Deal|null{
   if(bestRank&&bestRank[1]>0)scrambleRounds(64,quality,def.scramble*2);
   if(bestRank&&bestRank[1]>0)scrambleRounds(64,quality,def.scramble*4);
   if(best)return best;
-  const solution=certify(base,runs,removals);if(!solution)return null;
+  const solution=certify(base,runs,removals,def.dialect);if(!solution)return null;
   let current:Deal={grid:base,runs,solution,seed,fallback:true};
   best=current;bestRank=rankOf(def,base,solution.length);
   // Grow a verified route incrementally when a full scramble breaks the certificate.
   for(let j=0;j<def.scramble*4&&free.length;j++){
     const ri=free[Math.floor(random()*free.length)],step=random()<0.5?-1:1;
     const grid=rotate(current.grid,runs[ri],step);
-    const route=certify(grid,runs,[{kind:'slide',run:ri,step:-step},...current.solution]);
+    const route=certify(grid,runs,[{kind:'slide',run:ri,step:-step},...current.solution],def.dialect);
     if(!route)continue;
     const r=rankOf(def,grid,route.length);
     if(r[1]<=rankOf(def,current.grid,current.solution.length)[1]&&r[2]<=rankOf(def,current.grid,current.solution.length)[2])current={grid,runs,solution:route,seed,fallback:false};

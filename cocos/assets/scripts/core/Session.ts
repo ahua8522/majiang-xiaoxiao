@@ -1,4 +1,4 @@
-import {Action,Grid,Pos,Run,Pair,clone,count,equal,hasIce,isDead,partners,pairs,runsFor,searchHint,signature,stripIce,top,transition,unwild} from './Rules';
+import {Action,Grid,Pos,Run,Pair,clone,count,Dialect,equal,hasIce,isDead,liveCount,partners,pairs,runsFor,searchHint,signature,stripIce,top,transition,unwild} from './Rules';
 import {Deal,generate,goalPairs,redeal,stateLegal,LEVELS,levelAt,isFace,activeLocks,LevelDef} from './Generator';
 export type Modal='none'|'home'|'help'|'settings'|'restart'|'win'|'levels'|'lose';
 export interface Platform {load():unknown;save(data:unknown):void;feedback():void}
@@ -65,6 +65,9 @@ export class Session {
     const tl=Number.isFinite(run.timeLeft)?run.timeLeft:limit;
     this.timeLeft=Math.max(0,Math.min(tl,limit));
     this.grid=clone(grid);this.seed=run.seed;this.total=run.total;this.moves=run.moves;this.par=run.par;
+    // 进度条分母要能恢复：哑弹不可能被消掉，所以「已消的牌」全是能消的，
+    // liveTotal = 现在还能消的 + 已经消掉的。不补这一句，读档后进度条会除以 0。
+    this.liveTotal=liveCount(this.grid,this.dialect)+(this.total-count(this.grid));
     this.hintsUsed=run.hintsUsed;this.shufflesUsed=run.shufflesUsed;
     this.clearedPairs=Number.isInteger(run.clearedPairs)?Math.max(0,run.clearedPairs):0;
     this.goalDone=Number.isInteger(run.goalDone)?Math.max(0,run.goalDone):0;
@@ -89,6 +92,12 @@ export class Session {
   get pinnedSeed(){return Number.isInteger(this.def.seed)?this.def.seed>>>0:null;}
   /** 本关限时秒数；0 = 不限时。视图据此决定要不要画倒计时。 */
   get timeLimit(){return this.def.timeLimit||0;}
+  /** 本关方言（哪些牌能配对）。所有配对判定都要带上它。 */
+  get dialect():Dialect|undefined{return this.def.dialect;}
+  /** 还能被消掉的牌数。方言关的进度条和剩余数必须用它，否则玩家面对一堆消不掉的哑弹永远到不了 0。 */
+  get remaining(){return liveCount(this.grid,this.dialect);}
+  /** 开局时还能消的牌数，作进度条分母；total 仍是全部牌位（存档校验靠它，别动）。 */
+  liveTotal=0;
   /** 牌面代号 → 中文名（目标关 HUD 等界面文案用）。 */
   static faceName(face:string):string{
     const nums='一二三四五六七八九';
@@ -127,8 +136,8 @@ export class Session {
    * 视图在每次落子后调用；预算用尽时返回 false（不误判）。
    */
   get dead():boolean{
-    if(!count(this.grid)||this.goalReached)return false;
-    return isDead(this.grid,(grid)=>{const l=activeLocks(this.def,this.clearedPairs);return runsFor(grid,l.lockR,l.lockC,this.def.oneWay);},2000);
+    if(!liveCount(this.grid,this.dialect)||this.goalReached)return false;
+    return isDead(this.grid,(grid)=>{const l=activeLocks(this.def,this.clearedPairs);return runsFor(grid,l.lockR,l.lockC,this.def.oneWay);},2000,60,this.dialect);
   }
   /** 待展示的说明卡：第 1 关固定教学；其余机制只在首次出现时弹一次。 */
   get introTip():string|null{return this.tip;}
@@ -181,7 +190,7 @@ export class Session {
     const{index:chosen,deal}=this.deal(wanted);
     this.setupLevel(chosen);
     this.grid=deal.grid;this.runs=deal.runs;this.solution=deal.solution;
-    this.total=count(this.grid);this.par=deal.solution.length;
+    this.total=count(this.grid);this.liveTotal=liveCount(this.grid,this.dialect);this.par=deal.solution.length;
     this.goalTarget=goalPairs(this.def,this.grid);
     this.message=chosen===0?'同牌相邻，轻点消除；拖动一行或一列，松手自动消。'
       :(chosen!==wanted?'这一关暂时发不出可解的牌，先给你摆了第 1 关。':'看清这盘的障碍，先找出第一步。');
@@ -201,7 +210,7 @@ export class Session {
     const before=this.timeLeft;
     this.timeLeft=Math.max(0,this.timeLeft-Math.min(Math.max(dt,0),0.25));
     if(this.timeLeft<=0&&before>0){
-      this.modal='lose';this.message=`时间到，还差 ${count(this.grid)} 张。`;this.save();return true;
+      this.modal='lose';this.message=`时间到，还差 ${liveCount(this.grid,this.dialect)} 张可消。`;this.save();return true;
     }
     const crossed=Math.ceil(this.timeLeft)!==Math.ceil(before);
     // 每跨过整秒就落盘。剩余时间不进存档的话，杀进程重进＝倒计时满血复活，
@@ -211,15 +220,15 @@ export class Session {
   }
   private apply(action:Action):boolean{
     if(this.modal!=='none'||this.tip)return false;
-    const out=transition(this.grid,this.runs,action);if(!out.changed)return false;
+    const out=transition(this.grid,this.runs,action,this.dialect);if(!out.changed)return false;
     // 目标数必须在 `this.grid` 被这一步改掉**之前**定下来：绕过 reset 直接装盘的路径
     // 会在这里就地补算一次，等盘面改完再算就变成 0 了（碎冰/收对之后牌已经不在盘上）。
     const need=this.goalNeed;
     this.remember();
-    const planned=this.solution[0],expected=planned?transition(this.grid,this.runs,planned):null;
+    const planned=this.solution[0],expected=planned?transition(this.grid,this.runs,planned,this.dialect):null;
     if(expected?.changed&&signature(expected.grid)===signature(out.grid))this.solution.shift();else this.solution=[];
     const hinted=this.hint[0];
-    if(hinted&&signature(transition(this.grid,this.runs,hinted).grid)===signature(out.grid))this.hint.shift();else this.hint=[];
+    if(hinted&&signature(transition(this.grid,this.runs,hinted,this.dialect).grid)===signature(out.grid))this.hint.shift();else this.hint=[];
     this.grid=out.grid;this.selected=null;this.lastChain=out.chain;this.lastErased=out.erased;
     this.moves++;
     // 进度统计：碎冰不算「消掉一对」；目标按 面/冰 两种口径累计。
@@ -243,14 +252,15 @@ export class Session {
       ?'冰层碎了，露出牌面再消一次才能收走。'
       :(out.erased.length?(out.chain>1?`连消 ${out.chain} 层，带走 ${out.erased.length} 对！`:`碰个对！消掉 ${out.erased.length} 对。`):'再转个方向，牌会从轨道另一头回来。');
     if(this.hint.length)this.message=this.describe(this.hint[0]);
-    const done=count(this.grid)===0;
+    // 方言关的终点是还能配的都消光：哑弹留在盘上也算清台（判据见 Rules.liveCount）
+    const done=liveCount(this.grid,this.dialect)===0;
     if(done||this.goalReached){
       this.modal='win';this.maxLevel=Math.max(this.maxLevel,Math.min(LEVELS.length-1,this.levelIndex+1));
       this.stars[this.levelIndex]=Math.max(this.stars[this.levelIndex]||0,this.rating);this.hint=[];
       if(!done)this.message='目标达成，通关！';
     }else if(this.moveLimit&&this.moves>=this.moveLimit){
       // 步数用尽：明确判负（视图据此弹失败页）
-      this.modal='lose';this.message=`步数用尽，还差 ${count(this.grid)} 张。`;
+      this.modal='lose';this.message=`步数用尽，还差 ${liveCount(this.grid,this.dialect)} 张可消。`;
     }
     this.save();this.revision++;return true;
   }
@@ -258,8 +268,8 @@ export class Session {
     if(this.modal!=='none'||this.tip)return;
     this.lastErased=[];
     if(!top(this.grid,p)){this.selected=null;this.revision++;return;}
-    if(this.selected&&partners(this.grid,this.selected).some(q=>equal(q,p))){this.apply({kind:'match',a:this.selected,b:p});return;}
-    const near=partners(this.grid,p);
+    if(this.selected&&partners(this.grid,this.selected,this.dialect).some(q=>equal(q,p))){this.apply({kind:'match',a:this.selected,b:p});return;}
+    const near=partners(this.grid,p,this.dialect);
     if(near.length===1){this.apply({kind:'match',a:p,b:near[0]});return;}
     this.selected=equal(this.selected,p)?null:p;
     this.message=near.length>1?'有不止一个搭子，点你想消的那张。':'拖动这一行或这一列，把搭子推到旁边。';
@@ -294,7 +304,7 @@ export class Session {
     this.lastErased=[];
     if(this.hint.length){this.message=this.describe(this.hint[0]);this.revision++;return;}
     if(!this.hintsLeft){this.notice('本关三次免费提示已用完，试试撤销或重开。');return;}
-    const h=searchHint(this.grid,this.runs,{budget:1800,maxDepth:count(this.grid)<=6?8:3});
+    const h=searchHint(this.grid,this.runs,{budget:1800,maxDepth:liveCount(this.grid,this.dialect)<=6?8:3},this.dialect);
     this.hint=h.status==='found'?h.actions:[];
     if(!this.hint.length&&this.solution.length)this.hint=[this.solution[0]];
     if(this.hint.length){this.hintsUsed++;this.save();}
