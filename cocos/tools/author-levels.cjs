@@ -577,6 +577,12 @@ export interface LevelDef {
   moveLimit?: number;
   /** 目标关：不必清空，先达成目标即通关。 */
   goal?: {kind: 'face' | 'ice'; face?: string; count: number};
+  /**
+   * 方言：只约束「哪些牌能配对」。白名单外的牌是哑弹——占位、能当滑块，但永远配不上，
+   * 通关判定因此看 \`Rules.liveCount\` 而不是 \`count\`（只剩哑弹也算清台）。
+   * 与 \`wild\` 互斥：财神不吃哑弹，两者同时开会让玩家以为还能消。
+   */
+  dialect?: {ranks?: number[]; suit?: 'p' | 's' | 'm'; noSlideSuit?: 'p' | 's' | 'm'};
   /** 限时（秒）。必须由 \`par × 每步秒数\` 推出来，不许手填一个好看的数字。 */
   timeLimit?: number;
   /** 本关首次出现某机制时的说明键（视图据此弹「新玩法」卡片）。 */

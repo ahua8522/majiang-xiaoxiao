@@ -53,32 +53,77 @@ export const isWild = (face: string): boolean => face.endsWith('*');
 export const unwild = (face: string): string => isWild(face) ? face.slice(0, -1) : face;
 /** 鞭炮牌（配对时震碎四邻冰层）。 */
 export const isBomb = (face: string): boolean => face.startsWith('b');
-export function partners(g: Grid, p: Pos): Pos[] {
+/**
+ * 方言规则：**只约束「哪些牌能配对」**，不碰滑轨、不碰放置。
+ *
+ * 这就是它便宜的原因——生成器仍然成对放牌（哑弹也照样成对放，只是永远配不上），
+ * `certify()` 的逆推路线和重放 machinery 一字不改。
+ * 代价只有一条：「清台」不再是 `count===0`，而是 `liveCount===0`。
+ * 这条必须在通关、判死、提示、进度、证书、失败文案六个地方同时改，
+ * 漏一个就会出现"消完了但不通关"或"还能消却判死"。
+ */
+export interface Dialect {
+  /** 数牌白名单：只有这些点数的数牌能配对（将将胡 [2,5,8]、幺九 [1,9]）。 */
+  ranks?: number[];
+  /** 只许一门成对（清一色）。与 `ranks` 同时给时取交集。 */
+  suit?: 'p' | 's' | 'm';
+  /** 该门的牌不参与滑动连消，只能点消（断门）。它仍然"能配对"，所以不算哑弹。 */
+  noSlideSuit?: 'p' | 's' | 'm';
+}
+/** 牌面本体：剥掉冰（可多层）与百搭后缀。`z1~*` → `z1`。 */
+export const bare = (f: string): string => {
+  let b = f;
+  while (b.endsWith('~')) b = b.slice(0, -1);
+  if (b.endsWith('*')) b = b.slice(0, -1);
+  return b;
+};
+/** 花色：数牌取末位 p/s/m，字牌 `z`、花牌 `f`、鞭炮 `b`。 */
+export const suitOf = (f: string): string => {const m = /^(\d)([psm])$/.exec(bare(f));return m ? m[2] : bare(f)[0];};
+/** 点数：数牌 1-9，其余 0。 */
+export const rankOf = (f: string): number => {const m = /^(\d)[psm]$/.exec(bare(f));return m ? Number(m[1]) : 0;};
+/** 这张牌在本关方言下**还能不能配对**。不能 = 哑弹（只能当滑块，留在盘上算通关）。 */
+export function pairable(face: string, d?: Dialect): boolean {
+  if (!d) return true;
+  if (isWild(face)) return true;                       // 财神永远能配，不被白名单误伤
+  const s = suitOf(face);
+  if (s !== 'p' && s !== 's' && s !== 'm') return !d.ranks && !d.suit;   // 字/花/鞭炮：白名单关里是哑弹
+  if (d.suit && s !== d.suit) return false;
+  if (d.ranks && !d.ranks.includes(rankOf(face))) return false;
+  return true;
+}
+/** 滑动连消的额外门槛：缺门的牌能点消、但不能被滑消顺手带走。 */
+function slideOk(face: string, d?: Dialect): boolean {
+  return pairable(face, d) && !(d && d.noSlideSuit && suitOf(face) === d.noSlideSuit);
+}
+/** 还能被消掉的牌数。**通关、判死、进度条全看这个，不看 `count`。** */
+export const liveCount = (g: Grid, d?: Dialect): number =>
+  g.reduce((n, row) => n + row.reduce((m, c) => m + (Array.isArray(c) ? c.filter(f => pairable(f, d)).length : 0), 0), 0);
+export function partners(g: Grid, p: Pos, d?: Dialect): Pos[] {
   const face = top(g,p);
-  if (!face) return [];
+  if (!face || !pairable(face, d)) return [];            // 自己先是哑弹，就没有搭子
   const wild = isWild(face);
   return [{r:p.r-1,c:p.c},{r:p.r,c:p.c+1},{r:p.r+1,c:p.c},{r:p.r,c:p.c-1}].filter(q => {
     const f = top(g,q);
-    if (!f) return false;
+    if (!f || !pairable(f, d)) return false;
     return wild || isWild(f) || f === face;
   });
 }
 /** 可消对子（含百搭）。生成器统计「白送对子」请用 sameFacePairs——百搭天然能配一切，不该算进去。 */
-export function pairs(g: Grid): Pair[] {
+export function pairs(g: Grid, d?: Dialect): Pair[] {
   const out: Pair[] = [];
   g.forEach((row,r) => row.forEach((_,c) => {
-    const a={r,c}, face=top(g,a); if (!face) return;
+    const a={r,c}, face=top(g,a); if (!face || !slideOk(face, d)) return;
     for (const b of [{r,c:c+1},{r:r+1,c}]) {
       const f = top(g,b);
-      if (!f) continue;
+      if (!f || !slideOk(f, d)) continue;
       if (f === face || isWild(face) || isWild(f)) out.push({a,b,face,other:f});
     }
   }));
   return out;
 }
 /** 只统计「同面」的对子（不含百搭），供生成器质量线使用。 */
-export function sameFacePairs(g: Grid): Pair[] {
-  return pairs(g).filter(pr => !isWild(pr.face) && top(g,pr.b) === pr.face);
+export function sameFacePairs(g: Grid, d?: Dialect): Pair[] {
+  return pairs(g, d).filter(pr => !isWild(pr.face) && top(g,pr.b) === pr.face);
 }
 export function runsFor(g: Grid, lockR: number[], lockC: number[], oneWay?: {axis:'row'|'col';index:number;dir:1|-1}[]): Run[] {
   const out: Run[]=[];
@@ -142,11 +187,11 @@ function shatterAround(g: Grid, cells: Pos[], revealed: Set<string>): void {
     if (f && faces.has(f)) popOrReveal(g,{r,c},f,revealed);
   }
 }
-export function transition(g: Grid, runs: Run[], action: Action): Change {
+export function transition(g: Grid, runs: Run[], action: Action, d?: Dialect): Change {
   const none=():Change=>({grid:g,changed:false,erased:[],chain:0});
   let next: Grid, affected: Set<string>;
   if(action.kind==='match') {
-    if(!partners(g,action.a).some(p=>equal(p,action.b)))return none();
+    if(!partners(g,action.a,d).some(p=>equal(p,action.b)))return none();
     next=clone(g);
     const fa=top(g,action.a)!, fb=top(g,action.b)!;
     const revealed=new Set<string>();
@@ -165,7 +210,7 @@ export function transition(g: Grid, runs: Run[], action: Action): Change {
   const revealed=new Set<string>();
   const erased: Pair[]=[];let chain=0;
   for(;;) {
-    const candidates=pairs(next).filter(p=>!revealed.has(key(p.a))&&!revealed.has(key(p.b))
+    const candidates=pairs(next,d).filter(p=>!revealed.has(key(p.a))&&!revealed.has(key(p.b))
       &&(affected.has(key(p.a))||affected.has(key(p.b))));
     if(!candidates.length)break;
     const used=new Set<string>();let round=0;
@@ -199,10 +244,10 @@ export function transition(g: Grid, runs: Run[], action: Action): Change {
  * 访问数与时间两个预算用尽时一律返回 false——宁可漏判死局，不许误判。
  * 时间上限是后加的：这条判定每次落子后都会跑，不能让它一帧吃掉几百毫秒。
  */
-export function isDead(g: Grid, makeRuns: (grid: Grid) => Run[], budget = 2000, timeMs = 60): boolean {
-  const total = count(g);
-  if (!total) return false;              // 已清台
-  if (pairs(g).length) return false;     // 还有直接可消的对子
+export function isDead(g: Grid, makeRuns: (grid: Grid) => Run[], budget = 2000, timeMs = 60, d?: Dialect): boolean {
+  const total = liveCount(g, d);
+  if (!total) return false;              // 能消的都消光了（方言关允许还剩哑弹）
+  if (pairs(g, d).length) return false;     // 还有直接可消的对子
   const deadline = Date.now() + timeMs;
   const seen = new Set([signature(g)]);
   const queue: Grid[] = [g];
@@ -218,9 +263,9 @@ export function isDead(g: Grid, makeRuns: (grid: Grid) => Run[], budget = 2000, 
         let step = k > len / 2 ? k - len : k;
         const dir = runs[ri].dir;
         if (dir && step * dir < 0) step += dir * len;
-        const next = transition(cur, runs, {kind: 'slide', run: ri, step});
+        const next = transition(cur, runs, {kind: 'slide', run: ri, step}, d);
         if (!next.changed) continue;
-        if (count(next.grid) < total) return false;   // 有进展 → 不是死局
+        if (liveCount(next.grid, d) < total) return false;   // 有进展 → 不是死局
         const sig = signature(next.grid);
         if (seen.has(sig)) continue;
         seen.add(sig); queue.push(next.grid);
@@ -230,9 +275,9 @@ export function isDead(g: Grid, makeRuns: (grid: Grid) => Run[], budget = 2000, 
   return true;
 }
 /** 近似搜索：找一条能把牌数减少的短路线。Exhaustion 与预算上限是两回事——撞到深度上限只能返回 unknown。 */
-export function searchHint(g: Grid,runs: Run[],options: {budget?: number;maxDepth?: number}={}): Hint {
+export function searchHint(g: Grid,runs: Run[],options: {budget?: number;maxDepth?: number}={},d?: Dialect): Hint {
   const budget=options.budget??2400,maxDepth=options.maxDepth??3;
-  const total=count(g),direct=pairs(g);
+  const total=liveCount(g,d),direct=pairs(g,d);
   if(!total)return {status:'solved',actions:[],visited:0};
   if(direct.length)return {status:'found',actions:[{kind:'match',a:direct[0].a,b:direct[0].b}],visited:0};
   const queue: {grid:Grid;path:Action[]}[]=[{grid:g,path:[]}];
@@ -247,10 +292,10 @@ export function searchHint(g: Grid,runs: Run[],options: {budget?: number;maxDept
       // 单向轨只能顺向推：绕另一圈取同方向的等价步数
       const dir=runs[ri].dir;
       if(dir&&step*dir<0)step+=dir*runs[ri].cells.length;
-      const action:Action={kind:'slide',run:ri,step},next=transition(cur.grid,runs,action);
+      const action:Action={kind:'slide',run:ri,step},next=transition(cur.grid,runs,action,d);
       if(!next.changed)continue;
       const path=cur.path.concat(action);
-      if(count(next.grid)<total)return {status:'found',actions:path,visited};
+      if(liveCount(next.grid,d)<total)return {status:'found',actions:path,visited};
       const sig=signature(next.grid);if(seen.has(sig))continue;
       seen.add(sig);queue.push({grid:next.grid,path});
     }
