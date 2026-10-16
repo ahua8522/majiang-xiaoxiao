@@ -1,0 +1,116 @@
+{
+  "name": "majiang-xiaoxiao",
+  "server": "",
+  "engineModulesConfigKey": "defaultConfig",
+  "platform": "web-mobile",
+  "buildPath": "project://build",
+  "debug": false,
+  "buildMode": "normal",
+  "mangleProperties": false,
+  "md5Cache": false,
+  "skipCompressTexture": false,
+  "sourceMaps": false,
+  "overwriteProjectSettings": {
+    "macroConfig": {
+      "cleanupImageCache": "on"
+    },
+    "general": {
+      "splashScreen": {
+        "displayRatio": 1,
+        "totalTime": 0,
+        "autoFit": true,
+        "background": {
+          "type": "default",
+          "color": {
+            "x": 0.8117647058823529,
+            "y": 0.9137254901960784,
+            "z": 0.9019607843137255,
+            "w": 1
+          }
+        }
+      }
+    },
+    "includeModules": {
+      "physics": "off",
+      "physics-2d": "off",
+      "3d": "off",
+      "skeletal-animation": "off",
+      "dragon-bones": "off",
+      "light-probe": "off",
+      "marionette": "off",
+      "particle": "off",
+      "primitive": "off",
+      "spine-3.8": "off",
+      "terrain": "off",
+      "tiled-map": "off",
+      "video": "off",
+      "websocket": "off",
+      "webview": "off",
+      "gfx-webgl2": "on",
+      "tween": "on",
+      "animation": "on",
+      "audio": "on",
+      "particle-2d": "on",
+      "intersection-2d": "on",
+      "mask": "on",
+      "rich-text": "on",
+      "ui-skew": "on",
+      "profiler": "off"
+    }
+  },
+  "nativeCodeBundleMode": "wasm",
+  "polyfills": {
+    "asyncFunctions": false
+  },
+  "experimentalEraseModules": false,
+  "startSceneAssetBundle": false,
+  "bundleConfigs": [],
+  "inlineEnum": true,
+  "useBuiltinServer": false,
+  "md5CacheOptions": {
+    "excludes": [],
+    "includes": [],
+    "replaceOnly": [],
+    "handleTemplateMd5Link": true
+  },
+  "mainBundleIsRemote": false,
+  "mainBundleCompressionType": "merge_dep",
+  "useSplashScreen": false,
+  "bundleCommonChunk": false,
+  "packAutoAtlas": false,
+  "startScene": "e08b907b-5329-45d6-86b6-1674dd9b732f",
+  "outputName": "web-mobile",
+  "taskName": "web-mobile",
+  "scenes": [
+    {
+      "url": "db://assets/scenes/main.scene",
+      "uuid": "e08b907b-5329-45d6-86b6-1674dd9b732f"
+    }
+  ],
+  "wasmCompressionMode": false,
+  "binGroupConfig": {
+    "threshold": 16,
+    "enable": false
+  },
+  "packages": {},
+  "__version__": "1.3.9",
+  "includeModules": [
+    "base",
+    "gfx-webgl",
+    "gfx-webgl2",
+    "2d",
+    "ui",
+    "graphics",
+    "affine-transform",
+    "tween",
+    "animation",
+    "audio",
+    "particle-2d",
+    "intersection-2d",
+    "mask",
+    "rich-text",
+    "ui-skew",
+    "custom-pipeline",
+    "custom-pipeline-builtin-scripts"
+  ]
+}

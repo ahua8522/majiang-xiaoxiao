@@ -194,7 +194,11 @@ export class GameRoot extends Component {
       board: this.board ? {cellW: this.board.cellW, cellH: this.board.cellH, origin: this.board.origin, rows: this.board.gridRows, cols: this.board.gridCols} : null,
       model: this.session ? {levelIndex: this.session.levelIndex, grid: this.session.grid, runs: this.session.runs, modal: this.session.modal,
         total: this.session.total, moves: this.session.moves, hintsLeft: this.session.hintsLeft, shufflesLeft: this.session.shufflesLeft,
-        stars: this.session.stars, maxLevel: this.session.maxLevel, par: this.session.par} : null
+        stars: this.session.stars, maxLevel: this.session.maxLevel, par: this.session.par,
+        // 切图/真机取证要看这四格：关卡总数证明构建新不新，seed 证明钉死生效，
+        // dialect + liveTotal 证明「只剩哑弹也算过」的判据，timeLeft 证明倒计时在走。
+        levels: LEVELS.length, seed: this.session.pinnedSeed, dialect: !!this.session.def.dialect,
+        liveTotal: this.session.liveTotal, timeLeft: Math.round(this.session.timeLeft * 10) / 10} : null
     });
     (globalThis as any).__mjTap = (id: string) => this.activate(id);
     input.on(Input.EventType.TOUCH_START, this.onTouch, this);

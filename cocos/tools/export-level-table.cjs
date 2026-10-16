@@ -17,6 +17,12 @@ const LEVELS = G.LEVELS;
 
 const NAMES = (() => {try {return require(path.join(root, '.test/core/levels.js')).CHAPTER_NAMES || [];} catch {return [];}})();
 const CN = '一二三四五六七八九十';
+/** 1-99 的中文序数：十一章要写成「十一」，不能退回阿拉伯数字（早期草案在这里漏过两位数）。 */
+const cnNum = (n) => {
+  if (n <= 10) return CN[n - 1];
+  if (n < 20) return '十' + CN[n - 11];
+  return CN[Math.floor(n / 10) - 1] + '十' + (n % 10 ? CN[n % 10 - 1] : '');
+};
 const chapterName = (ci) => NAMES[ci] || `第 ${ci + 1} 章`;
 const slotsOf = (map) => map.reduce((n, row) => n + [...row].reduce((m, ch) => m + ('123'.includes(ch) ? Number(ch) : 0), 0), 0);
 const base = (f) => String(f).replace(/[~*]+$/, '');
@@ -32,6 +38,7 @@ function dialectText(d) {
 }
 
 const rows = LEVELS.map((def, i) => {
+  const k = i % 16;                                     // 章内序号：0 首见 / 8 招牌 / 13 变体 / 15 章末
   const deal = G.generate(i, def.seed);
   const par = deal.solution.length;
   const live = R.liveCount(deal.grid, def.dialect);
@@ -69,11 +76,18 @@ const byCh = new Map();
 rows.forEach((r) => {if (!byCh.has(r.ci)) byCh.set(r.ci, []);byCh.get(r.ci).push(r);});
 [...byCh.keys()].sort((a, b) => a - b).forEach((ci) => {
   const list = byCh.get(ci);
-  out.push(`## ${ci === 0 ? '序' : '第 ' + (CN[ci - 1] || ci) + ' 章'} · ${chapterName(ci)}（第 ${list[0].i + 1}-${list[list.length - 1].i + 1} 关）`);
+  // 章号一律 1 基：星图页脚、README、设计文档都写「第 1 章 推与点」，这里不能单独叫「序」
+  out.push(`## 第 ${cnNum(ci + 1)} 章 · ${chapterName(ci)}（第 ${list[0].i + 1}-${list[list.length - 1].i + 1} 关）`);
   out.push('');
   out.push('| 关 | 盘面 | 牌位 | 花色 | 叠加 | 目标 | 预算 | 参考解 | 哑弹 | 审阅 | seed |');
   out.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
   list.forEach((r) => out.push(`| ${r.i + 1} | ${r.size} | ${r.slots} | ${r.faces} | ${r.tags}${r.goal ? ' +' + r.goal : ''} | ${r.goal || '清台'} | ${r.budget} | ${r.par} | ${r.duds || ''} | ${r.role === '首见' || r.role === '招牌' || r.role === '变体' || r.role === '章末' ? '**钉审**' : '抽审'} | ${r.seed} |`));
+  out.push('');
+  const cnt = (f) => list.filter(f).length;
+  const rng = (f) => `${Math.min(...list.map(f))}~${Math.max(...list.map(f))}`;
+  out.push(`实测：牌位 ${rng((r) => r.slots)} · 花色 ${rng((r) => r.faces)} · 参考解 ${rng((r) => r.par)} 步 · ` +
+    `限步 ${cnt((r) => r.limited)} 关 · 限时 ${cnt((r) => r.timed)} 关 · 方言 ${cnt((r) => r.dialect)} 关 · ` +
+    `集组 ${cnt((r) => r.collect)} 关 · 哑弹合计 ${list.reduce((a, r) => a + r.duds, 0)} 张`);
   out.push('');
 });
 const n = (f) => rows.filter(f).length;
