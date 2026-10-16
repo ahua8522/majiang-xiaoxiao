@@ -62,6 +62,20 @@ const wx: any = (globalThis as any).wx;
 function vibrate(kind: 'light' | 'medium'): void { try { wx?.vibrateShort?.({type: kind}); } catch { /* 可选 */ } }
 
 /**
+ * 按字符估一行文字的宽度（设计像素）：全角 1 em、数字与拉丁 0.56 em、空格 0.33 em。
+ * HUD 同一行有三段文字（剩余 / 倒计时 / 步数），彼此不能压字，只能自己估——
+ * Label 的 contentSize 要到渲染阶段才算得出来，同一帧读 `UITransform.width` 是 0。
+ */
+function textWidth(s: string, px: number): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    n += c === 32 ? px * 0.33 : c > 0x2e80 ? px : px * 0.56;
+  }
+  return n;
+}
+
+/**
  * 这条滑轨是否被锁住（视图只读不改）。
  *
  * core 的 `runs` 定长且顺序稳定：锁轨也在数组里、只是 `locked:true`。
@@ -482,9 +496,19 @@ export class GameRoot extends Component {
     makeLabel(root, restText, {x: -W / 2 + 40, y: H / 2 - 118 - safe, size: 25, color: goalText ? palette.jadeDeep : palette.ink, align: 'left', bold: true});
     const moveText = S.moveLimit ? `步数 ${S.moves}/${S.moveLimit}` : `${S.moves} 步 · 三星 ≤ ${S.par} 步`;
     makeLabel(root, moveText, {x: W / 2 - 40, y: H / 2 - 118 - safe, size: 25, color: S.moveLimit && S.movesLeft <= 3 ? palette.red : palette.ink, align: 'right', bold: true});
-    // 秒数与「步数」同一行、排在它左边：两者都是"预算"，读盘时眼睛本来就会扫这一行。
-    // 不往下放是因为 -166 那条进度条只有 16 高，再塞一行必然压字（看不见画面时不要靠猜排版）。
-    if (S.timeLimit) makeLabel(root, `时间 ${Math.ceil(S.timeLeft)} 秒`, {x: W / 2 - 150, y: H / 2 - 118 - safe, size: 24, color: S.timeLeft <= 10 ? palette.red : palette.ink, align: 'right', bold: true});
+    // 秒数排在「步数 / 三星」左边。以前写死 x: W/2-150，第 70 关的文案「0 步 · 三星 ≤ 18 步」实测
+    // 约 250 宽（左沿到 W/2-290），倒计时直接压在上面，切图糊成「时5时4秒星 ≤ 18 步」。
+    // 宽度只能自己估：Label 的 contentSize 要到渲染阶段才算得出，同一帧读 UITransform.width 是 0
+    // （第一版就是这么修的，重拍后照样叠字）。
+    if (S.timeLimit) {
+      // 留 28 而不是 16：实测这套估算比真实渲染窄约 9 设计像素（粗体中文字宽 >1 em），
+      // 按 16 排完 CDP 量到的间距只有 7px，肉眼已经觉得挤。
+      const gap = 28;
+      const right = W / 2 - 40 - textWidth(moveText, 25) - gap;
+      const minLeft = -W / 2 + 40 + textWidth(restText, 25) + gap;
+      makeLabel(root, `时间 ${Math.ceil(S.timeLeft)} 秒`, {x: Math.max(right, minLeft), y: H / 2 - 118 - safe,
+        size: 24, color: S.timeLeft <= 10 ? palette.red : palette.ink, align: 'right', bold: true});
+    }
     const barW = W - 80;
     makeSprite(root, this.ui.frame('chip-light'), barW, 16, 0, H / 2 - 166 - safe, true, this.ui.inset('chip-light'));
     // 进度按"还能消的牌"算：哑弹不在分子也不该在分母里拖底。
