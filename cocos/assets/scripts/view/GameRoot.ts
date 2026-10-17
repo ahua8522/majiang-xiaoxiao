@@ -28,7 +28,7 @@ const SHARE_TITLE = '快乐推麻对对消：推一推，碰个对';
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 /** 应用版本号：与 cocos/package.json 的 version、upload-ci 上传版本保持一致（提版时三处一起改）。 */
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.2.1';
 
 /**
  * 「新玩法」说明卡的内容：每关首次出现某机制时，进关先弹这张卡（看完才开局）。
