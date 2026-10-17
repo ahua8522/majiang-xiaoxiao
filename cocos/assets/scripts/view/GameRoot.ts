@@ -17,6 +17,7 @@ import {LEVELS, levelAt} from '../core/Generator';
 import {CHAPTER_NAMES} from '../core/levels';
 import {count, Run} from '../core/Rules';
 import {SceneAtlas, TileAtlas, UiAtlas, UiName} from './assets';
+import {atlasReport} from './atlas';
 import {Board, Pos} from './Board';
 import {palette} from './theme';
 import {bindPress, clearChildren, fadeIn, hex, makeButton, makeIconButton, makeLabel, makeNode, makePanel, makePlate, makeSprite, makeStars, makeToggle} from './widgets';
@@ -101,7 +102,7 @@ const storage: Platform = {
   feedback: () => vibrate('medium')
 };
 
-type Screen = 'home' | 'levels' | 'board' | 'settings' | 'progress' | 'win' | 'lose' | 'pause' | 'help';
+type Screen = 'home' | 'levels' | 'board' | 'settings' | 'win' | 'lose' | 'pause' | 'help';
 
 @ccclass('GameRoot')
 export class GameRoot extends Component {
@@ -115,6 +116,9 @@ export class GameRoot extends Component {
   private sceneKey = '';
   private bgSprite: Sprite | null = null;
   private sceneReady = false;
+  /** render() 抛过几次、最后一条是什么：真机（尤其鸿蒙）只能靠这个把故障带回桌面。 */
+  private renderFailures = 0;
+  private renderNote = '';
   /** 顶部安全区：微信胶囊按钮占掉的高度（设计单位）。顶栏整体下移这么多，避免被官方控件盖住。 */
   private safeTop = 0;
 
@@ -129,9 +133,8 @@ export class GameRoot extends Component {
   private revision = -1;
   private firstPainted = false;
   private size = {w: DESIGN_W, h: DESIGN_H};
+  /** 选关停在第几章（一章一屏 4×4，见 renderLevels）。 */
   private page = 0;
-  /** 星图停在第几章（一章一屏，见 renderProgress）。 */
-  private chapterPage = 0;
   private sound = true;
   private music = true;
 
@@ -191,7 +194,9 @@ export class GameRoot extends Component {
       const q = this.queryParam('screen') as Screen | null;
       const lv = Number(this.queryParam('level'));
       if (Number.isFinite(lv) && this.queryParam('level') !== null) this.session.reset(lv, false);
-      this.setScreen(q && this.isScreen(q) ? q : 'home');
+      // 大厅保留，但**不再当入口**：真机反馈是"每次进来先是一张海报页，还要再点一次开始游戏"。
+      // 没有 ?screen= 就直接开局（继续上一盘）；截图与调试仍可用 ?screen=home 回到大厅。
+      this.setScreen(q && this.isScreen(q) ? q : 'board');
       // 性能面板默认关掉（调试构建里它会盖住界面）；加 ?stats=1 打开，用于测 draw call / 顶点。
       try { const prof = (globalThis as any).cc?.profiler; if (this.queryParam('stats') === '1') prof?.showStats?.(); else prof?.hideStats?.(); } catch { /* 面板可选 */ }
       mark('E-screen');
@@ -212,7 +217,8 @@ export class GameRoot extends Component {
         // 切图/真机取证要看这四格：关卡总数证明构建新不新，seed 证明钉死生效，
         // dialect + liveTotal 证明「只剩哑弹也算过」的判据，timeLeft 证明倒计时在走。
         levels: LEVELS.length, seed: this.session.pinnedSeed, dialect: !!this.session.def.dialect,
-        liveTotal: this.session.liveTotal, timeLeft: Math.round(this.session.timeLeft * 10) / 10} : null
+        liveTotal: this.session.liveTotal, timeLeft: Math.round(this.session.timeLeft * 10) / 10,
+        atlas: atlasReport()} : null
     });
     (globalThis as any).__mjTap = (id: string) => this.activate(id);
     input.on(Input.EventType.TOUCH_START, this.onTouch, this);
@@ -268,34 +274,47 @@ export class GameRoot extends Component {
     if (!this.dirty) return;
     this.dirty = false;
     this.revision = this.session.revision;
-    this.render();
+    // 一帧画崩不能把整个游戏带走：以前 render() 里任何一处抛异常（最常见是图集缺帧），
+    // 表现就是"屏幕上只剩文字"，而且下一帧继续抛，玩家什么也点不动。
+    try {
+      this.render();
+      if (this.renderFailures) this.renderNote = '';
+    } catch (e) {
+      this.renderFailures++;
+      const msg = String((e as Error)?.message || e);
+      if (this.renderNote !== msg) {
+        this.renderNote = msg;
+        mark(`render error x${this.renderFailures}: ${msg}`);
+      }
+    }
     if (!this.firstPainted) { this.firstPainted = true; (globalThis as any).__mjFirstFrame = true; mark(`first frame screen=${this.screen}`); }
   }
 
   /* ── 屏幕状态机 ───────────────────────────────────────── */
 
   private isScreen(s: string): s is Screen {
-    return ['home', 'levels', 'board', 'settings', 'progress', 'win', 'lose', 'pause', 'help'].includes(s);
+    return ['home', 'levels', 'board', 'settings', 'win', 'lose', 'pause', 'help'].includes(s);
   }
 
   private setScreen(s: Screen): void {
     this.screen = s;
     // progress 弹框在 Session 侧复用 'settings' 弹窗态（Session 的 Modal 没有 progress）
-    const overlay: Partial<Record<Screen, string>> = {settings: 'settings', levels: 'levels', win: 'win', help: 'help', progress: 'settings'};
+    const overlay: Partial<Record<Screen, string>> = {settings: 'settings', levels: 'levels', win: 'win', help: 'help'};
     if (s === 'board') this.session.modal = 'none';
     else if (s === 'home') this.session.modal = 'home';
     else if (overlay[s]) this.session.modal = overlay[s] as any;
     if (s === 'levels') this.page = Math.floor(this.session.levelIndex / 16);
-    if (s === 'progress') this.chapterPage = Math.floor(this.session.levelIndex / 16);
     this.dirty = true;
   }
 
-  /** 弹框的固定父级：关闭时回哪一屏。选关/设置从首页打开，进度/玩法说明从设置打开。 */
+  /**
+   * 弹框关掉之后回哪一屏。
+   * 规则很简单：**从牌桌（含牌桌菜单）打开的一律回牌桌**，其余回大厅；
+   * 进度 / 玩法说明是"设置"的子页，永远回设置。
+   */
   private dialogParent(): Screen {
-    switch (this.screen) {
-      case 'progress': case 'help': return 'settings';
-      default: return 'home';
-    }
+    if (this.screen === 'help') return 'settings';
+    return this.returnScreen === 'board' || this.returnScreen === 'pause' ? 'board' : 'home';
   }
 
   private go(s: Screen): void { this.returnScreen = this.screen; this.setScreen(s); }
@@ -305,7 +324,8 @@ export class GameRoot extends Component {
       case 'home': this.go('home'); break;
       case 'start': this.startLevel(this.session.maxLevel); break;
       case 'levels': this.go('levels'); break;
-      case 'progress': this.go('progress'); break;
+      // 从对局菜单进选关：不动 returnScreen，关掉选关直接回牌桌（go() 会把来源记成 'pause'，那样就回不去了）
+      case 'menu-levels': this.setScreen('levels'); break;
       case 'settings': this.go('settings'); break;
       case 'about': this.go('help'); break;
       case 'back-home': case '__back': this.go(this.dialogParent()); break;
@@ -319,8 +339,6 @@ export class GameRoot extends Component {
       case 'toggle-sound': this.sound = !this.sound; break;
       case 'toggle-music': this.music = !this.music; break;
       case 'toggle-vibration': this.session.command('toggle-vibration'); break;
-      case 'chapter-prev': this.chapterPage = Math.max(0, this.chapterPage - 1); break;
-      case 'chapter-next': this.chapterPage = Math.min(Math.ceil(LEVELS.length / 16) - 1, this.chapterPage + 1); break;
       case 'page-prev': this.page = Math.max(0, this.page - 1); break;
       case 'page-next': {
         const shown = this.session.unlockAll ? LEVELS.length : this.session.maxLevel + 1;
@@ -358,7 +376,7 @@ export class GameRoot extends Component {
     const show = (n: Node, on: boolean) => { if (n.active !== on) n.active = on; };
     // 首页流程的屏（首页 + 各弹框）都以首页为底图；牌桌流程才有牌桌
     const homeFlow = this.screen === 'home' || this.screen === 'settings' || this.screen === 'levels'
-      || this.screen === 'progress' || this.screen === 'help';
+      || this.screen === 'help';
     show(this.screens.home, homeFlow);
     if (homeFlow) this.renderHome();
     const boardVisible = this.screen === 'board' || this.screen === 'win' || this.screen === 'lose' || this.screen === 'pause';
@@ -369,7 +387,6 @@ export class GameRoot extends Component {
     switch (this.screen) {
       case 'settings': this.renderSettings(); break;
       case 'levels': this.renderLevels(); break;
-      case 'progress': this.renderProgress(); break;
       case 'win': this.renderWin(); break;
       case 'lose': this.renderLose(); break;
       case 'pause': this.renderPause(); break;
@@ -424,11 +441,15 @@ export class GameRoot extends Component {
     const scene = this.sceneAtlas;
     if (scene) makeSprite(root, scene.frame('table'), W, Math.max(1, H - scene.tableTop), 0, -scene.tableTop / 2);
 
-    // 左上角：头像 + 当前关（不给总星数 / 总关数，保持后面的神秘感）
+    // 左上角：头像 + 当前关 + 总星数。星数以前刻意不放在这里（"保持神秘感"），
+    // 但真机反馈是玩家根本不知道自己攒了多少星、也没地方看（设置里那条「我的进度」已按要求撤掉）。
     const top = H / 2 - 96 - safe;
     makeSprite(root, this.ui.frame('avatar'), 92, 92, -W / 2 + 76, top);
     makeLabel(root, `第 ${Math.min(this.session.maxLevel + 1, LEVELS.length)} 关`,
       {x: -W / 2 + 132, y: top + 16, size: 27, color: palette.ink, align: 'left', bold: true});
+    const starTotal = Object.values(this.session.stars).reduce((n, v) => n + (Number(v) || 0), 0);
+    makeLabel(root, `★ ${starTotal} / ${LEVELS.length * 3}`,
+      {x: -W / 2 + 132, y: top - 26, size: 24, color: palette.goldDeep, align: 'left', bold: true});
 
     // 标题簇：大字「快乐推麻」+ 右侧红色印章「对对消」（竖排三字）——两者连读即完整游戏名
     // 「快乐推麻对对消」，这也是备案要求的「游戏内出现完整游戏名称」的落点。
@@ -462,6 +483,21 @@ export class GameRoot extends Component {
     makeButton(root, this.ui, {x: 0, y: R(-322), w: bw, h: 108, text: '开始游戏', style: 'jade', size: 42, icon: 'icon-play', onTap: () => this.activate('start')});
     makeButton(root, this.ui, {x: 0, y: R(-452), w: bw, h: 92, text: '关卡选择', style: 'cream', size: 32, onTap: () => this.activate('levels')});
     makeIconButton(root, this.ui, W / 2 - 76, H / 2 - 96 - safe, 68, 'gear', () => this.activate('settings'));
+
+    // 素材没烘焙成功时**必须让玩家和作者都看出来**：鸿蒙真机那次是"Label 全在、贴图全不见"，
+    // 画面看着像布局坏了，实际是图集上传失败，而没有一行提示就只能靠猜。
+    const rep = atlasReport();
+    const broken = rep.atlases.filter((a) => !a.ok);
+    if (broken.length || rep.misses.length || this.renderFailures) {
+      const lines = [
+        broken.length ? `贴图未就绪：${broken.map((a) => `${a.name}${a.error ? `（${a.error}）` : ''}`).join('、')}` : '',
+        rep.misses.length ? `缺素材：${rep.misses.slice(0, 4).join(' ')}${rep.misses.length > 4 ? ' …' : ''}` : '',
+        this.renderFailures ? `绘制异常 ${this.renderFailures} 次：${this.renderNote}` : '',
+      ].filter(Boolean).join(' · ');
+      makeLabel(root, lines, {x: 0, y: -H / 2 + 120, size: 20, color: palette.red, align: 'center'});
+      makeLabel(root, `画布 ${rep.impl} · 纹理上限 ${rep.maxTexture}`,
+        {x: 0, y: -H / 2 + 92, size: 18, color: palette.inkSoft, align: 'center'});
+    }
   }
   /* ── 牌桌 ─────────────────────────────────────────────── */
 
@@ -474,10 +510,12 @@ export class GameRoot extends Component {
     const left = count(S.grid);
 
     const safe = this.safeTop;
-    makeIconButton(root, this.ui, -W / 2 + 60, H / 2 - 68 - safe, 68, 'back', () => this.activate('back-home'));
+    // 顶栏左右两颗：左＝对局菜单（继续 / 重开 / 回首页 / 选关），右＝设置（音效、音乐、震动、玩法说明）。
+    // 以前左键直接回大厅、右键进的是"已暂停"，玩家想改个音效要先回大厅再点齿轮，绕一整圈。
+    makeIconButton(root, this.ui, -W / 2 + 60, H / 2 - 68 - safe, 68, 'back', () => this.activate('pause'));
     const plate = makePlate(root, this.ui, 330, 76, 0, H / 2 - 68 - safe);
     makeLabel(plate, `第 ${S.levelIndex + 1} 关`, {x: 0, y: 22, size: 38, color: '#FBF3DE', align: 'center', bold: true, serif: true});
-    makeIconButton(root, this.ui, W / 2 - 60, H / 2 - 68 - safe, 68, 'gear', () => this.activate('pause'));
+    makeIconButton(root, this.ui, W / 2 - 60, H / 2 - 68 - safe, 68, 'gear', () => this.activate('settings'));
 
     // 统计行 / 进度条 / 横幅 / 牌区 / 工具条的纵向位置，全部照 H5 的 drawBoard() 常数换算
     // （H5 的 text() 用 middle 基线，cc 的 Label 锚点是顶部，所以文字要再上移半个行高）
@@ -624,24 +662,26 @@ export class GameRoot extends Component {
     return mid + contentH / 2;
   }
 
-  /** 选关弹框：veil + 居中面板 + 右上角关闭。
-   *  非体验版只展示**已解锁**的关（0..maxLevel），后面的关一张也不画——保持神秘感；
-   *  体验版（unlockAll）全量展示方便测试。展示出来的都可直接点选。 */
+  /**
+   * 选关：**一章一屏 4×4**，未解锁的关画成灰卡但占位不变。
+   *
+   * 以前是"按解锁进度每 16 个切一页"，玩家说不清自己卡在第几章；章节这个坐标当时只在
+   * 「我的进度」弹框里有。按要求把两边合成一个界面：进度弹框撤掉，选关直接带章名、
+   * 星级、图例与总星数。
+   */
   private renderLevels(): void {
     const root = this.screens.overlay;
     this.veil();
     const W = this.size.w;
-    const PER = 16, COLS = 4, gap = 20;
-    const shown = this.session.unlockAll ? LEVELS.length : this.session.maxLevel + 1;
-    const pages = Math.ceil(shown / PER);
-    // 页码钳制：进度变化后残留的超界页码会画出空面板
-    this.page = Math.max(0, Math.min(this.page, pages - 1));
-    const count = Math.max(0, Math.min(PER, shown - this.page * PER));
-    const rows = Math.max(1, Math.ceil(count / COLS));
+    const CH = 16, COLS = 4, gap = 18;
+    const chapters = Math.max(1, Math.ceil(LEVELS.length / CH));
+    this.page = Math.max(0, Math.min(this.page, chapters - 1));
     const pw = W - 68, px = -W / 2 + 34;
-    const cw = (pw - 80 - gap * (COLS - 1)) / COLS, chh = 110;
-    const gridH = rows * chh + (rows - 1) * gap;
-    const ph = 30 + 72 + 28 + gridH + 38 + 56 + 30;
+    const cw = (pw - 80 - gap * (COLS - 1)) / COLS, chh = 104;
+    const gridH = 4 * chh + 3 * gap;
+    const oHead = 30 + 72, oChapter = oHead + 30, oGrid = oChapter + 46;
+    const oLegend = oGrid + gridH + 40;
+    const ph = oLegend + 44 + 34;
     const py = this.centeredTop(ph);
     makePanel(root, this.ui, pw, ph, 0, py - ph / 2);
 
@@ -649,41 +689,60 @@ export class GameRoot extends Component {
     makeLabel(plate, '选择关卡', {x: 0, y: 20, size: 32, color: '#FBF3DE', align: 'center', bold: true, serif: true});
     makeIconButton(root, this.ui, pw / 2 - 52, py - 30 - 36, 58, 'close', () => this.activate('__back'));
 
-    const gy = py - 30 - 72 - 28;
-    for (let i = 0; i < count; i++) {
-      const idx = this.page * PER + i;
-      const col = i % COLS, row = Math.floor(i / COLS);
+    const ci = this.page;
+    makeLabel(root, `第 ${ci + 1} 章 · ${CHAPTER_NAMES[ci] || ''}（${ci * CH + 1}-${Math.min(LEVELS.length, (ci + 1) * CH)}）`,
+      {x: px + 40, y: py - oChapter, size: 26, color: palette.ink, align: 'left', bold: true});
+    makeLabel(root, `${ci + 1} / ${chapters}`, {x: px + pw - 40, y: py - oChapter + 2, size: 22, color: palette.inkSoft, align: 'right'});
+
+    const gy = py - oGrid;
+    for (let j = 0; j < CH; j++) {
+      const idx = ci * CH + j;
+      if (idx >= LEVELS.length) break;
+      const col = j % COLS, row = Math.floor(j / COLS);
       const bx = px + 40 + col * (cw + gap) + cw / 2;
       const by = gy - row * (chh + gap) - chh / 2;
-      const isCur = idx === this.session.levelIndex;
+      const unlocked = idx <= this.session.maxLevel || this.session.unlockAll;
       const st = this.session.stars[String(idx)] || 0;
       const n = makeNode(root, {w: cw, h: chh, x: bx, y: by, name: 'level:' + idx});
-      makeSprite(n, this.ui.frame('card-on'), cw, chh, 0, 0, true, this.ui.inset('card-on'));
-      if (isCur) makeSprite(n, this.ui.frame('hl-gold'), cw, chh, 0, 0, true, this.ui.inset('hl-gold'));
-      makeLabel(n, String(idx + 1), {x: 0, y: chh * .32, size: 36, color: '#FFFFFF', align: 'center', bold: true});
-      makeStars(n, this.ui, 0, -chh * .22, 24, st, 3, 2);
-      bindPress(n, () => this.activate('level:' + idx));
+      makeSprite(n, this.ui.frame(unlocked ? 'card-on' : 'card-off'), cw, chh, 0, 0, true, this.ui.inset(unlocked ? 'card-on' : 'card-off'));
+      if (idx === this.session.levelIndex) makeSprite(n, this.ui.frame('hl-gold'), cw, chh, 0, 0, true, this.ui.inset('hl-gold'));
+      makeLabel(n, String(idx + 1), {x: 0, y: chh * .3, size: 34, color: unlocked ? '#FFFFFF' : palette.inkFaint, align: 'center', bold: true});
+      if (unlocked) {
+        makeStars(n, this.ui, 0, -chh * .24, 22, st, 3, 2);
+        bindPress(n, () => this.activate('level:' + idx));
+      }
     }
-    const pyy = py - ph + 58;
-    if (this.page > 0) makeIconButton(root, this.ui, px + 75, pyy, 56, 'back', () => this.activate('page-prev'));
-    if (this.page < pages - 1) {
-      const next = makeNode(root, {w: 70, h: 52, x: px + pw - 75, y: pyy, name: 'page-next'});
+
+    const ly = py - oLegend;
+    const legend: [string, string][] = [['未解锁', '#D9D2BC'], ['0 星', '#FFFFFF'], ['1 星', '#BFE3B6'], ['2 星', '#7EC77F'], ['3 星', '#2E7D4F']];
+    const lw = 100, lgap = 4;
+    let lx = -(legend.length * lw + (legend.length - 1) * lgap) / 2;
+    for (const [label, col] of legend) {
+      makeSprite(root, this.ui.frame('white'), 18, 18, lx + 9, ly).color = hex(col);
+      makeLabel(root, label, {x: lx + 26, y: ly + 12, size: 19, color: palette.inkSoft, align: 'left'});
+      lx += lw + lgap;
+    }
+
+    const stars = this.session.stars;
+    const got = Object.values(stars).reduce((n, v) => n + (Number(v) || 0), 0);
+    const cleared = Object.keys(stars).length;
+    makeLabel(root, `★ ${got} / ${LEVELS.length * 3} · 已通关 ${cleared} / ${LEVELS.length} 关`,
+      {x: 0, y: ly - 40, size: 23, color: palette.ink, align: 'center', bold: true});
+    if (this.page > 0) makeIconButton(root, this.ui, px + 75, ly - 40, 56, 'back', () => this.activate('page-prev'));
+    if (this.page < chapters - 1) {
+      const next = makeNode(root, {w: 70, h: 52, x: px + pw - 75, y: ly - 40, name: 'page-next'});
       makeSprite(next, this.ui.frame('chevron'), 32, 32);
       bindPress(next, () => this.activate('page-next'));
     }
-    for (let i = 0; i < pages; i++) {
-      const sz = i === this.page ? 18 : 12;
-      makeSprite(root, this.ui.frame('dot'), sz, sz, (i - (pages - 1) / 2) * 26, pyy);
-    }
   }
 
-  /** 设置弹框：veil + 居中面板 + 关闭钮；「我的进度」收在这里。 */
+  /** 设置弹框：veil + 居中面板 + 关闭钮。只留设置本身——「我的进度」已按要求撤掉，
+   *  章节进度与星级改由「选择关卡」一章一屏直接承担。 */
   private renderSettings(): void {
     const root = this.screens.overlay;
     this.veil();
     const W = this.size.w;
     const rows: {id: string; icon: UiName; label: string; toggle?: boolean}[] = [
-      {id: 'progress', icon: 'icon-progress', label: '我的进度'},
       {id: 'toggle-sound', icon: 'icon-sound', label: '音效', toggle: this.sound},
       {id: 'toggle-music', icon: 'icon-music', label: '背景音乐', toggle: this.music},
       {id: 'toggle-vibration', icon: 'icon-vibrate', label: '震动', toggle: this.session.vibration},
@@ -716,102 +775,6 @@ export class GameRoot extends Component {
       }
     });
     makeLabel(root, `版本 ${APP_VERSION}`, {x: 0, y: py - ph + 30 + 20, size: 22, color: palette.inkSoft, align: 'center'});
-  }
-
-  /** 进度弹框（从设置进入）：星图 + 汇总。 */
-  private renderProgress(): void {
-    const root = this.screens.overlay;
-    this.veil();
-    const W = this.size.w;
-    const total = LEVELS.length;
-    const stars = this.session.stars;
-    const got = Object.values(stars).reduce((n, v) => n + v, 0);
-    const cleared = Object.keys(stars).length;
-    const x0 = -W / 2 + 80;
-
-    // 星图改成**一章一屏**：以前 10 列平铺，224 关要画 23 行——格子小到点不动，
-    // 而且玩家说不清"我卡在哪一章"。章节在这里不是装饰，是玩家描述进度的坐标。
-    const CH = 16;
-    const chapters = Math.max(1, Math.ceil(total / CH));
-    this.chapterPage = Math.max(0, Math.min(this.chapterPage, chapters - 1));
-    const COLS = 4, ROWS = 4, gap = 10;
-    // 格子既不能超宽（4 列要排得下），也不能超高（屏矮时星图会先撞图例）——取两者较小值。
-    const cwByW = (W - 200 - gap * (COLS - 1)) / COLS;
-    const availH = this.size.h - 118 - 40 - 94 - 360;
-    const cwByH = Math.max(18, (availH - (ROWS - 1) * gap) / ROWS);
-    const cw = Math.min(cwByW, cwByH);
-    const gridW = COLS * cw + (COLS - 1) * gap;
-    const gridH = ROWS * (cw + gap) - gap;
-    // 各段相对面板顶的偏移；面板按内容定高再居中（原来固定成 H-250，屏一高下面就空一大片）
-    const oTitle = 26, oNum = 62, oBar = 150, oMap = 190, oGrid = 236;
-    const oLegend = oGrid + gridH + 36;
-    const oFoot = oLegend + 48;
-    // 内容一律从「面板顶 - 94」往下排（那 94 是匾额占掉的），所以面板高度必须把这 94 算进去。
-    // 以前写成 oFoot + 30 + 34，等于比内容矮 30 多像素：图例压在卡片底边上、
-    // 「已通关 0 / 224 关」整行掉到卡片外面，和背后首页的「选择关卡」按钮叠成一团（第 14 章切图实测）。
-    const ph = oFoot + 94 + 46;
-    const py = this.centeredTop(ph);
-    makePanel(root, this.ui, W - 80, ph, 0, py - ph / 2);
-    const plate = makePlate(root, this.ui, 240, 66, -40, py - 28 - 33);
-    makeLabel(plate, '我的进度', {x: 0, y: 18, size: 32, color: '#FBF3DE', align: 'center', bold: true, serif: true});
-    makeIconButton(root, this.ui, (W - 80) / 2 - 52, py - 28 - 33, 58, 'close', () => this.activate('__back'));
-
-    // 匾额占掉面板顶部约 94，内容整体下移
-    makeLabel(root, '总星数', {x: x0, y: py - oTitle - 94, size: 26, color: palette.inkSoft, align: 'left', bold: true});
-    makeLabel(root, `${got} / ${total * 3}`, {x: x0, y: py - oNum - 94, size: 42, color: palette.jadeDeep, align: 'left', bold: true});
-    makeSprite(root, this.ui.frame('star-on'), 40, 40, W / 2 - 104, py - 74 - 94);
-
-    const barW = W - 160;
-    makeSprite(root, this.ui.frame('chip-light'), barW, 20, 0, py - oBar - 94, true, this.ui.inset('chip-light'));
-    const frac = Math.min(1, got / (total * 3));
-    if (frac > 0) {
-      const w = Math.max(10, barW * frac);
-      makeSprite(root, this.ui.frame('chip-dark'), w, 20, -barW / 2 + w / 2, py - oBar - 94, true, this.ui.inset('chip-dark'));
-    }
-
-    const name = CHAPTER_NAMES[this.chapterPage] || '';
-    makeLabel(root, `第 ${this.chapterPage + 1} 章 · ${name}（${this.chapterPage * CH + 1}-${Math.min(total, (this.chapterPage + 1) * CH)}）`,
-      {x: x0, y: py - oMap - 94, size: 26, color: palette.ink, align: 'left', bold: true});
-    makeLabel(root, `${this.chapterPage + 1} / ${chapters}`, {x: W / 2 - 80, y: py - oMap - 94, size: 22, color: palette.inkSoft, align: 'right'});
-    const gridTop = py - oGrid - 94;
-    const fsize = Math.round(cw * .34);
-    const from = this.chapterPage * CH;
-    for (let i = from; i < Math.min(total, from + CH); i++) {
-      const j = i - from;
-      const col = j % COLS, row = Math.floor(j / COLS);
-      const cx = -gridW / 2 + col * (cw + gap) + cw / 2;
-      const cy = gridTop - row * (cw + gap) - cw / 2;
-      const st = stars[String(i)] || 0;
-      const unlocked = i <= this.session.maxLevel || this.session.unlockAll;
-      const fill = !unlocked ? '#D9D2BC' : st === 0 ? '#FFFFFF' : st === 1 ? '#BFE3B6' : st === 2 ? '#7EC77F' : '#2E7D4F';
-      const cell = makeNode(root, {w: cw, h: cw, x: cx, y: cy, name: 'star:' + i});
-      makeSprite(cell, this.ui.frame('white'), cw, cw).color = hex(fill);
-      makeLabel(cell, String(i + 1), {
-        x: 0, y: fsize * .62, size: fsize, align: 'center', bold: st >= 2,
-        color: !unlocked ? '#B3A98F' : st >= 2 ? '#FFFFFF' : palette.inkSoft
-      });
-      if (unlocked) bindPress(cell, () => this.startLevel(i));
-    }
-
-    // 图例：每项要放得下「18 色块 + 8 间距 + 3 个字（19px ≈ 57）」，每项至少 100，否则文字会挤在一起
-    const legend: [string, string][] = [['未解锁', '#D9D2BC'], ['0 星', '#FFFFFF'], ['1 星', '#BFE3B6'], ['2 星', '#7EC77F'], ['3 星', '#2E7D4F']];
-    const lw = 100, lgap = 4;
-    const ly = py - oLegend - 94;
-    let lx = -(legend.length * lw + (legend.length - 1) * lgap) / 2;
-    for (const [label, col] of legend) {
-      makeSprite(root, this.ui.frame('white'), 18, 18, lx + 9, ly).color = hex(col);
-      makeLabel(root, label, {x: lx + 26, y: ly + 12, size: 19, color: palette.inkSoft, align: 'left'});
-      lx += lw + lgap;
-    }
-    makeLabel(root, `已通关 ${cleared} / ${total} 关`, {x: 0, y: py - oFoot - 94, size: 24, color: palette.ink, align: 'center', bold: true});
-    // 章节翻页放在页脚两侧：中间那句"已通关 x/N 关"是居中的，两侧各留 90 才不会压字。
-    const navY = py - oFoot - 94;
-    if (this.chapterPage > 0) makeIconButton(root, this.ui, -(W - 80) / 2 + 62, navY, 52, 'back', () => this.activate('chapter-prev'));
-    if (this.chapterPage < chapters - 1) {
-      const nx = makeNode(root, {w: 66, h: 50, x: (W - 80) / 2 - 62, y: navY, name: 'chapter-next'});
-      makeSprite(nx, this.ui.frame('chevron'), 32, 32);
-      bindPress(nx, () => this.activate('chapter-next'));
-    }
   }
 
   /* ── 弹窗 ─────────────────────────────────────────────── */
@@ -900,6 +863,7 @@ export class GameRoot extends Component {
     fadeIn(root);
   }
 
+  /** 牌桌左按钮打开的对局菜单：继续 / 重开 / 回首页 / 选关四件事都在这里。 */
   private renderPause(): void {
     const root = this.screens.overlay;
     this.veil();
@@ -907,7 +871,8 @@ export class GameRoot extends Component {
     const items: {id: string; icon: UiName; label: string; style: 'jade' | 'cream'}[] = [
       {id: 'resume', icon: 'icon-play', label: '继续游戏', style: 'jade'},
       {id: 'restart', icon: 'icon-restart', label: '重新开始', style: 'cream'},
-      {id: 'home', icon: 'icon-home', label: '返回首页', style: 'cream'}
+      {id: 'home', icon: 'icon-home', label: '返回首页', style: 'cream'},
+      {id: 'menu-levels', icon: 'icon-progress', label: '选择关卡', style: 'cream'}
     ];
     const oStart = 83, step = 100;
     const ph = oStart + (items.length - 1) * step + 41 + 42;

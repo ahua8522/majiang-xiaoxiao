@@ -9,7 +9,7 @@
  *     一次性烘焙，之后所有界面共用。
  */
 import {SpriteFrame} from 'cc';
-import {Atlas, Region} from './atlas';
+import {Atlas, Region, maxTextureSize} from './atlas';
 import {
   Ctx2D, IconName, SERIF, drawButton, drawChevron, drawChip, drawFrostFrame, drawGear, drawIcon, drawLock, drawPanel, drawPill, drawStar, drawToggle, drawTile, fillCircle, fillRR, linear, rr, strokeRR
 } from './art';
@@ -401,10 +401,16 @@ export class SceneAtlas {
   readonly tableTop: number;
 
   constructor(readonly w: number, readonly h: number, scale = SCENE_SCALE) {
-    const aw = Math.max(2, Math.round(w * scale));
-    const ah = Math.max(2, Math.round(h * scale));
     this.tableTop = h * .655;
-    const th = Math.max(1, Math.round((h - this.tableTop) * scale));
+    const tableH = Math.max(1, h - this.tableTop);
+    // 纹理边长有上限：超了不是变糊，而是**整张贴图静默画不出来**（鸿蒙真机就是这样只剩文字）。
+    // garden 与木桌共用一张画布纵向叠放，所以按"两块合计高"反推能用的倍率，宁可糊一点。
+    const cap = maxTextureSize() * 0.98;
+    const fit = cap / Math.max(w, h + tableH);
+    const S = Math.max(0.5, Math.min(scale, fit));
+    const aw = Math.max(2, Math.round(w * S));
+    const ah = Math.max(2, Math.round(h * S));
+    const th = Math.max(1, Math.round(tableH * S));
     // 木桌单独占画布下方的一条，**绝不能和 garden 区域重叠**：
     // 之前两者共用一块画布、而 garden 又登记成整块画布，结果木桌被一起烘进了背景，
     // 于是选关 / 牌桌 / 设置这些不用木桌的屏幕下面都多出一大块棕色桌面。
@@ -412,15 +418,15 @@ export class SceneAtlas {
     const ctx = atlas.context;
 
     ctx.save();
-    ctx.scale(scale, scale);
+    ctx.scale(S, S);
     drawGarden(ctx, w, h);
     ctx.restore();
     atlas.region('garden', {x: 0, y: 0, w: aw, h: ah});
 
     ctx.save();
     ctx.translate(0, ah);
-    ctx.scale(scale, scale);
-    drawTable(ctx, w, 0, h - this.tableTop);
+    ctx.scale(S, S);
+    drawTable(ctx, w, 0, tableH);
     ctx.restore();
     atlas.region('table', {x: 0, y: ah, w: aw, h: th});
 
