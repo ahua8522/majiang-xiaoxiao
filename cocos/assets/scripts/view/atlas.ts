@@ -16,7 +16,7 @@ import {Ctx2D} from './art';
 /** 向上取到 4 的倍数：WebGL 默认 UNPACK_ALIGNMENT=4，非 4 倍行宽会让 texImage2D 错位。 */
 const align4 = (n: number) => Math.max(2, Math.ceil(n / 4) * 4);
 
-export interface AtlasInfo {name: string; w: number; h: number; ok: boolean; error?: string}
+export interface AtlasInfo {name: string; w: number; h: number; ok: boolean; error?: string; ink?: string}
 const INFO: {impl: string; maxTexture: number; atlases: AtlasInfo[]; misses: string[]} = {
   impl: 'none', maxTexture: 0, atlases: [], misses: [],
 };
@@ -139,14 +139,24 @@ export class Atlas {
   /**
    * 把画布上传成纹理。所有 `frame()` 必须在 `bake()` 之后调用。
    *
-   * 这里**不抛**：上传失败只记进诊断并让 `frame()` 走兜底帧。以前 bake/frame 一抛，
-   * `update → render` 没有 try/catch，整屏就只剩文字（鸿蒙真机就是这么表现的）。
+   * **走 `getImageData` + `uploadData` 喂原始字节，而不是 `new ImageAsset(canvas)`**：
+   * 鸿蒙真机日志给的正是这种组合——`ok:true`、`contextLost:0`、`glError:""`、场景图自检无异常，
+   * 但屏上只有文字。也就是"引擎说传成功了，实际传上去是空的"。把像素自己读出来再上传，
+   * 就绕开了引擎对 canvas 的处理，并且能顺便量出画布到底有没有画上东西（`ink`）。
+   * 读不到像素（老基础库没有 getImageData）才退回 ImageAsset。
    */
   bake(): void {
+    const w = this.canvas.width | 0;
+    const h = this.canvas.height | 0;
     try {
-      const image = new ImageAsset(this.canvas);
       const tex = new Texture2D();
-      tex.image = image;
+      const raw = this.rawPixels(w, h);
+      if (raw) {
+        tex.reset({width: w, height: h, format: Texture2D.PixelFormat.RGBA8888, mipmapLevel: 1});
+        tex.uploadData(raw);
+      } else {
+        tex.image = new ImageAsset(this.canvas);
+      }
       tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
       tex.setMipFilter(Texture2D.Filter.NONE);
       this.texture = tex;
@@ -157,6 +167,27 @@ export class Atlas {
       const rec = INFO.atlases.find((a) => a.name === this.tag);
       if (rec) { rec.ok = false; rec.error = String((e as Error)?.message || e); }
     }
+  }
+
+  /**
+   * 读出画布像素，**按原样（自上而下）交给 uploadData**。
+   * 实测：这里自己再做一次垂直翻转会把整屏画颠倒（牌面上下倒、木桌跑到屏幕顶上），
+   * 也就是说引擎对裸字节数据源已经处理过行序，不需要调用方插手。
+   * 同时统计不透明像素占比：`filled=0` 就是"2D 根本没画出来"，与"纹理上传失败"是两种病。
+   */
+  private rawPixels(w: number, h: number): Uint8Array | null {
+    try {
+      const ctx: any = this.ctx;
+      if (!ctx.getImageData) return null;
+      const src = ctx.getImageData(0, 0, w, h);
+      if (!src || !src.data) return null;
+      const d: Uint8ClampedArray = src.data;
+      let filled = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 8) filled++;
+      const rec = INFO.atlases.find((a) => a.name === this.tag);
+      if (rec) rec.ink = `${Math.round(filled / (w * h) * 100)}%`;
+      return new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
+    } catch { return null; }
   }
 
   /** 兜底帧：4x4 纯白，能被 `Sprite.color` 染色，所以最坏情况是"色块 UI"而不是空白。 */
