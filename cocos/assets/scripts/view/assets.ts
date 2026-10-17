@@ -9,7 +9,7 @@
  *     一次性烘焙，之后所有界面共用。
  */
 import {SpriteFrame} from 'cc';
-import {Atlas, Region, maxTextureSize} from './atlas';
+import {Atlas, Region, fitScale} from './atlas';
 import {
   Ctx2D, IconName, SERIF, drawButton, drawChevron, drawChip, drawFrostFrame, drawGear, drawIcon, drawLock, drawPanel, drawPill, drawStar, drawToggle, drawTile, fillCircle, fillRR, linear, rr, strokeRR
 } from './art';
@@ -73,7 +73,13 @@ class Packer {
  */
 export const TILE_BASE_W = 125;
 export const TILE_BASE_H = 155;
-export const TILE_BASE_SCALE = 2;
+/**
+ * 牌图集倍率。以前固定 2（46 张牌烘成 2000x1860 ≈ 15MB 显存），
+ * 鸿蒙真机上"牌桌整屏只剩文字"最可疑的就是这块 + 场景图集把显存吃穿、WebGL 上下文被回收。
+ * 降到 1.6：牌面显示宽约 125 设计单位，1.6 倍 = 200 像素源，在 1260 宽的手机屏幕上仍≈1:1，
+ * 肉眼看不出差别，但显存少 4.5MB。真正的兜底是下面的 fitScale 会再按设备上限压一次。
+ */
+export const TILE_BASE_SCALE = 1.6;
 
 /**
  * 牌图集：玩法牌面（含鞭炮）+ 装饰字牌，**一次烘完、全程复用**。
@@ -94,16 +100,18 @@ export class TileAtlas {
   private warned = new Set<string>();
 
   constructor() {
-    const cw = Math.max(2, Math.round(this.cellW * TILE_BASE_SCALE));
-    const ch = Math.max(2, Math.round(this.cellH * TILE_BASE_SCALE));
-    // 牌身占格子的 84%、花色脚厚 h*.08 —— 与 H5 的 drawBoard() 一致
-    const w = cw * .84, h = ch * .84;
-    const lift = Math.max(2, h * .08);
     // 烘焙名单 = core 牌池（43，已含鞭炮 b1）+ 3 装饰牌 = 46。
     // 8 列排布自动进位到 6 行；再加牌面只要 core 那边加，这里跟着一起烘。
     const baked = FACES.concat(DECO_FACES);
     const cols = 8;
     const rows = Math.ceil(baked.length / cols);
+    // 倍率还要再过一道设备上限：单边超 2048 的纹理在部分 GPU 上是**静默画不出来**。
+    const S = fitScale(this.cellW * cols, this.cellH * rows, TILE_BASE_SCALE);
+    const cw = Math.max(2, Math.round(this.cellW * S));
+    const ch = Math.max(2, Math.round(this.cellH * S));
+    // 牌身占格子的 84%、花色脚厚 h*.08 —— 与 H5 的 drawBoard() 一致
+    const w = cw * .84, h = ch * .84;
+    const lift = Math.max(2, h * .08);
     const atlas = new Atlas(cols * cw, rows * ch);
     const ctx = atlas.context;
     baked.forEach((face, i) => {
@@ -383,8 +391,12 @@ export class UiAtlas {
   inset(name: UiName | string): [number, number, number, number] { return this.insets.get(name) || [0, 0, 0, 0]; }
 }
 
-/** 场景图集的烘焙倍率（整屏大图，1.5 在清晰度与显存之间取平衡）。 */
-export const SCENE_SCALE = 1.5;
+/**
+ * 场景图集倍率。以前 1.5（20:9 屏烘成 1128x3276 ≈ 15MB 显存，只为一张柔焦渐变背景），
+ * 现在 0.9：garden 全是软渐变与叶片剪影，放大到全屏肉眼看不出差别，显存省 2/3。
+ * 真机反馈"牌桌只剩文字"最可疑的就是它和牌图集一起把显存吃穿。
+ */
+export const SCENE_SCALE = 0.9;
 
 /**
  * 场景图集：整屏庭院背景 + 首页木桌。
@@ -405,9 +417,7 @@ export class SceneAtlas {
     const tableH = Math.max(1, h - this.tableTop);
     // 纹理边长有上限：超了不是变糊，而是**整张贴图静默画不出来**（鸿蒙真机就是这样只剩文字）。
     // garden 与木桌共用一张画布纵向叠放，所以按"两块合计高"反推能用的倍率，宁可糊一点。
-    const cap = maxTextureSize() * 0.98;
-    const fit = cap / Math.max(w, h + tableH);
-    const S = Math.max(0.5, Math.min(scale, fit));
+    const S = fitScale(w, h + tableH, scale);
     const aw = Math.max(2, Math.round(w * S));
     const ah = Math.max(2, Math.round(h * S));
     const th = Math.max(1, Math.round(tableH * S));

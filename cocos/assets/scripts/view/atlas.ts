@@ -21,9 +21,46 @@ const INFO: {impl: string; maxTexture: number; atlases: AtlasInfo[]; misses: str
   impl: 'none', maxTexture: 0, atlases: [], misses: [],
 };
 
+/**
+ * 把一块画布的倍率压进设备能吃的范围：单边不超过 `min(设备上限, 2048)`。
+ *
+ * 为什么连 2048 都要写死当二次上限：鸿蒙真机上牌桌整屏只剩文字、选关弹框却正常，
+ * 差别就在牌桌会**懒加载第三张大图集**（牌面 2000x1860 + 场景 1128x3276 ≈ 30MB 显存）。
+ * 那种"贴图集体消失"是 WebGL 上下文被回收的典型表现，而上下文丢失在 JS 侧不抛异常，
+ * 只能一边降显存、一边装探针（见 watchContext）把它变成能读到的数字。
+ */
+export function fitScale(w: number, h: number, want: number): number {
+  const cap = Math.min(maxTextureSize(), 2048);
+  return Math.max(0.4, Math.min(want, cap / Math.max(w, h)));
+}
+
+/** 上下文丢失次数：真机上只要 >0，"贴图全不见"就有了确定解释。 */
+let contextLost = 0;
+let glError = '';
+
+/** 装一次 WebGL 上下文探针（幂等）。 */
+export function watchContext(): void {
+  if (contextLost || glError) return;
+  try {
+    const canvas: any = (globalThis as any).cc?.game?.canvas;
+    if (!canvas?.addEventListener || !canvas?.getContext) return;
+    canvas.addEventListener('webglcontextlost', (e: any) => {
+      contextLost++;
+      glError = 'webglcontextlost';
+      try { e.preventDefault?.(); } catch { /* 让引擎自己走恢复流程 */ }
+    }, false);
+    // 主动读一次 gl 错误码：尺寸超限这类问题在这里是静默的，只有 getError 会说。
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    if (gl?.getError) {
+      const err = gl.getError();
+      if (err) glError = 'glGetError=' + err;
+    }
+  } catch { /* 探针本身不能把游戏弄崩 */ }
+}
+
 /** 诊断快照：真机出问题时就靠这一格信息判断是画布、纹理上限还是缺帧。 */
-export function atlasReport(): {impl: string; maxTexture: number; atlases: AtlasInfo[]; misses: string[]} {
-  return {impl: INFO.impl, maxTexture: INFO.maxTexture, atlases: INFO.atlases.slice(), misses: INFO.misses.slice(0, 12)};
+export function atlasReport(): {impl: string; maxTexture: number; atlases: AtlasInfo[]; misses: string[]; contextLost: number; glError: string} {
+  return {impl: INFO.impl, maxTexture: INFO.maxTexture, atlases: INFO.atlases.slice(), misses: INFO.misses.slice(0, 12), contextLost, glError};
 }
 
 /**

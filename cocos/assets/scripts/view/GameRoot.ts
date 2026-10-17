@@ -11,13 +11,13 @@
  *
  * core/ 完全不感知 cc；本文件是唯一的引擎适配层。
  */
-import {_decorator, Component, EventTouch, Game, game, Label, Node, Sprite, UIOpacity, UITransform, input, Input, sys, view} from 'cc';
+import {_decorator, Component, Director, EventTouch, Game, game, Label, Node, Sprite, UIOpacity, UITransform, director, input, Input, sys, view} from 'cc';
 import {Session, Platform} from '../core/Session';
 import {LEVELS, levelAt} from '../core/Generator';
 import {CHAPTER_NAMES} from '../core/levels';
 import {count, Run} from '../core/Rules';
 import {SceneAtlas, TileAtlas, UiAtlas, UiName} from './assets';
-import {atlasReport} from './atlas';
+import {atlasReport, watchContext} from './atlas';
 import {Board, Pos} from './Board';
 import {palette} from './theme';
 import {bindPress, clearChildren, fadeIn, hex, makeButton, makeIconButton, makeLabel, makeNode, makePanel, makePlate, makeSprite, makeStars, makeToggle} from './widgets';
@@ -119,6 +119,9 @@ export class GameRoot extends Component {
   /** render() 抛过几次、最后一条是什么：真机（尤其鸿蒙）只能靠这个把故障带回桌面。 */
   private renderFailures = 0;
   private renderNote = '';
+  /** 牌桌场景图自检结论（见 boardDiag），空串=没异常或还没测。 */
+  private pxProbe = '';
+  private frames = 0;
   /** 顶部安全区：微信胶囊按钮占掉的高度（设计单位）。顶栏整体下移这么多，避免被官方控件盖住。 */
   private safeTop = 0;
 
@@ -201,6 +204,11 @@ export class GameRoot extends Component {
       this.setScreen(q && this.isScreen(q) ? q : 'board');
       // 性能面板默认关掉（调试构建里它会盖住界面）；加 ?stats=1 打开，用于测 draw call / 顶点。
       try { const prof = (globalThis as any).cc?.profiler; if (this.queryParam('stats') === '1') prof?.showStats?.(); else prof?.hideStats?.(); } catch { /* 面板可选 */ }
+      // 真机（尤其鸿蒙）摸不到控制台，就把图集/显存状态挂成全局函数并打一次日志：
+      // 用户在 vConsole 里输 `__mjDiag()` 就能把确定证据读回来，而不是让我猜。
+      watchContext();
+      (globalThis as any).__mjDiag = () => atlasReport();
+      console.log('[mj] atlas', JSON.stringify(atlasReport()));
       mark('E-screen');
     } catch (e) {
       const msg = `onLoad THREW ${String((e as Error)?.message || e).slice(0, 200)}`;
@@ -218,7 +226,7 @@ export class GameRoot extends Component {
         stars: this.session.stars, maxLevel: this.session.maxLevel, par: this.session.par,
         // 切图/真机取证要看这四格：关卡总数证明构建新不新，seed 证明钉死生效，
         // dialect + liveTotal 证明「只剩哑弹也算过」的判据，timeLeft 证明倒计时在走。
-        levels: LEVELS.length, seed: this.session.pinnedSeed, dialect: !!this.session.def.dialect,
+        levels: LEVELS.length, px: this.pxProbe, seed: this.session.pinnedSeed, dialect: !!this.session.def.dialect,
         liveTotal: this.session.liveTotal, timeLeft: Math.round(this.session.timeLeft * 10) / 10,
         atlas: atlasReport()} : null
     });
@@ -235,6 +243,8 @@ export class GameRoot extends Component {
     // 限时关必须"看不见就不走表"。用 cc 的 game 事件而不是 wx.onHide：小游戏和 H5 同一套，
     // 接电话/切后台回来直接判负是要被投诉的那种错误。
     game.on(Game.EVENT_SHOW, this.onGameShow, this);
+    // 牌桌自检要等真的画出来之后再做：EVENT_AFTER_DRAW 是最贴近「这一帧真的画了」的时机。
+    director.on(Director.EVENT_AFTER_DRAW, this.onAfterDraw, this);
     game.on(Game.EVENT_HIDE, this.onGameHide, this);
     mark('Z-onLoad done');
   }
@@ -250,6 +260,7 @@ export class GameRoot extends Component {
     // 生命周期监听要成对摘掉：场景重建时不摘就会重复订阅，一次切后台触发多次 setPaused。
     game.off(Game.EVENT_SHOW, this.onGameShow, this);
     game.off(Game.EVENT_HIDE, this.onGameHide, this);
+    director.off(Director.EVENT_AFTER_DRAW, this.onAfterDraw, this);
     // 纹理是显存，节点销毁不会释放它：三张图集都要在这里显式 dispose
     //（微信小游戏切后台/重进场景时不释放就是下一次进来黑屏）。
     this.tileAtlas?.atlas.dispose();
@@ -258,6 +269,15 @@ export class GameRoot extends Component {
     this.tileAtlas = null;
     this.sceneAtlas = null;
     this.sceneKey = '';
+  }
+
+  /** 牌桌稳定 90 帧后自检一次（那时布局与三张图集都已就位），只测一遍不每帧读。 */
+  private onAfterDraw(): void {
+    if (this.pxProbe) return;
+    this.frames++;
+    if (this.frames < 90 || this.screen !== 'board') return;
+    this.pxProbe = this.boardDiag();
+    console.log('[mj] boardDiag "' + this.pxProbe + '" · atlas ' + JSON.stringify(atlasReport()));
   }
 
   update(dt: number): void {
@@ -393,6 +413,8 @@ export class GameRoot extends Component {
       || (dialog && this.dialogBase === 'board');
     show(this.screens.board, boardVisible);
     if (boardVisible) this.renderBoard();
+    // 诊断行画在当前看得见的那块底图上（牌桌故障最需要它，而它偏偏不画在大厅）
+    this.atlasDiag(boardVisible ? this.boardChrome : this.screens.home);
 
     clearChildren(this.screens.overlay);
     switch (this.screen) {
@@ -498,21 +520,70 @@ export class GameRoot extends Component {
     makeButton(root, this.ui, {x: 0, y: R(-322), w: bw, h: 108, text: '开始游戏', style: 'jade', size: 42, icon: 'icon-play', onTap: () => this.activate('start')});
     makeButton(root, this.ui, {x: 0, y: R(-452), w: bw, h: 92, text: '关卡选择', style: 'cream', size: 32, onTap: () => this.activate('levels')});
     makeIconButton(root, this.ui, W / 2 - 76, H / 2 - 96 - safe, 68, 'gear', () => this.activate('settings'));
+  }
 
-    // 素材没烘焙成功时**必须让玩家和作者都看出来**：鸿蒙真机那次是"Label 全在、贴图全不见"，
-    // 画面看着像布局坏了，实际是图集上传失败，而没有一行提示就只能靠猜。
+  /**
+   * 牌桌"只剩文字"的两种可能，用**场景图本身**就能分开，不需要 GL 回读：
+   *   A. Sprite 节点没建出来 / 尺寸为 0 / layer 不在相机可见掩码里 → 场景图与布局问题；
+   *   B. 节点都在、尺寸正常、掩码也对，却看不见 → 光栅化与显存层面的问题。
+   *
+   * 为什么不用 readPixels：桌面 headless 实测读到的是一条穿过牌区的**已清空**缓冲
+   * （画面完全正常也报「色 1 · 有像素 0/96」），拿它当结论会把方向带反。
+   * 所以只有异常才上屏 —— 真机上「没出现这一行」本身就是结论（说明是 B）。
+   */
+  private boardDiag(): string {
+    try {
+      let mask = -1;
+      const findCam = (n: any): any => {
+        if (!n) return null;
+        for (const c of n._components || []) if (c && c.visibility !== undefined && c.camera) return c;
+        for (const ch of n.children || []) { const r = findCam(ch); if (r) return r; }
+        return null;
+      };
+      const cam: any = findCam(director.getScene() as any);
+      if (cam) mask = cam.visibility;
+      let sprites = 0, zero = 0, badLayer = 0, labels = 0;
+      const walk = (n: any): void => {
+        if (!n) return;
+        for (const c of n._components || []) {
+          if (c instanceof Sprite) {
+            sprites++;
+            const ui = n.getComponent(UITransform);
+            if (!ui || ui.width <= 0 || ui.height <= 0) zero++;
+            if (mask > 0 && !(n.layer & mask)) badLayer++;
+          } else if (c instanceof Label) labels++;
+        }
+        for (const ch of n.children || []) walk(ch);
+      };
+      walk(this.screens.board);
+      if (!sprites) return '牌桌一个 Sprite 都没有';
+      if (zero || badLayer) return `牌桌 Sprite ${sprites}：零尺寸 ${zero} · 掩码不符 ${badLayer} · Label ${labels} · 相机掩码 ${mask}`;
+      return '';
+    } catch (e) { return '自检失败 ' + String((e as Error)?.message || e).slice(0, 30); }
+  }
+
+  /**
+   * 素材出问题时**必须让玩家和作者都看出来**：鸿蒙真机那次是"Label 全在、贴图全不见"，
+   * 画面看着像布局坏了，实际是图集/显存层面的故障，而 JS 侧一声不响——没有这一行就只能靠猜。
+   *
+   * 画在大厅与牌桌两处：出问题的往往正是牌桌（它才懒加载牌图集），只挂在大厅等于看不到。
+   */
+  private atlasDiag(root: Node): void {
     const rep = atlasReport();
     const broken = rep.atlases.filter((a) => !a.ok);
-    if (broken.length || rep.misses.length || this.renderFailures) {
-      const lines = [
-        broken.length ? `贴图未就绪：${broken.map((a) => `${a.name}${a.error ? `（${a.error}）` : ''}`).join('、')}` : '',
-        rep.misses.length ? `缺素材：${rep.misses.slice(0, 4).join(' ')}${rep.misses.length > 4 ? ' …' : ''}` : '',
-        this.renderFailures ? `绘制异常 ${this.renderFailures} 次：${this.renderNote}` : '',
-      ].filter(Boolean).join(' · ');
-      makeLabel(root, lines, {x: 0, y: -H / 2 + 120, size: 20, color: palette.red, align: 'center'});
-      makeLabel(root, `画布 ${rep.impl} · 纹理上限 ${rep.maxTexture}`,
-        {x: 0, y: -H / 2 + 92, size: 18, color: palette.inkSoft, align: 'center'});
-    }
+    if (!broken.length && !rep.misses.length && !this.renderFailures && !rep.contextLost && !rep.glError) return;
+    const H = this.size.h;
+    const lines = [
+      broken.length ? `贴图未就绪：${broken.map((a) => `${a.name}${a.error ? `（${a.error}）` : ''}`).join('、')}` : '',
+      rep.misses.length ? `缺素材：${rep.misses.slice(0, 4).join(' ')}${rep.misses.length > 4 ? ' …' : ''}` : '',
+      rep.contextLost ? `WebGL 上下文丢失 ${rep.contextLost} 次` : '',
+      rep.glError ? `GL ${rep.glError}` : '',
+      this.pxProbe ? `牌桌自检：${this.pxProbe}` : '',
+      this.renderFailures ? `绘制异常 ${this.renderFailures} 次：${this.renderNote}` : '',
+    ].filter(Boolean).join(' · ');
+    makeLabel(root, lines, {x: 0, y: -H / 2 + 150, size: 20, color: palette.red, align: 'center'});
+    makeLabel(root, `画布 ${rep.impl} · 上限 ${rep.maxTexture} · ` + rep.atlases.map((a) => `${a.w}x${a.h}${a.ok ? '' : '×'}`).join(' '),
+      {x: 0, y: -H / 2 + 122, size: 18, color: palette.inkSoft, align: 'center'});
   }
   /* ── 牌桌 ─────────────────────────────────────────────── */
 
