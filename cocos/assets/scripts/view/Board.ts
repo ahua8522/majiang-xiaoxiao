@@ -376,25 +376,31 @@ export class Board {
       makeLabel(b.node, String(num), {x: 0, y: size * .3, size: Math.max(12, size * .42), color: '#FFFFFF', align: 'center', bold: true});
       b.node.name = 'rail-badge';
     };
+    /**
+     * 锁标尺寸。以前是 `pad*.78`（约 17~31 设计单位），真机反馈"根本看不出这一行被锁了"：
+     * 锁是这一关的核心约束，小到要凑近看就等于没有。放大到 pad*1.4，
+     * 同时把圆心往外挪一点点，避免放大的锁压住第一列牌面。
+     */
+    const LOCK = pad * 1.4;
     for (const r of model.lockedRows) {
       if (r < 0 || r >= this.rows) continue;
       const cy = this.cellCenter({r, c: 0}).y;
       bar(midX, cy, w, this.cellHei * .92);
-      lockAt(left - pad * .45, cy, pad * .78);
+      lockAt(left - pad * .55, cy, LOCK);
     }
     for (const c of model.lockedCols) {
       if (c < 0 || c >= this.cols) continue;
       const cx = this.cellCenter({r: 0, c}).x;
       bar(cx, midY, this.cellWid * .92, h);
-      lockAt(cx, top + pad * .45, pad * .78);
+      lockAt(cx, top + pad * .55, LOCK);
     }
     for (const u of model.pendingUnlock) {
       if (u.axis === 'row') {
         if (u.index < 0 || u.index >= this.rows) continue;
         const cy = this.cellCenter({r: u.index, c: 0}).y;
         bar(midX, cy, w, this.cellHei * .92);
-        lockAt(left - pad * .45, cy, pad * .7);
-        badgeAt(left - pad * 1.2, cy, pad * .72, u.after);
+        lockAt(left - pad * .55, cy, pad * 1.25);
+        badgeAt(left - pad * 1.55, cy, pad * .8, u.after);
       } else {
         if (u.index < 0 || u.index >= this.cols) continue;
         const cx = this.cellCenter({r: 0, c: u.index}).x;

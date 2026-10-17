@@ -135,6 +135,8 @@ export class GameRoot extends Component {
   private size = {w: DESIGN_W, h: DESIGN_H};
   /** 选关停在第几章（一章一屏 4×4，见 renderLevels）。 */
   private page = 0;
+  /** 弹框画在大厅上还是牌桌上，由"从哪打开"决定（见 go()）。 */
+  private dialogBase: 'home' | 'board' = 'home';
   private sound = true;
   private music = true;
 
@@ -317,15 +319,23 @@ export class GameRoot extends Component {
     return this.returnScreen === 'board' || this.returnScreen === 'pause' ? 'board' : 'home';
   }
 
-  private go(s: Screen): void { this.returnScreen = this.screen; this.setScreen(s); }
+  private go(s: Screen): void {
+    // 弹框画在谁上面，取决于它是**从哪一屏打开的**：从牌桌开的就该继续看到牌桌，
+    // 而不是被换成大厅（真机反馈：牌桌点设置"回到了首页"，关掉又跳回牌桌）。
+    // 弹框之间跳转（设置→玩法说明）不动这个值，所以子页沿用父页的底图。
+    if (this.screen === 'board' || this.screen === 'pause' || this.screen === 'win' || this.screen === 'lose') this.dialogBase = 'board';
+    else if (this.screen === 'home' || this.screen === 'levels') this.dialogBase = 'home';
+    this.returnScreen = this.screen; this.setScreen(s);
+  }
 
   private activate(id: string): void {
     switch (id) {
       case 'home': this.go('home'); break;
       case 'start': this.startLevel(this.session.maxLevel); break;
       case 'levels': this.go('levels'); break;
-      // 从对局菜单进选关：不动 returnScreen，关掉选关直接回牌桌（go() 会把来源记成 'pause'，那样就回不去了）
-      case 'menu-levels': this.setScreen('levels'); break;
+      // 从对局菜单进选关：不动 returnScreen（go() 会把来源记成 'pause'，关掉就回不到牌桌了），
+      // 但要明确底图仍是牌桌。
+      case 'menu-levels': this.dialogBase = 'board'; this.setScreen('levels'); break;
       case 'settings': this.go('settings'); break;
       case 'about': this.go('help'); break;
       case 'back-home': case '__back': this.go(this.dialogParent()); break;
@@ -374,12 +384,13 @@ export class GameRoot extends Component {
 
   private render(): void {
     const show = (n: Node, on: boolean) => { if (n.active !== on) n.active = on; };
-    // 首页流程的屏（首页 + 各弹框）都以首页为底图；牌桌流程才有牌桌
-    const homeFlow = this.screen === 'home' || this.screen === 'settings' || this.screen === 'levels'
-      || this.screen === 'help';
+    // 弹框（设置 / 选关 / 玩法说明）画在谁上面：由 dialogBase 决定，而不是写死"永远大厅"。
+    const dialog = this.screen === 'settings' || this.screen === 'levels' || this.screen === 'help';
+    const homeFlow = this.screen === 'home' || (dialog && this.dialogBase !== 'board');
     show(this.screens.home, homeFlow);
     if (homeFlow) this.renderHome();
-    const boardVisible = this.screen === 'board' || this.screen === 'win' || this.screen === 'lose' || this.screen === 'pause';
+    const boardVisible = this.screen === 'board' || this.screen === 'win' || this.screen === 'lose' || this.screen === 'pause'
+      || (dialog && this.dialogBase === 'board');
     show(this.screens.board, boardVisible);
     if (boardVisible) this.renderBoard();
 
@@ -441,15 +452,19 @@ export class GameRoot extends Component {
     const scene = this.sceneAtlas;
     if (scene) makeSprite(root, scene.frame('table'), W, Math.max(1, H - scene.tableTop), 0, -scene.tableTop / 2);
 
-    // 左上角：头像 + 当前关 + 总星数。星数以前刻意不放在这里（"保持神秘感"），
-    // 但真机反馈是玩家根本不知道自己攒了多少星、也没地方看（设置里那条「我的进度」已按要求撤掉）。
+    // 左上角：头像 + 当前关 + 已获得星数（只显示拿到多少，不显示 672 这种总数——
+    // 真机反馈是"总数让我焦虑，而且我根本不关心分母"）。
+    // 两行文字要**按头像圆心垂直居中**：Label 的 y 是文字盒顶部，所以先算两行的总高，
+    // 再从 `top + 总高/2` 往下排（以前第一行写 top+16、第二行 top-26，整块比头像低了约 18）。
     const top = H / 2 - 96 - safe;
     makeSprite(root, this.ui.frame('avatar'), 92, 92, -W / 2 + 76, top);
-    makeLabel(root, `第 ${Math.min(this.session.maxLevel + 1, LEVELS.length)} 关`,
-      {x: -W / 2 + 132, y: top + 16, size: 27, color: palette.ink, align: 'left', bold: true});
     const starTotal = Object.values(this.session.stars).reduce((n, v) => n + (Number(v) || 0), 0);
-    makeLabel(root, `★ ${starTotal} / ${LEVELS.length * 3}`,
-      {x: -W / 2 + 132, y: top - 26, size: 24, color: palette.goldDeep, align: 'left', bold: true});
+    const line1 = `第 ${Math.min(this.session.maxLevel + 1, LEVELS.length)} 关`;
+    const line2 = `★ ${starTotal}`;
+    const h1 = 27, h2 = 24, lead = 8;
+    const blockTop = top + (h1 + lead + h2) / 2;
+    makeLabel(root, line1, {x: -W / 2 + 132, y: blockTop, size: h1, color: palette.ink, align: 'left', bold: true});
+    makeLabel(root, line2, {x: -W / 2 + 132, y: blockTop - h1 - lead, size: h2, color: palette.goldDeep, align: 'left', bold: true});
 
     // 标题簇：大字「快乐推麻」+ 右侧红色印章「对对消」（竖排三字）——两者连读即完整游戏名
     // 「快乐推麻对对消」，这也是备案要求的「游戏内出现完整游戏名称」的落点。
@@ -510,9 +525,10 @@ export class GameRoot extends Component {
     const left = count(S.grid);
 
     const safe = this.safeTop;
-    // 顶栏左右两颗：左＝对局菜单（继续 / 重开 / 回首页 / 选关），右＝设置（音效、音乐、震动、玩法说明）。
+    // 顶栏左右两颗：左＝对局菜单（继续 / 重开 / 回首页 / 选关，打开即停表，所以画暂停图标），
+    // 右＝设置（音效、背景音乐、震动、玩法说明）。
     // 以前左键直接回大厅、右键进的是"已暂停"，玩家想改个音效要先回大厅再点齿轮，绕一整圈。
-    makeIconButton(root, this.ui, -W / 2 + 60, H / 2 - 68 - safe, 68, 'back', () => this.activate('pause'));
+    makeIconButton(root, this.ui, -W / 2 + 60, H / 2 - 68 - safe, 68, 'pause', () => this.activate('pause'));
     const plate = makePlate(root, this.ui, 330, 76, 0, H / 2 - 68 - safe);
     makeLabel(plate, `第 ${S.levelIndex + 1} 关`, {x: 0, y: 22, size: 38, color: '#FBF3DE', align: 'center', bold: true, serif: true});
     makeIconButton(root, this.ui, W / 2 - 60, H / 2 - 68 - safe, 68, 'gear', () => this.activate('settings'));
@@ -680,8 +696,9 @@ export class GameRoot extends Component {
     const cw = (pw - 80 - gap * (COLS - 1)) / COLS, chh = 104;
     const gridH = 4 * chh + 3 * gap;
     const oHead = 30 + 72, oChapter = oHead + 30, oGrid = oChapter + 46;
-    const oLegend = oGrid + gridH + 40;
-    const ph = oLegend + 44 + 34;
+    const oLegend = oGrid + gridH + 52;
+    const oFoot = oLegend + 62;
+    const ph = oFoot + 34 + 30;
     const py = this.centeredTop(ph);
     makePanel(root, this.ui, pw, ph, 0, py - ph / 2);
 
@@ -726,13 +743,17 @@ export class GameRoot extends Component {
     const stars = this.session.stars;
     const got = Object.values(stars).reduce((n, v) => n + (Number(v) || 0), 0);
     const cleared = Object.keys(stars).length;
-    makeLabel(root, `★ ${got} / ${LEVELS.length * 3} · 已通关 ${cleared} / ${LEVELS.length} 关`,
-      {x: 0, y: ly - 40, size: 23, color: palette.ink, align: 'center', bold: true});
-    if (this.page > 0) makeIconButton(root, this.ui, px + 75, ly - 40, 56, 'back', () => this.activate('page-prev'));
+    // 只报"拿到多少 / 打通几关"，不写 ★ x / 672 这种分母（真机反馈：分母只会让人焦虑）。
+    makeLabel(root, `★ ${got} · 已通关 ${cleared} / ${LEVELS.length} 关`,
+      {x: 0, y: py - oFoot + 16, size: 23, color: palette.ink, align: 'center', bold: true});
+    // 左右翻页必须是**同一颗按钮**：以前左边是圆形按钮、右边是一根裸箭头，
+    // 看着像两种功能，玩家不敢确定右边那个能不能点。右侧用同一颗转 180°。
+    const navY = py - oFoot;
+    if (this.page > 0) makeIconButton(root, this.ui, px + 62, navY, 56, 'back', () => this.activate('page-prev'));
     if (this.page < chapters - 1) {
-      const next = makeNode(root, {w: 70, h: 52, x: px + pw - 75, y: ly - 40, name: 'page-next'});
-      makeSprite(next, this.ui.frame('chevron'), 32, 32);
-      bindPress(next, () => this.activate('page-next'));
+      const next = makeIconButton(root, this.ui, px + pw - 62, navY, 56, 'back', () => this.activate('page-next'));
+      next.angle = 180;
+      next.name = 'page-next';
     }
   }
 
@@ -874,15 +895,19 @@ export class GameRoot extends Component {
       {id: 'home', icon: 'icon-home', label: '返回首页', style: 'cream'},
       {id: 'menu-levels', icon: 'icon-progress', label: '选择关卡', style: 'cream'}
     ];
-    const oStart = 83, step = 100;
-    const ph = oStart + (items.length - 1) * step + 41 + 42;
+    // 标题样式与其它弹框统一：匾额**嵌在面板顶部的匾额区里**（30+72），关闭钮同高在右。
+    // 以前这块匾额画在 `py + 42`（面板上方外面），四个弹框两种标题长相。
+    const pw = W - 192;
+    const oHead = 30 + 72;
+    const oStart = oHead + 56, step = 100;
+    const ph = oStart + (items.length - 1) * step + 41 + 34;
     const py = this.centeredTop(ph);
-    makePanel(root, this.ui, W - 192, ph, 0, py - ph / 2);
-    const plate = makePlate(root, this.ui, 300, 84, 0, py + 42);
-    makeLabel(plate, '已暂停', {x: 0, y: 24, size: 40, color: '#FBF3DE', align: 'center', bold: true, serif: true});
-    makeIconButton(root, this.ui, (W - 192) / 2 - 52, py + 30, 62, 'close', () => this.activate('resume'));
+    makePanel(root, this.ui, pw, ph, 0, py - ph / 2);
+    const plate = makePlate(root, this.ui, 300, 72, -40, py - 30 - 36);
+    makeLabel(plate, '已暂停', {x: 0, y: 20, size: 32, color: '#FBF3DE', align: 'center', bold: true, serif: true});
+    makeIconButton(root, this.ui, pw / 2 - 52, py - 30 - 36, 58, 'close', () => this.activate('resume'));
     items.forEach((it, i) => {
-      makeButton(root, this.ui, {x: 0, y: py - oStart - i * step, w: W - 192 - 88, h: 82, text: it.label, style: it.style, size: 30, icon: it.icon, onTap: () => this.activate(it.id)});
+      makeButton(root, this.ui, {x: 0, y: py - oStart - i * step, w: pw - 88, h: 82, text: it.label, style: it.style, size: 30, icon: it.icon, onTap: () => this.activate(it.id)});
     });
     fadeIn(root);
   }

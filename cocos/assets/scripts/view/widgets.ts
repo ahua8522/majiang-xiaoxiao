@@ -189,10 +189,18 @@ export function makePlate(parent: Node, atlas: UiAtlas, w: number, h: number, x 
 }
 
 /** 圆形图标按钮（返回 / 关闭）。 */
-export function makeIconButton(parent: Node, atlas: UiAtlas, x: number, y: number, size: number, icon: 'back' | 'gear' | 'close', onTap?: () => void): Node {
+export function makeIconButton(parent: Node, atlas: UiAtlas, x: number, y: number, size: number, icon: 'back' | 'gear' | 'close' | 'pause', onTap?: () => void): Node {
   const n = makeNode(parent, {w: size, h: size, x, y, name: 'icon:' + icon});
   if (icon === 'gear') {
     makeSprite(n, atlas.frame('gear'), size, size);
+  } else if (icon === 'pause') {
+    // 牌桌左上角现在打开的是"对局菜单"（会停表），图标语义就该是暂停而不是返回。
+    // 两条竖杠用 white 帧拼，省得为一个小图标再开一块图集区域。
+    makeSprite(n, atlas.frame('circle-jade'), size, size);
+    for (const dx of [-0.16, 0.16]) {
+      const bar = makeSprite(n, atlas.frame('white'), size * .13, size * .46, size * dx, 0);
+      bar.color = hex('#F3EAD2');
+    }
   } else {
     makeSprite(n, atlas.frame('circle-jade'), size, size);
     if (icon === 'back') makeSprite(n, atlas.frame('chevron-back'), size * .78, size * .78);
