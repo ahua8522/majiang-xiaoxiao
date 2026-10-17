@@ -1,6 +1,6 @@
 {
   "name": "majiang-xiaoxiao",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "private": true,
   "description": "快乐推麻对对消 · Cocos Creator 微信小游戏（规则引擎 + cc 原生视图层）",
   "scripts": {
