@@ -76,6 +76,68 @@ test('expect 写错必须红：把「消 1 对」改成「消 5 对」，门禁�
   assert.equal(T.stepOk(bad, out), false);
 });
 
+test('状态机：只接受与脚本一致的动作，其余一律回弹且不改盘面', () => {
+  const Tu = core('Tutorial.js');
+  const t = T.tutorialFor(5);
+  const run = new Tu.TutorialRun(t);
+  assert.equal(run.index, 0);
+  assert.equal(run.done, false);
+  assert.equal(run.step.say, t.steps[0].say);
+
+  // 推错轨（拖了一列）：真 Rules 会改盘，但对不上 expect → 必须不提交
+  const col = run.runs.findIndex((r) => r.axis === 'col' && !r.locked);
+  const before = JSON.stringify(run.grid);
+  const bad = run.advance({kind: 'slide', run: col, step: 1});
+  assert.equal(bad.advanced, false);
+  assert.equal(JSON.stringify(run.grid), before, '回弹不许偷偷改掉盘面：后面每一步都按脚本那盘算');
+  assert.equal(run.index, 0);
+  assert.ok(bad.message.length, '回弹要说话，不能默默不动');
+  assert.match(bad.message, /一行|一列/);
+
+  const ok = run.advance(run.canonical());
+  assert.equal(ok.advanced, true);
+  assert.equal(ok.erased.length, 1);
+  assert.equal(run.index, 1);
+
+  run.advance(run.canonical());
+  assert.equal(run.done, true, '两步走完就该结束');
+  assert.equal(run.step, null);
+});
+
+test('状态机：判据是"效果对不对得上"，不是"方向对不对"', () => {
+  const Tu = core('Tutorial.js');
+  const t = T.tutorialFor(5);
+  const run = new Tu.TutorialRun(t);
+  // 三格轨 ['2p','6s','2p'] 朝哪个方向转都能让两张二筒碰头，所以两个方向都该被接受。
+  // 这不是放松判据：expect 记的是玩家要看到的事（消掉一对 2 筒），不是某一次具体位移。
+  const ri = T.findRun(t, t.steps[0].on, run.runs);
+  const back = run.advance({kind: 'slide', run: ri, step: -1});
+  assert.equal(back.advanced, true);
+  assert.equal(back.erased[0].face, '2p');
+  assert.equal(run.index, 1);
+});
+
+test('状态机：意图解析不到轨时置 failed，视图据此降级', () => {
+  const Tu = core('Tutorial.js');
+  const t = {...T.tutorialFor(5), lockR: [0], lockC: []};   // 把要推的那一行锁死
+  const run = new Tu.TutorialRun(t);
+  assert.equal(run.canonical(), null, '锁轨不许当教学目标：演一次"牌推歪了又弹回去"比不教更糟');
+  run.advance(run.canonical());
+  assert.equal(run.failed, true);
+  assert.equal(run.done, false);
+});
+
+test('watch 模式（玩法说明里的重放）：不做强制，逐步自动演到底', () => {
+  const Tu = core('Tutorial.js');
+  const run = new Tu.TutorialRun(T.tutorialFor(5), true);
+  assert.equal(run.watchMode, true);
+  assert.deepEqual(run.targetCells(), [], '重放不指路：高亮是给"必须动手"那一步用的');
+  let guard = 0;
+  while (!run.done && !run.failed && guard++ < 10) run.advance(run.canonical());
+  assert.equal(run.done, true);
+  assert.equal(run.failed, false);
+});
+
 test('每条教学脚本都自洽：动手步骤 ≤2 个、意图可解析、逐步重放不卡住', () => {
   for (const t of T.CHAPTER_TUTORIALS) {
     assert.equal(t.steps.filter((s) => s.need).length <= 2, true, `${t.title}: 动手步骤不超过 2 个`);

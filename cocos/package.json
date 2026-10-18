@@ -4,7 +4,7 @@
   "private": true,
   "description": "快乐推麻对对消 · Cocos Creator 微信小游戏（规则引擎 + cc 原生视图层）",
   "scripts": {
-    "build:core": "tsc assets/scripts/core/levels.ts assets/scripts/core/Rules.ts assets/scripts/core/Generator.ts assets/scripts/core/Session.ts assets/scripts/core/tutorials.ts --outDir .test/core --target ES2020 --module commonjs --strict --skipLibCheck",
+    "build:core": "tsc assets/scripts/core/levels.ts assets/scripts/core/Rules.ts assets/scripts/core/Generator.ts assets/scripts/core/Session.ts assets/scripts/core/tutorials.ts assets/scripts/core/Tutorial.ts --outDir .test/core --target ES2020 --module commonjs --strict --skipLibCheck",
     "author:levels": "npm run build:core && node tools/author-levels.cjs && npm run build:core",
     "test": "npm run build:core && node --test tests/core.test.cjs tests/generation.test.cjs tests/session.test.cjs tests/transpile.test.cjs tests/view-source.test.cjs tests/levels-meta.test.cjs tests/levels-seed.test.cjs tests/timelimit.test.cjs tests/dialect.test.cjs tests/goals.test.cjs tests/tutorial.test.cjs",
     "export:table": "npm run build:core && node tools/export-level-table.cjs",
