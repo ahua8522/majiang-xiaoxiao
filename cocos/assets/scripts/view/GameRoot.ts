@@ -12,7 +12,7 @@
  * core/ 完全不感知 cc；本文件是唯一的引擎适配层。
  */
 import {_decorator, Component, Director, EventTouch, Game, game, Label, Node, Sprite, UIOpacity, UITransform, director, input, Input, sys, view} from 'cc';
-import {Session, Platform} from '../core/Session';
+import {Modal, Session, Platform} from '../core/Session';
 import {LEVELS, levelAt} from '../core/Generator';
 import {CHAPTER_NAMES} from '../core/levels';
 import {count, Run} from '../core/Rules';
@@ -104,6 +104,26 @@ const storage: Platform = {
 
 type Screen = 'home' | 'levels' | 'board' | 'settings' | 'win' | 'lose' | 'pause' | 'help' | 'restart';
 
+/**
+ * 每一屏对应 Session 的哪一态。**必须穷举所有 Screen**（`Record` 少一行就编译不过）：
+ * 漏登记的那一屏开着时 `modal` 仍是 `'none'`，于是限时关继续每秒 `tick` → 视图每秒判定
+ * 「跨过了整秒」→ 遮罩整块重建 → 入场动画每秒从 opacity 0 重播。第 224 关（限时 74 秒）
+ * 打开暂停弹框「一闪一闪」就是这么来的——不是渲染坏了，是停表没停住。
+ */
+const SCREEN_MODAL: Record<Screen, Modal> = {
+  home: 'home', board: 'none', settings: 'settings', levels: 'levels', win: 'win', lose: 'lose',
+  help: 'help', pause: 'pause', restart: 'restart'
+};
+
+/**
+ * 从这一屏打开弹框时，弹框画在哪一屏上、关掉又回哪一屏。
+ * 弹框自己（settings / levels / help）不在这张表里 → 弹框之间跳转时**继承**上一次的值，
+ * 所以「牌桌→设置→玩法说明→关掉」一路都还记得来源是牌桌。
+ */
+const DIALOG_ORIGIN: Partial<Record<Screen, 'home' | 'board'>> = {
+  home: 'home', board: 'board', pause: 'board', restart: 'board', win: 'board', lose: 'board'
+};
+
 @ccclass('GameRoot')
 export class GameRoot extends Component {
   @property({tooltip: '固定随机种子便于复现；0 表示每次随机'})
@@ -126,7 +146,8 @@ export class GameRoot extends Component {
   private safeTop = 0;
 
   private screen: Screen = 'home';
-  private returnScreen: Screen = 'home';
+  /** 入场动画放到哪一屏了：同一屏的重绘不能再重播（见 animateIn）。 */
+  private overlayAnimated = '';
   private screens!: {home: Node; board: Node; overlay: Node};
   private board!: Board;
   /** 牌桌的「外壳」（顶栏 / 工具条）挂这里，每次重绘只清它，绝不动 Board 自己的节点。 */
@@ -138,7 +159,7 @@ export class GameRoot extends Component {
   private size = {w: DESIGN_W, h: DESIGN_H};
   /** 选关停在第几章（一章一屏 4×4，见 renderLevels）。 */
   private page = 0;
-  /** 弹框画在大厅上还是牌桌上，由"从哪打开"决定（见 go()）。 */
+  /** 这一串弹框是从哪一屏打开的：既决定弹框画在大厅还是牌桌上，也决定关掉之后回哪一屏（见 go() / dialogParent()）。 */
   private dialogBase: 'home' | 'board' = 'home';
   private sound = true;
   private music = true;
@@ -289,7 +310,6 @@ export class GameRoot extends Component {
       // 时间到是 `tick()` 里判的，不会经过 `afterAction()`。以前这里只置 dirty：
       // 画面停在牌桌、输入被 modal 挡住、倒计时永远显示 0 秒——玩家只会以为游戏卡死了。
       if (this.session.modal === 'lose' && this.screen === 'board') {
-        this.returnScreen = 'board';
         this.setScreen('lose');
       }
     }
@@ -328,32 +348,29 @@ export class GameRoot extends Component {
 
   private setScreen(s: Screen): void {
     this.screen = s;
-    // progress 弹框在 Session 侧复用 'settings' 弹窗态（Session 的 Modal 没有 progress）
-    const overlay: Partial<Record<Screen, string>> = {settings: 'settings', levels: 'levels', win: 'win', help: 'help', pause: 'pause', restart: 'restart'};
-    if (s === 'board') this.session.modal = 'none';
-    else if (s === 'home') this.session.modal = 'home';
-    else if (overlay[s]) this.session.modal = overlay[s] as any;
+    this.session.modal = SCREEN_MODAL[s];
     if (s === 'levels') this.page = Math.floor(this.session.levelIndex / 16);
     this.dirty = true;
   }
 
   /**
    * 弹框关掉之后回哪一屏。
-   * 规则很简单：**从牌桌（含牌桌菜单）打开的一律回牌桌**，其余回大厅；
-   * 进度 / 玩法说明是"设置"的子页，永远回设置。
+   * 只看**这一串弹框是从哪一屏打开的**（`dialogBase`），不能看「上一个屏是谁」：
+   * 玩法说明是设置的子页，从说明关掉回到设置时上一个屏是 'help'，按上一个屏判就会
+   * 把玩家甩回大厅（真机反馈：牌桌→设置→玩法说明→关掉→关掉，回到了大厅）。
    */
   private dialogParent(): Screen {
     if (this.screen === 'help') return 'settings';
-    return this.returnScreen === 'board' || this.returnScreen === 'pause' ? 'board' : 'home';
+    return this.dialogBase === 'board' ? 'board' : 'home';
   }
 
   private go(s: Screen): void {
     // 弹框画在谁上面，取决于它是**从哪一屏打开的**：从牌桌开的就该继续看到牌桌，
     // 而不是被换成大厅（真机反馈：牌桌点设置"回到了首页"，关掉又跳回牌桌）。
-    // 弹框之间跳转（设置→玩法说明）不动这个值，所以子页沿用父页的底图。
-    if (this.screen === 'board' || this.screen === 'pause' || this.screen === 'win' || this.screen === 'lose') this.dialogBase = 'board';
-    else if (this.screen === 'home' || this.screen === 'levels') this.dialogBase = 'home';
-    this.returnScreen = this.screen; this.setScreen(s);
+    // 弹框之间跳转（设置→玩法说明）在这张表里没有条目，所以子页沿用父页的底图与来源。
+    const origin = DIALOG_ORIGIN[this.screen];
+    if (origin) this.dialogBase = origin;
+    this.setScreen(s);
   }
 
   private activate(id: string): void {
@@ -363,16 +380,16 @@ export class GameRoot extends Component {
       // 从对局菜单回大厅再点开始，当前这一盘的进度就被悄悄丢掉了。
       case 'start': this.session.command('continue'); this.setScreen('board'); break;
       case 'levels': this.go('levels'); break;
-      // 从对局菜单进选关：不动 returnScreen（go() 会把来源记成 'pause'，关掉就回不到牌桌了），
-      // 但要明确底图仍是牌桌。
-      case 'menu-levels': this.dialogBase = 'board'; this.setScreen('levels'); break;
+      // 从对局菜单进选关：来源本来就是牌桌（DIALOG_ORIGIN 里 pause/restart 都记成 'board'），
+      // 所以和大厅的「关卡选择」走同一条 go()，关掉照样回牌桌。
+      case 'menu-levels': this.go('levels'); break;
       case 'settings': this.go('settings'); break;
       case 'about': this.go('help'); break;
       case 'back-home': case '__back': this.go(this.dialogParent()); break;
-      case 'pause': this.returnScreen = 'board'; this.setScreen('pause'); break;
+      case 'pause': this.setScreen('pause'); break;
       case 'resume': this.setScreen('board'); break;
       // 重开是破坏性操作，先确认（Session 侧 modal='restart' 同时把牌桌输入与倒计时一起停住）。
-      case 'restart': this.returnScreen = 'board'; this.setScreen('restart'); break;
+      case 'restart': this.setScreen('restart'); break;
       case 'confirm-restart': this.session.command('confirm-restart'); this.setScreen('board'); break;
       case 'replay': this.session.reset(); this.setScreen('board'); break;
       case 'next': this.startLevel(Math.min(this.session.levelIndex + 1, LEVELS.length - 1)); break;
@@ -398,7 +415,6 @@ export class GameRoot extends Component {
   private startLevel(i: number): void {
     const idx = Math.max(0, Math.min(LEVELS.length - 1, i));
     this.session.reset(idx);
-    this.returnScreen = 'home';
     this.setScreen('board');
   }
 
@@ -409,12 +425,11 @@ export class GameRoot extends Component {
     if (erased.length) this.board.playErase(erased);
     // 提示统一走顶部横幅（session.message 驱动 revision → 重绘），不再有第二条提示
     if (this.session.modal === 'win') this.setScreen('win');
-    else if (this.session.modal === 'lose') { this.returnScreen = 'board'; this.setScreen('lose'); }   // 限步用尽 / 时间到
+    else if (this.session.modal === 'lose') this.setScreen('lose');                                       // 限步用尽 / 时间到
     else if (this.session.dead) {                                                                      // 可靠死局判定
       // 必须让 Session 也进入失败态：只切视图的话，限时关会继续走表（失败原因被改写成"时间到"），
       // 死盘还会被写进存档，冷启动后落在一个走不动的牌桌上。
       this.session.finishDead();
-      this.returnScreen = 'board';
       this.setScreen('lose');
     }
     this.dirty = true;
@@ -447,6 +462,22 @@ export class GameRoot extends Component {
     }
     // 「新玩法」说明卡：进关时 Session 给出待展示的 tip，看完（tip-ok）才开局
     if (this.session.introTip) this.renderTipCard();
+    // 记下来这一屏已经画过：同一屏的下一次重绘不再重播入场动画（见 animateIn）
+    this.overlayAnimated = this.screen;
+  }
+
+  /**
+   * 弹框入场动画只在**这一屏第一次画**的时候放一次。
+   *
+   * 每次重绘都会把遮罩整块 `clearChildren` 重建，`fadeIn` 又把 opacity 打回 0、缩放打回 0.92
+   * 再飞 0.18 秒。限时关每秒跨整秒都要重绘（跨秒时 `session.revision` 不变，只能靠 tick 的返回值
+   * 判 dirty），于是每秒重播一次淡入——玩家看到的不是淡入，是一闪一闪（真机反馈：第 224 关
+   * 打开暂停弹框）。停表这件事由 SCREEN_MODAL 保证，这里补的是第二层：**就算同一屏反复重绘，
+   * 画面也不该自己抖**。
+   */
+  private animateIn(): void {
+    if (this.overlayAnimated === this.screen) return;
+    fadeIn(this.screens.overlay);
   }
 
   /**
@@ -949,7 +980,7 @@ export class GameRoot extends Component {
     makeButton(root, this.ui, {x: 0, y: py - oNext, w: W - 248, h: 92, text: last ? '再玩一次' : '下一关', style: 'jade', size: 36,
       icon: 'icon-play', onTap: () => this.activate(last ? 'replay' : 'next')});
     makeButton(root, this.ui, {x: 0, y: py - oHome, w: W - 248, h: 76, text: '返回首页', style: 'cream', size: 30, onTap: () => this.activate('home')});
-    fadeIn(root);
+    this.animateIn();
   }
 
   private renderLose(): void {
@@ -981,7 +1012,7 @@ export class GameRoot extends Component {
       style: S.canUndo ? 'cream' : 'disabled', size: 28, onTap: S.canUndo ? () => this.activate('undo-lose') : undefined});
     makeButton(root, this.ui, {x: (half + 46) / 2, y: py - oBtn, w: half, h: 84, text: '重新开始', style: 'jade', size: 28, onTap: () => this.activate('restart-lose')});
     makeLabel(root, '再接再厉，下一次一定！', {x: 0, y: py - oFoot, size: 26, color: palette.inkSoft, align: 'center', bold: true});
-    fadeIn(root);
+    this.animateIn();
   }
 
   /** 牌桌左按钮打开的对局菜单：继续 / 重开 / 回首页 / 选关四件事都在这里。 */
@@ -1009,7 +1040,7 @@ export class GameRoot extends Component {
     items.forEach((it, i) => {
       makeButton(root, this.ui, {x: 0, y: py - oStart - i * step, w: pw - 88, h: 82, text: it.label, style: it.style, size: 30, icon: it.icon, onTap: () => this.activate(it.id)});
     });
-    fadeIn(root);
+    this.animateIn();
   }
 
   /**
@@ -1033,7 +1064,7 @@ export class GameRoot extends Component {
     const half = (pw - 88 - 16) / 2;
     makeButton(root, this.ui, {x: -(half + 16) / 2, y: py - oBtn, w: half, h: 82, text: '取消', style: 'cream', size: 30, onTap: () => this.activate('__back')});
     makeButton(root, this.ui, {x: (half + 16) / 2, y: py - oBtn, w: half, h: 82, text: '重新开始', style: 'jade', size: 30, onTap: () => this.activate('confirm-restart')});
-    fadeIn(root);
+    this.animateIn();
   }
 
   private renderHelp(): void {
@@ -1056,7 +1087,7 @@ export class GameRoot extends Component {
     makeLabel(root, '玩法', {x: 0, y: py - 44, size: 42, color: palette.jadeDeep, align: 'center', bold: true, serif: true});
     lines.forEach((s, i) => makeLabel(root, s, {x: -(W - 140) / 2 + 56, y: py - oLines - i * lstep, size: 25, color: palette.ink, align: 'left'}));
     makeButton(root, this.ui, {x: 0, y: py - oBtn, w: 340, h: 86, text: '知道了', style: 'jade', size: 30, onTap: () => this.activate('back-home')});
-    fadeIn(root);
+    this.animateIn();
   }
 
   /* ── 场景背景 / 安全区 ─────────────────────────────────── */

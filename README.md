@@ -47,6 +47,7 @@ npm test                      # = cd cocos && npm run test:all（规则 + 存档
 npm run demo                  # 浏览器里试玩：H5 demo，http://127.0.0.1:8090
 npm run build:wechat          # = node cocos/tools/rebuild-watch.cjs，触发编辑器构建并校验产物
 npm run verify                # 微信开发者工具模拟器截图取证
+npm run verify:ui             # CDP 驱动 headless Chrome 打 web-mobile 包：弹框回跳 16 步 + 暂停弹框连拍验帧（要先 node cocos/temp/refresh-web.cjs 8477 出包）
 ```
 
 Cocos 工程不再自带浏览器预览（`npm run preview` 随旧的 Canvas2D 视图层一并移除）：
