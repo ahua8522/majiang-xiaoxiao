@@ -108,6 +108,17 @@ function wrapText(s: string, px: number, maxW: number): string[] {
 }
 
 /**
+ * 章目录的副标题：截到第一个句末标点为止。
+ * 宁可短，也不要截成"…推这一…"那种读不通的半句——这一行就是玩家决定要不要点进去看的理由。
+ */
+function helpSummary(t: Tutorial): string {
+  const src = t.steps.length ? t.steps[0].say : t.close;
+  const cut = src.search(/[。：；]/);
+  const head = cut > 0 ? src.slice(0, cut + 1) : src;
+  return head.length > 24 ? head.slice(0, 24) + '…' : head;
+}
+
+/**
  * 这条滑轨是否被锁住（视图只读不改）。
  *
  * core 的 `runs` 定长且顺序稳定：锁轨也在数组里、只是 `locked:true`。
@@ -1318,26 +1329,45 @@ export class GameRoot extends Component {
     this.animateIn();
   }
 
+  /**
+   * 玩法说明 = 三条基础操作 + 章目录。
+   *
+   * 点一条章目录就地重放那段教学（watch 模式：全部自动演示、不要求动手、不挡输入）——
+   * 这是"文字说明空洞"的永久解：玩家忘了清龙收什么，不用重推到章 12 再撞一次。
+   * 条目由 CHAPTER_TUTORIALS 生成，第一阶段只有章 6 一条就只列一条，补数据这里自动长，不改视图。
+   * 原来写死的 6 行里，讲冰/木块/锁行的那几条已经被章节教学接管，剩下的基础操作留三行短句
+   * （每行都控制在 23 号字一行放得下的长度，不靠折行，省得叠字）。
+   */
   private renderHelp(): void {
     const root = this.screens.overlay;
     this.veil();
-    const W = this.size.w;
-    const lines = [
-      '轻点两张相邻的同牌，即可消除。',
-      '按住一行横拖、一列竖拖，整段循环滑动。',
-      '滑动松手后会自动消除碰起的对子，可连消。',
-      '木块与空洞会截断滑轨；锁住的行 / 列推不动。',
-      '冰面牌要消两次：第一下碎冰，第二下收牌。',
-      '提示 / 洗牌各有限量，用辅助最多两星。'
+    const W = this.size.w, pw = W - 140;
+    const basics = [
+      '按住一行一列拖动，松手自动连消。',
+      '轻点两张相邻的同牌，直接收走。',
+      '提示 / 洗牌有免费额度，用辅助最多两星。'
     ];
-    const oLines = 124, lstep = 54;
-    const oBtn = oLines + (lines.length - 1) * lstep + 31 + 43 + 40;
-    const ph = oBtn + 43 + 40;
+    const items = CHAPTER_TUTORIALS.filter((t) => !!tutorialFor(t.chapter));
+    const oBasics = 106, bStep = 44, oList = oBasics + basics.length * bStep + 40;
+    const lstep = 96;
+    const ph = oList + Math.max(1, items.length) * lstep + 34 + 126;
     const py = this.centeredTop(ph);
-    makePanel(root, this.ui, W - 140, ph, 0, py - ph / 2);
+    makePanel(root, this.ui, pw, ph, 0, py - ph / 2);
     makeLabel(root, '玩法', {x: 0, y: py - 44, size: 42, color: palette.jadeDeep, align: 'center', bold: true, serif: true});
-    lines.forEach((s, i) => makeLabel(root, s, {x: -(W - 140) / 2 + 56, y: py - oLines - i * lstep, size: 25, color: palette.ink, align: 'left'}));
-    makeButton(root, this.ui, {x: 0, y: py - oBtn, w: 340, h: 86, text: '知道了', style: 'jade', size: 30, onTap: () => this.activate('back-home')});
+    basics.forEach((s, i) => makeLabel(root, s, {x: -pw / 2 + 50, y: py - oBasics - i * bStep, size: 23, color: palette.ink, align: 'left'}));
+    makeLabel(root, '章节玩法 · 点一下可以重看', {x: -pw / 2 + 50, y: py - oList + 26, size: 22, color: palette.jadeDeep, align: 'left', bold: true});
+    items.forEach((t, i) => {
+      const y = py - oList - i * lstep - (lstep - 14) / 2;
+      const n = makeNode(root, {w: pw - 50, h: lstep - 14, x: 0, y, name: 'help:' + t.chapter});
+      makeSprite(n, this.ui.frame('btn-cream'), pw - 50, lstep - 14, 0, 0, true, this.ui.inset('btn-cream'));
+      // 按钮脸只画到 ±41（92 高的节点里脸占 82）：Label 的 y 是文字顶部，
+      // 主行 [−14,14]、副行 [−40,−18] 才都在脸内——副行原来写 −24，正好把字压到脸下沿外面。
+      makeLabel(n, `第 ${t.chapter + 1} 章 · ${CHAPTER_NAMES[t.chapter] || t.title}`, {x: -(pw - 50) / 2 + 26, y: 14, size: 26, color: palette.ink, align: 'left', bold: true});
+      makeLabel(n, helpSummary(t), {x: -(pw - 50) / 2 + 26, y: -18, size: 20, color: palette.inkSoft, align: 'left'});
+      bindPress(n, () => this.activate('tutorial:' + t.chapter));
+    });
+    if (!items.length) makeLabel(root, '这一版还没有可回看的章节教学。', {x: -pw / 2 + 50, y: py - oList, size: 22, color: palette.inkSoft, align: 'left'});
+    makeButton(root, this.ui, {x: 0, y: py - ph + 63, w: 340, h: 86, text: '知道了', style: 'jade', size: 30, onTap: () => this.activate('back-home')});
     this.animateIn();
   }
 
