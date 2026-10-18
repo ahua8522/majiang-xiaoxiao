@@ -142,6 +142,13 @@ export class GameRoot extends Component {
   /** 牌桌场景图自检结论（见 boardDiag），空串=没异常或还没测。 */
   private pxProbe = '';
   private frames = 0;
+  /**
+   * 重绘触发源留痕（见 `noteRender`）。真机摸不到控制台，"画面为什么在自己重画"这类问题
+   * 只能靠设备自己把证据读回来：vConsole 里 `__mjRender()` 给出总次数、按触发源分类的计数
+   * 和最近 14 次现场（毫秒 + 触发源 + 当时在哪一屏）。
+   */
+  private renders: {total: number; by: Record<string, number>; last: string[]} = {total: 0, by: {}, last: []};
+  private bootAt = Date.now();
   /** 顶部安全区：微信胶囊按钮占掉的高度（设计单位）。顶栏整体下移这么多，避免被官方控件盖住。 */
   private safeTop = 0;
 
@@ -229,6 +236,7 @@ export class GameRoot extends Component {
       // 用户在 vConsole 里输 `__mjDiag()` 就能把确定证据读回来，而不是让我猜。
       watchContext();
       (globalThis as any).__mjDiag = () => atlasReport();
+      (globalThis as any).__mjRender = () => this.renders;
       console.log('[mj] atlas', JSON.stringify(atlasReport()));
       mark('E-screen');
     } catch (e) {
@@ -240,7 +248,7 @@ export class GameRoot extends Component {
       try { wx?.showModal?.({title: 'onLoad 异常', content: msg, showCancel: false}); } catch { /* ignore */ }
     }
     (globalThis as any).__mj = () => ({
-      size: this.size, screen: this.screen,
+      size: this.size, screen: this.screen, render: this.renders,
       board: this.board ? {cellW: this.board.cellW, cellH: this.board.cellH, origin: this.board.origin, rows: this.board.gridRows, cols: this.board.gridCols} : null,
       model: this.session ? {levelIndex: this.session.levelIndex, grid: this.session.grid, runs: this.session.runs, modal: this.session.modal,
         total: this.session.total, moves: this.session.moves, hintsLeft: this.session.hintsLeft, shufflesLeft: this.session.shufflesLeft,
@@ -303,9 +311,11 @@ export class GameRoot extends Component {
 
   update(dt: number): void {
     if (!this.session || !this.ui) return;
+    let why = '';
     // 倒计时必须每帧喂 dt，而且要在 `!dirty` 早退**之前**：跨过整秒时 session.revision 不变，
     // 放在早退之后就永远不会重绘，玩家看到的数字会停在原地。
     if (this.session.tick(dt)) {
+      why = 'tick';
       this.dirty = true;
       // 时间到是 `tick()` 里判的，不会经过 `afterAction()`。以前这里只置 dirty：
       // 画面停在牌桌、输入被 modal 挡住、倒计时永远显示 0 秒——玩家只会以为游戏卡死了。
@@ -314,14 +324,21 @@ export class GameRoot extends Component {
       }
     }
     const visible = view.getVisibleSize();
-    if (!this.sceneReady || visible.width !== this.size.w || visible.height !== this.size.h) {
-      this.size = {w: visible.width, h: visible.height};
+    // 尺寸先取整再比：真机的可见区是 750×1623.0769… 这种小数，逐帧比原值会因为浮点抖动
+    // 判成"尺寸又变了"→ 每帧整屏重建（弹框开着就是每秒几十次销毁重建）。布局不需要亚像素
+    // 精度，`ensureScene` 的图集键本来就是四舍五入的。
+    const vw = Math.round(visible.width), vh = Math.round(visible.height);
+    if (!this.sceneReady || vw !== this.size.w || vh !== this.size.h) {
+      if (this.sceneReady) why += (why ? '+' : '') + 'size';
+      this.size = {w: vw, h: vh};
       this.sceneReady = true;
       this.ensureScene();
       this.dirty = true;
     }
-    if (this.session.revision !== this.revision) this.dirty = true;
+    if (this.session.revision !== this.revision) { why += (why ? '+' : '') + 'rev'; this.dirty = true; }
     if (!this.dirty) return;
+    // 三个源都没动却重绘了 = 视图自己安排的（点按钮 / 手势 / 开关弹框）
+    this.noteRender(why || 'act');
     this.dirty = false;
     this.revision = this.session.revision;
     // 一帧画崩不能把整个游戏带走：以前 render() 里任何一处抛异常（最常见是图集缺帧），
@@ -338,6 +355,19 @@ export class GameRoot extends Component {
       }
     }
     if (!this.firstPainted) { this.firstPainted = true; (globalThis as any).__mjFirstFrame = true; mark(`first frame screen=${this.screen}`); }
+  }
+
+  /**
+   * 记一次"为什么重绘"。闪烁这类问题在真机上只能靠设备自报：
+   * `tick` = 限时关跨整秒，`size` = 可见区尺寸变了，`rev` = Session 状态变了，
+   * `act` = 视图自己安排的（点按钮 / 手势 / 开关弹框）。
+   */
+  private noteRender(why: string): void {
+    const r = this.renders;
+    r.total++;
+    r.by[why] = (r.by[why] || 0) + 1;
+    r.last.push(`${Date.now() - this.bootAt}ms ${why} ${this.screen}`);
+    if (r.last.length > 14) r.last.shift();
   }
 
   /* ── 屏幕状态机 ───────────────────────────────────────── */

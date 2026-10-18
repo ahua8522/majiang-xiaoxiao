@@ -100,7 +100,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const state = async () => (await evalJs(`(function(){try{
     var m = window.__mj && window.__mj(); if (!m) return {err:'nomj'};
     return {screen: m.screen, level: m.model.levelIndex, modal: m.model.modal,
-      timeLeft: m.model.timeLeft, moves: m.model.moves, total: m.model.total, live: m.model.liveTotal};
+      timeLeft: m.model.timeLeft, moves: m.model.moves, total: m.model.total, live: m.model.liveTotal,
+      render: m.render || {total: 0, by: {}, last: []}};
   }catch(e){return {err:String(e.message)}}})()`)).value;
 
   /** 等某个条件成立（不用固定 sleep 赌渲染时机）。 */
@@ -175,15 +176,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('[B1] 打开暂停弹框：screen=' + paused.screen + ' modal=' + JSON.stringify(paused.modal) + ' timeLeft=' + paused.timeLeft);
   await sleep(900);                       // 等入场动画（fadeIn 0.18s）自己走完
   const p1 = await state();
-  await sleep(2600);
+  /* 观察窗口要长：只看 2 秒的话，"每秒一次"和"每几秒一次"的重建都只表现为"不闪"，
+     量不到慢节奏的那种闪（真机反馈：修完还闪，只是没那么快）。 */
+  const WATCH_MS = Number(process.env.MJ_WATCH || 20000);
+  console.log('[B1] 弹框就位后连续观察 ' + WATCH_MS / 1000 + ' 秒，连拍中…');
+  const hashes = [];
+  const until = Date.now() + WATCH_MS;
+  while (Date.now() < until) {
+    hashes.push(await shot(path.join(SHOT_DIR, 'pause-' + String(hashes.length).padStart(2, '0') + '.png')));
+    await sleep(500);
+  }
   const p2 = await state();
   const clockStopped = p2.timeLeft === p1.timeLeft;
-  const hashes = [];
-  for (let i = 0; i < 8; i++) { hashes.push(await shot(path.join(SHOT_DIR, 'pause-' + i + '.png'))); await sleep(240); }
+  const redraws = p2.render.total - p1.render.total;
   const distinct = new Set(hashes.filter(Boolean)).size;
   console.log('[B1] 暂停期间 timeLeft ' + p1.timeLeft + ' → ' + p2.timeLeft + '（' + (clockStopped ? '停表 ✓' : '还在走表 ✗ → 每秒重建遮罩') + '）');
-  console.log('[B1] 就位后连拍 8 帧去重 = ' + distinct + ' 张（1 = 画面不动；>1 = 一闪一闪）' + (distinct > 1 ? ' ✗' : ' ✓'));
-  console.log('[B1] 逐帧指纹：' + hashes.join(' '));
+  console.log('[B1] 这段时间视图重绘 ' + redraws + ' 次' + (redraws ? ' ✗ 触发源 ' + JSON.stringify(p2.render.by) + ' 现场 ' + p2.render.last.slice(-5).join(' | ') : ' ✓ 一次都没有'));
+  console.log('[B1] 连拍 ' + hashes.length + ' 帧去重 = ' + distinct + ' 张（1 = 画面不动；>1 = 一闪一闪）' + (distinct > 1 ? ' ✗ ' + [...new Set(hashes)].join(' ') : ' ✓'));
+  const b1pass = clockStopped && redraws === 0 && distinct === 1;
 
   await click('^icon:close$', '关闭暂停弹框');
   const resumed = await state();
@@ -201,11 +211,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await click('^icon:pause$', '再次打开暂停弹框');
     await sleep(900);
     await evalJs(`(function(){var c=cc.director.getScene().getComponentInChildren('GameRoot'); c.session.modal='none'; return 1;})()`);
+    const m1 = await state();
     const mech = [];
     for (let i = 0; i < 6; i++) { mech.push(await shot(path.join(SHOT_DIR, 'mech-' + i + '.png'))); await sleep(300); }
+    const m2 = await state();
     const d = new Set(mech.filter(Boolean)).size;
     await evalJs(`(function(){var c=cc.director.getScene().getComponentInChildren('GameRoot'); c.session.modal='pause'; return 1;})()`);
-    console.log('[B1-机制] 弹框开着而 modal 被改回 none：连拍 6 帧去重 = ' + d + ' 张（>1 就证明「每秒重建 + 淡入重播」就是闪烁本身）' + (d > 1 ? ' ✓复现' : ' ✗没复现，结论要重看'));
+    console.log('[B1-机制] 弹框开着而 modal 被改回 none：' + Math.round((m2.render.total - m1.render.total)) + ' 次重绘、连拍 6 帧去重 = ' + d +
+      ' 张（>1 就证明「每秒重建 + 淡入重播」就是闪烁本身）' + (d > 1 ? ' ✓复现' : ' ✗没复现，结论要重看'));
     console.log('[B1-机制] 逐帧指纹：' + mech.join(' '));
     await click('^icon:close$', '关掉暂停弹框');
   }
@@ -241,7 +254,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await step('^button:关卡选择', '大厅→选关', 'levels');
   await step('^icon:close$', '选关→关闭（应回大厅）', 'home');
   const bad3 = seq.slice(4).filter((s) => !s.pass);
-  console.log('\n结论：B1 ' + (clockStopped && distinct === 1 ? 'PASS' : 'FAIL') +
+  console.log('\n结论：B1 ' + (b1pass ? 'PASS' : 'FAIL') +
     ' · B2 ' + (bad.length ? 'FAIL（' + bad.map((b) => b.label + ' 落在 ' + b.screen + '）').join('，') : 'PASS') +
     ' · B3 ' + (bad3.length ? 'FAIL（' + bad3.map((b) => b.label + ' 落在 ' + b.screen + '）').join('，') : 'PASS（12 步回跳全对）'));
   process.exit(0);
