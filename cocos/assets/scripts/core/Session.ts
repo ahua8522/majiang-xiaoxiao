@@ -1,8 +1,8 @@
 import {Action,Grid,Pos,Run,Pair,clone,count,Dialect,equal,hasIce,isDead,liveCount,partners,pairs,runsFor,searchHint,signature,stripIce,top,transition,unwild} from './Rules';
 import {Deal,generate,goalPairs,redeal,stateLegal,LEVELS,levelAt,isFace,activeLocks,LevelDef} from './Generator';
-export type Modal='none'|'home'|'help'|'settings'|'restart'|'win'|'levels'|'lose';
+export type Modal='none'|'home'|'help'|'settings'|'restart'|'win'|'levels'|'lose'|'pause';
 export interface Platform {load():unknown;save(data:unknown):void;feedback():void}
-interface Snapshot {grid:Grid;moves:number;lastChain:number;solution:Action[];hint:Action[];clearedPairs:number;goalDone:number}
+interface Snapshot {grid:Grid;moves:number;lastChain:number;solution:Action[];hint:Action[];clearedPairs:number;goalDone:number;timeLeft:number}
 const local:Platform={load:()=>null,save:()=>{},feedback:()=>{}};
 /** 关卡选择每页格数（4 列 × 4 行，扁平网格，不分组）。 */
 export const PAGE_SIZE=16;
@@ -13,6 +13,12 @@ export class Session {
   revision=0;seed:number;private history:Snapshot[]=[];private platform:Platform;
   /** 限时关剩余秒数；非限时关恒 0。只由 `tick` 递减，视图负责按帧喂 dt。 */
   timeLeft=0;private paused=false;
+  /**
+   * 这一局是否已经结束（通关 / 判负）。结束的一局不落盘（见 `save()`），
+   * 也不能从大厅「继续」回来——否则会回到已经赢了的盘或 0 秒的限时盘。
+   * 撤销会把状态退回到未结束。
+   */
+  private finished=false;
   par=0;hintsUsed=0;shufflesUsed=0;stars:Record<string,number>={};levelPage=0;
   /** 体验版 / 开发版全解锁（视图按 wx envVersion 设置）：选关不再受 maxLevel 限制，但跳关不推进进度。 */
   unlockAll=false;
@@ -40,29 +46,41 @@ export class Session {
       if(data.tipsSeen&&typeof data.tipsSeen==='object')for(const [k,v]of Object.entries(data.tipsSeen))if(v===true)this.tipsSeen[k]=true;
       this.reducedMotion=data.reducedMotion===true;this.vibration=data.vibration!==false;
     }
-    this.reset(this.maxLevel,false);
-    if(data?.version>=2)this.restore(data.run);
+    // 有合法中盘就**不要再发一次牌**：reset 会完整生成一局（实测 61~553ms），
+    // 然后立刻被读档的盘面覆盖。`restore` 返回 false 才需要初始化一副新牌。
+    if(!(data?.version>=2&&this.restore(data.run)))this.reset(this.maxLevel,false);
     this.modal='home';
   }
   private save(){try{this.platform.save({version:3,maxLevel:this.maxLevel,stars:this.stars,reducedMotion:this.reducedMotion,vibration:this.vibration,tipsSeen:this.tipsSeen,
-    run:count(this.grid)?{index:this.levelIndex,seed:this.seed,grid:this.grid,total:this.total,moves:this.moves,par:this.par,hintsUsed:this.hintsUsed,shufflesUsed:this.shufflesUsed,clearedPairs:this.clearedPairs,goalDone:this.goalDone,timeLeft:Math.round(this.timeLeft*10)/10}:null});}catch{/* Storage quota must not block play. */}}
-  private restore(run:any){
-    if(!run||!Number.isInteger(run.index)||run.index<0||run.index>this.maxLevel||!Array.isArray(run.grid))return;
+    // 已经结束（通关 / 判负）的一局不再当成"可以继续的进度"落盘：否则冷启动会回到
+    // 一个已经赢了的目标盘（win 弹框不会重放）或 0 秒的限时盘（tick 只在 before>0 时判负，
+    // 于是 0 秒还能一直推）。通关那一局本来也不该继续。
+    run:!this.finished&&count(this.grid)?{index:this.levelIndex,seed:this.seed,grid:this.grid,total:this.total,moves:this.moves,par:this.par,hintsUsed:this.hintsUsed,shufflesUsed:this.shufflesUsed,clearedPairs:this.clearedPairs,goalDone:this.goalDone,goalTarget:this.goalTarget,timeLeft:Math.round(this.timeLeft*10)/10}:null});}catch{/* Storage quota must not block play. */}}
+  /** @returns 是否已经装好一副可玩的牌桌（false = 调用方需要用 `reset` 初始化）。 */
+  private restore(run:any):boolean{
+    if(!run||!Number.isInteger(run.index)||run.index<0||run.index>this.maxLevel||!Array.isArray(run.grid))return false;
     const map=levelAt(run.index).map,grid=run.grid as Grid;
-    if(grid.length!==map.length||!grid.every((row,r)=>Array.isArray(row)&&row.length===map[r].length&&row.every((cell,c)=>map[r][c]==='.'?cell===null:map[r][c]==='#'?cell==='#':Array.isArray(cell)&&cell.length<=3&&cell.every(f=>isFace(f)))))return;
-    if(![run.total,run.moves,run.par,run.seed,run.hintsUsed,run.shufflesUsed].every(n=>Number.isInteger(n)&&n>=0)||run.hintsUsed>3||run.shufflesUsed>2||run.moves>100000||run.par>10000)return;
+    if(grid.length!==map.length||!grid.every((row,r)=>Array.isArray(row)&&row.length===map[r].length&&row.every((cell,c)=>map[r][c]==='.'?cell===null:map[r][c]==='#'?cell==='#':Array.isArray(cell)&&cell.length<=3&&cell.every(f=>isFace(f)))))return false;
+    if(![run.total,run.moves,run.par,run.seed,run.hintsUsed,run.shufflesUsed].every(n=>Number.isInteger(n)&&n>=0)||run.hintsUsed>3||run.shufflesUsed>2||run.moves>100000||run.par>10000)return false;
     // 中盘状态的合法性：牌总数为偶、每种牌 ≤4 张。
     // **不能**要求每种牌偶数张——百搭一次收走两张不同面的牌，用过一次必然出现奇数张
     // （实测第 60 关消一对就是 3m×3、f5*×3）。旧校验把这种合法进度当脏档丢弃：
     // 玩家重开直接回到开局，洗牌也从此永久不可用。
-    if(!stateLegal(grid)||count(grid)>run.total||run.total>136)return;
+    if(!stateLegal(grid)||count(grid)>run.total||run.total>136)return false;
+    // 剩余时间必须恢复，否则杀进程重进＝白送一次倒计时重置，限步关可以靠反复退出刷成无限时间。
+    // 旧的 version 2 存档没有这个字段，退到"满值"而不是 0（那批档不可能来自限时关）。
+    const level=levelAt(run.index),limit=level.timeLimit||0;
+    const tl=Number.isFinite(run.timeLeft)?run.timeLeft:limit;
+    // 时间已经用完的一局不是"还能继续"的进度：恢复它只会得到一个 0 秒的牌桌
+    // （tick 的判负条件是 `before>0`，0 秒反而永远不会再判负）。按"这一关重新来"处理。
+    if(limit&&tl<=0){this.reset(run.index,false);this.message='上一局时间已经用完，这一关重新开始。';return true;}
+    // 已经通关的一局同理，交给调用方从 `maxLevel` 重新开局（那里是下一关）。
+    // `goalTarget` 是本次新增的字段；老存档没有它，只能靠盘面判断。
+    const target=Number.isInteger(run.goalTarget)?run.goalTarget:0;
+    if(target>0&&Number.isInteger(run.goalDone)&&run.goalDone>=target)return false;
     // 这里不再调 `reset()`：reset 会先完整生成一局新牌、再被下面的存档盘面覆盖，
     // 于是冷启动白白多花一次发牌（实测单次 61~553ms）。
     this.setupLevel(run.index);
-    // 剩余时间必须恢复，否则杀进程重进＝白送一次倒计时重置，限步关可以靠反复退出刷成无限时间。
-    // 旧的 version 2 存档没有这个字段，退到"满值"而不是 0（那批档不可能来自限时关）。
-    const limit=levelAt(run.index).timeLimit||0;
-    const tl=Number.isFinite(run.timeLeft)?run.timeLeft:limit;
     this.timeLeft=Math.max(0,Math.min(tl,limit));
     this.grid=clone(grid);this.seed=run.seed;this.total=run.total;this.moves=run.moves;this.par=run.par;
     // 进度条分母要能恢复：哑弹不可能被消掉，所以「已消的牌」全是能消的，
@@ -74,6 +92,7 @@ export class Session {
     // 目标按「已经收到手的 + 盘上还剩的」收敛，绝不让读档之后的目标变成够不着的数字
     this.goalTarget=Math.max(this.goalDone,goalPairs(this.def,this.grid));
     this.refreshRuns();this.tip=null;this.solution=[];this.message='牌桌已保留，接着上一盘慢慢想。';
+    return true;
   }
   /** 当前关的关卡定义（reset 时从关卡表取；单测可直接替换）。 */
   def:LevelDef=LEVELS[0];
@@ -161,10 +180,11 @@ export class Session {
    *  视图必须据此决定弹窗底下画哪一屏——否则从首页打开设置会露出牌桌。 */
   get openedFrom():Modal{return this.returnModal;}
   get rating(){return this.moves<=this.par&&!this.hintsUsed&&!this.shufflesUsed?3:this.moves<=Math.ceil(this.par*1.5)?2:1;}
-  private remember(){this.history.push({grid:clone(this.grid),moves:this.moves,lastChain:this.lastChain,solution:this.solution.slice(),hint:this.hint.slice(),clearedPairs:this.clearedPairs,goalDone:this.goalDone});if(this.history.length>80)this.history.shift();}
+  private remember(){this.history.push({grid:clone(this.grid),moves:this.moves,lastChain:this.lastChain,solution:this.solution.slice(),hint:this.hint.slice(),clearedPairs:this.clearedPairs,goalDone:this.goalDone,timeLeft:this.timeLeft});if(this.history.length>80)this.history.shift();}
   /** 只装配关卡的静态部分（定义、计数器、待弹的说明卡），**不发牌**。 */
   private setupLevel(chosen:number):void{
     this.levelIndex=chosen;this.def=levelAt(chosen);
+    this.finished=false;
     this.moves=0;this.lastChain=0;this.selected=null;this.hint=[];this.history=[];this.modal='none';this.lastErased=[];
     this.hintsUsed=0;this.shufflesUsed=0;this.levelPage=Math.floor(chosen/PAGE_SIZE);this.returnModal='none';
     this.clearedPairs=0;this.goalDone=0;this.goalTarget=0;
@@ -221,7 +241,7 @@ export class Session {
     const before=this.timeLeft;
     this.timeLeft=Math.max(0,this.timeLeft-Math.min(Math.max(dt,0),0.25));
     if(this.timeLeft<=0&&before>0){
-      this.modal='lose';this.message=`时间到，还差 ${liveCount(this.grid,this.dialect)} 张可消。`;this.save();return true;
+      this.modal='lose';this.finished=true;this.message=`时间到，还差 ${liveCount(this.grid,this.dialect)} 张可消。`;this.save();return true;
     }
     const crossed=Math.ceil(this.timeLeft)!==Math.ceil(before);
     // 每跨过整秒就落盘。剩余时间不进存档的话，杀进程重进＝倒计时满血复活，
@@ -278,12 +298,12 @@ export class Session {
     // 方言关的终点是还能配的都消光：哑弹留在盘上也算清台（判据见 Rules.liveCount）
     const done=liveCount(this.grid,this.dialect)===0;
     if(done||this.goalReached){
-      this.modal='win';this.maxLevel=Math.max(this.maxLevel,Math.min(LEVELS.length-1,this.levelIndex+1));
+      this.modal='win';this.finished=true;this.maxLevel=Math.max(this.maxLevel,Math.min(LEVELS.length-1,this.levelIndex+1));
       this.stars[this.levelIndex]=Math.max(this.stars[this.levelIndex]||0,this.rating);this.hint=[];
       this.message=done?'胡了！清台。':'胡了！目标达成。';
     }else if(this.moveLimit&&this.moves>=this.moveLimit){
       // 步数用尽：明确判负（视图据此弹失败页）
-      this.modal='lose';this.message=`步数用尽，还差 ${liveCount(this.grid,this.dialect)} 张可消。`;
+      this.modal='lose';this.finished=true;this.message=`步数用尽，还差 ${liveCount(this.grid,this.dialect)} 张可消。`;
     }
     this.save();this.revision++;return true;
   }
@@ -300,13 +320,30 @@ export class Session {
   }
   /** Feedback for gestures that cannot become an action (locked rail, wood block, hole). */
   notice(text:string){if(this.modal!=='none'||this.tip)return;this.selected=null;this.lastErased=[];this.message=text;if(this.vibration){try{this.platform.feedback();}catch{/* Optional haptics. */}}this.revision++;}
+  /**
+   * 视图判定「牌走死」（`dead` 为真）之后调用。
+   *
+   * 以前视图只是把屏幕切到失败页，Session 仍停在 `modal='none'` 的活跃状态：
+   * 限时关会继续走表（失败原因被改写成"时间到"），存档也会把死盘写进去，
+   * 冷启动后落在一个既没有失败页、也走不动的牌桌上。
+   */
+  finishDead():void{
+    if(this.finished)return;
+    this.finished=true;this.modal='lose';
+    this.message='牌走死了：剩下的牌凑不出可消的组合。';
+    this.save();this.revision++;
+  }
   slide(run:number,step:number):boolean{return this.apply({kind:'slide',run,step});}
   undo():boolean{
     if(this.tip)return false;
     if(this.modal!=='none'&&this.modal!=='win'&&this.modal!=='lose')return false;
     const snap=this.history.pop();if(!snap){this.message='还没有需要撤销的操作。';this.revision++;return false;}
     this.grid=snap.grid;this.moves=snap.moves;this.lastChain=snap.lastChain;this.solution=snap.solution;this.hint=snap.hint;
-    this.clearedPairs=snap.clearedPairs;this.goalDone=snap.goalDone;this.refreshRuns();
+    this.clearedPairs=snap.clearedPairs;this.goalDone=snap.goalDone;this.timeLeft=snap.timeLeft;
+    // 从失败页撤销回来：这一局重新变成"活着"，时间也退回落子前的那一瞬。
+    // 只把 modal 改成 none 而不退时间，会出现"0 秒还能继续推"的漏洞
+    // （tick 的判负条件要求 before>0）。
+    this.finished=false;this.refreshRuns();
     this.selected=null;this.modal='none';this.lastErased=[];this.message='刚才的整次操作，已经一起撤回。';this.save();this.revision++;return true;
   }
   shuffle():boolean{
@@ -320,7 +357,7 @@ export class Session {
     this.shufflesUsed++;this.message='原牌重新摆好；洗牌不改牌种，使用辅助最多获两星。';this.save();this.revision++;return true;
   }
   describe(a:Action):string{
-    if(a.kind==='match')return `点亮着的对子：第 ${a.a.r+1} 行第 ${a.a.c+1} 列。`;
+    if(a.kind==='match')return `点这一对相邻的牌：第 ${a.a.r+1} 行第 ${a.a.c+1} 列。`;
     const r=this.runs[a.run];return `${this.hint.length>1?'先':''}推第 ${r.index+1} ${r.axis==='row'?'行':'列'}，向${r.axis==='row'?(a.step>0?'右':'左'):(a.step>0?'下':'上')} ${Math.abs(a.step)} 格${this.hint.length>1?'；下一步会接着提示。':'。'}`;
   }
   requestHint(){
@@ -332,7 +369,9 @@ export class Session {
     this.hint=h.status==='found'?h.actions:[];
     if(!this.hint.length&&this.solution.length)this.hint=[this.solution[0]];
     if(this.hint.length){this.hintsUsed++;this.save();}
-    this.message=this.hint.length?this.describe(this.hint[0]):h.status==='dead'?'当前确实没有消除路线，可以撤销、洗牌或重开。':'暂时没找到短路线，不代表无解。可以继续推，或试试洗牌。';
+    // 方言关本来就不给洗牌（`shuffleBlocked`），让玩家"试试洗牌"只会换来一句拒绝。
+    const retry=this.shuffleBlocked?'可以撤销或重开':'可以撤销、洗牌或重开';
+    this.message=this.hint.length?this.describe(this.hint[0]):h.status==='dead'?`当前确实没有消除路线，${retry}。`:`暂时没找到短路线，不代表无解。可以继续推，${this.shuffleBlocked?'或撤销、重开':'或试试洗牌'}。`;
     this.revision++;
   }
   command(id:string){
@@ -340,7 +379,7 @@ export class Session {
     const open=this.modal;
     if(open!=='none'){
       if(id==='close'){this.modal=this.returnModal;this.returnModal='none';this.revision++;return;}
-      if(open==='home'&&id==='continue'){if(!count(this.grid))this.reset(this.maxLevel);this.modal='none';this.save();this.revision++;return;}
+      if(open==='home'&&id==='continue'){if(this.finished||!count(this.grid))this.reset(this.maxLevel);this.modal='none';this.save();this.revision++;return;}
       if(open==='home'&&['help','settings','levels'].includes(id)){this.returnModal='home';this.modal=id as Modal;this.levelPage=Math.floor(this.levelIndex/PAGE_SIZE);this.revision++;return;}
       if(open==='settings'&&id==='toggle-motion'){this.reducedMotion=!this.reducedMotion;this.save();this.revision++;return;}
       if(open==='settings'&&id==='toggle-vibration'){this.vibration=!this.vibration;this.save();this.revision++;return;}

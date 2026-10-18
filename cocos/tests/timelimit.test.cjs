@@ -114,3 +114,46 @@ test('非限时关调 tick 是安全的空操作', () => {
   assert.equal(s.tick(5), false);
   assert.equal(s.modal, 'none');
 });
+
+test('时间到之后撤销：时间退回落子前，不会卡死在 0 秒', () => {
+  const s = timed(store(), 8);
+  const ri = s.runs.findIndex((r) => !r.locked && r.cells.length > 1);
+  assert.ok(ri >= 0, '第 1 关总有一条推得动的轨');
+  assert.equal(s.slide(ri, 1), true);
+  run(s, 8.5);
+  assert.equal(s.modal, 'lose');
+  assert.equal(s.timeLeft, 0);
+  assert.equal(s.undo(), true, '失败页的撤销必须能用');
+  assert.equal(s.modal, 'none');
+  assert.ok(s.timeLeft > 0, `撤销后剩余时间还是 ${s.timeLeft}：tick 只在 before>0 时判负，0 秒会永久锁死`);
+  s.tick(0.2);
+  assert.equal(s.modal, 'none', '撤销后时间已恢复，不该立刻再判负');
+  assert.ok(s.timeLeft > 0);
+});
+
+test('0 秒的存档不再恢复成 0 秒牌桌：按这一关重新开始', () => {
+  const p = store();
+  const a = timed(p, 30);
+  run(a, 3);
+  const raw = JSON.parse(p.load());
+  assert.ok(raw.run && raw.run.timeLeft > 0, '中盘必须已经落盘');
+  raw.run.timeLeft = 0;                          // 旧版本在超时判负时就是这么写的
+  p.save(raw);
+  const b = new S.Session(12345, p);
+  assert.equal(b.levelIndex, a.levelIndex, '仍停在这一关');
+  assert.equal(b.timeLeft, 30, '重新开始要给满时间，而不是 0 秒');
+  assert.equal(b.moves, 0, '退回到开局步数');
+  assert.equal(b.modal, 'home');
+});
+
+test('超时判负的一局不再写成"可继续的进度"', () => {
+  const p = store();
+  const s = timed(p, 5);
+  run(s, 5.5);
+  assert.equal(s.modal, 'lose');
+  const raw = JSON.parse(p.load());
+  assert.equal(raw.run, null, '判负后不该留着这一盘（重进会回到 0 秒的死桌）');
+  const again = new S.Session(777, p);
+  assert.equal(again.timeLeft, 5, '重进应是新的一局、满时间');
+  assert.equal(again.moves, 0);
+});

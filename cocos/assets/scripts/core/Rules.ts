@@ -126,6 +126,26 @@ export function pairs(g: Grid, d?: Dialect): Pair[] {
   }));
   return out;
 }
+/**
+ * **点消**能用的对子。与 `pairs()` 的唯一区别是不看 `noSlideSuit`：
+ * 断门关里缺门的牌只是不能靠滑动顺手带走，点一下照样能配。
+ *
+ * 死局判定与提示必须用这一份——`pairs()` 是「滑动连消」的口径，用它判死会在断门关
+ * 把「只剩一对筒、点一下就能消」误判成无路可走（实测 `2m 2m 3s 4s`：partners 有搭子、
+ * pairs 为空、isDead 返回 true）。
+ */
+export function tapPairs(g: Grid, d?: Dialect): Pair[] {
+  const out: Pair[] = [];
+  g.forEach((row,r) => row.forEach((_,c) => {
+    const a={r,c}, face=top(g,a); if (!face || !pairable(face, d)) return;
+    for (const b of [{r,c:c+1},{r:r+1,c}]) {
+      const f = top(g,b);
+      if (!f || !pairable(f, d)) continue;
+      if (f === face || isWild(face) || isWild(f)) out.push({a,b,face,other:f});
+    }
+  }));
+  return out;
+}
 /** 只统计「同面」的对子（不含百搭），供生成器质量线使用。 */
 export function sameFacePairs(g: Grid, d?: Dialect): Pair[] {
   return pairs(g, d).filter(pr => !isWild(pr.face) && top(g,pr.b) === pr.face);
@@ -252,7 +272,7 @@ export function transition(g: Grid, runs: Run[], action: Action, d?: Dialect): C
 export function isDead(g: Grid, makeRuns: (grid: Grid) => Run[], budget = 2000, timeMs = 60, d?: Dialect): boolean {
   const total = liveCount(g, d);
   if (!total) return false;              // 能消的都消光了（方言关允许还剩哑弹）
-  if (pairs(g, d).length) return false;     // 还有直接可消的对子
+  if (tapPairs(g, d).length) return false;   // 还有直接可消的对子（含断门的点消）
   const deadline = Date.now() + timeMs;
   const seen = new Set([signature(g)]);
   const queue: Grid[] = [g];
@@ -282,7 +302,7 @@ export function isDead(g: Grid, makeRuns: (grid: Grid) => Run[], budget = 2000, 
 /** 近似搜索：找一条能把牌数减少的短路线。Exhaustion 与预算上限是两回事——撞到深度上限只能返回 unknown。 */
 export function searchHint(g: Grid,runs: Run[],options: {budget?: number;maxDepth?: number}={},d?: Dialect): Hint {
   const budget=options.budget??2400,maxDepth=options.maxDepth??3;
-  const total=liveCount(g,d),direct=pairs(g,d);
+  const total=liveCount(g,d),direct=tapPairs(g,d);
   if(!total)return {status:'solved',actions:[],visited:0};
   if(direct.length)return {status:'found',actions:[{kind:'match',a:direct[0].a,b:direct[0].b}],visited:0};
   const queue: {grid:Grid;path:Action[]}[]=[{grid:g,path:[]}];

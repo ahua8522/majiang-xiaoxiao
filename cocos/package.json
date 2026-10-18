@@ -9,7 +9,7 @@
     "test": "npm run build:core && node --test tests/core.test.cjs tests/generation.test.cjs tests/session.test.cjs tests/transpile.test.cjs tests/view-source.test.cjs tests/levels-meta.test.cjs tests/levels-seed.test.cjs tests/timelimit.test.cjs tests/dialect.test.cjs tests/goals.test.cjs",
     "export:table": "npm run build:core && node tools/export-level-table.cjs",
     "test:stress": "npm run build:core && node --test tests/stress-review.test.cjs",
-    "test:all": "npm run test && npm run check:cocos",
+    "test:all": "npm run test && npm run test:stress && npm run check:cocos",
     "check:cocos": "tsc -p tsconfig.check.json",
     "upload:ci": "node tools/upload-ci.cjs"
   },

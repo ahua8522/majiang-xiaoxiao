@@ -102,7 +102,7 @@ const storage: Platform = {
   feedback: () => vibrate('medium')
 };
 
-type Screen = 'home' | 'levels' | 'board' | 'settings' | 'win' | 'lose' | 'pause' | 'help';
+type Screen = 'home' | 'levels' | 'board' | 'settings' | 'win' | 'lose' | 'pause' | 'help' | 'restart';
 
 @ccclass('GameRoot')
 export class GameRoot extends Component {
@@ -284,7 +284,15 @@ export class GameRoot extends Component {
     if (!this.session || !this.ui) return;
     // 倒计时必须每帧喂 dt，而且要在 `!dirty` 早退**之前**：跨过整秒时 session.revision 不变，
     // 放在早退之后就永远不会重绘，玩家看到的数字会停在原地。
-    if (this.session.tick(dt)) this.dirty = true;
+    if (this.session.tick(dt)) {
+      this.dirty = true;
+      // 时间到是 `tick()` 里判的，不会经过 `afterAction()`。以前这里只置 dirty：
+      // 画面停在牌桌、输入被 modal 挡住、倒计时永远显示 0 秒——玩家只会以为游戏卡死了。
+      if (this.session.modal === 'lose' && this.screen === 'board') {
+        this.returnScreen = 'board';
+        this.setScreen('lose');
+      }
+    }
     const visible = view.getVisibleSize();
     if (!this.sceneReady || visible.width !== this.size.w || visible.height !== this.size.h) {
       this.size = {w: visible.width, h: visible.height};
@@ -315,13 +323,13 @@ export class GameRoot extends Component {
   /* ── 屏幕状态机 ───────────────────────────────────────── */
 
   private isScreen(s: string): s is Screen {
-    return ['home', 'levels', 'board', 'settings', 'win', 'lose', 'pause', 'help'].includes(s);
+    return ['home', 'levels', 'board', 'settings', 'win', 'lose', 'pause', 'help', 'restart'].includes(s);
   }
 
   private setScreen(s: Screen): void {
     this.screen = s;
     // progress 弹框在 Session 侧复用 'settings' 弹窗态（Session 的 Modal 没有 progress）
-    const overlay: Partial<Record<Screen, string>> = {settings: 'settings', levels: 'levels', win: 'win', help: 'help'};
+    const overlay: Partial<Record<Screen, string>> = {settings: 'settings', levels: 'levels', win: 'win', help: 'help', pause: 'pause', restart: 'restart'};
     if (s === 'board') this.session.modal = 'none';
     else if (s === 'home') this.session.modal = 'home';
     else if (overlay[s]) this.session.modal = overlay[s] as any;
@@ -351,7 +359,9 @@ export class GameRoot extends Component {
   private activate(id: string): void {
     switch (id) {
       case 'home': this.go('home'); break;
-      case 'start': this.startLevel(this.session.maxLevel); break;
+      // 大厅「开始游戏」= 继续上一盘，而不是重开：以前无条件 `reset(maxLevel)`，
+      // 从对局菜单回大厅再点开始，当前这一盘的进度就被悄悄丢掉了。
+      case 'start': this.session.command('continue'); this.setScreen('board'); break;
       case 'levels': this.go('levels'); break;
       // 从对局菜单进选关：不动 returnScreen（go() 会把来源记成 'pause'，关掉就回不到牌桌了），
       // 但要明确底图仍是牌桌。
@@ -361,7 +371,10 @@ export class GameRoot extends Component {
       case 'back-home': case '__back': this.go(this.dialogParent()); break;
       case 'pause': this.returnScreen = 'board'; this.setScreen('pause'); break;
       case 'resume': this.setScreen('board'); break;
-      case 'restart': case 'replay': this.session.reset(); this.setScreen('board'); break;
+      // 重开是破坏性操作，先确认（Session 侧 modal='restart' 同时把牌桌输入与倒计时一起停住）。
+      case 'restart': this.returnScreen = 'board'; this.setScreen('restart'); break;
+      case 'confirm-restart': this.session.command('confirm-restart'); this.setScreen('board'); break;
+      case 'replay': this.session.reset(); this.setScreen('board'); break;
       case 'next': this.startLevel(Math.min(this.session.levelIndex + 1, LEVELS.length - 1)); break;
       case 'hint': this.session.command('hint'); this.afterAction(); break;
       case 'shuffle': this.session.command('shuffle'); this.afterAction(); break;
@@ -396,8 +409,14 @@ export class GameRoot extends Component {
     if (erased.length) this.board.playErase(erased);
     // 提示统一走顶部横幅（session.message 驱动 revision → 重绘），不再有第二条提示
     if (this.session.modal === 'win') this.setScreen('win');
-    else if (this.session.modal === 'lose') { this.returnScreen = 'board'; this.screen = 'lose'; }   // 限步用尽
-    else if (this.session.dead) { this.returnScreen = 'board'; this.screen = 'lose'; }               // 可靠死局判定
+    else if (this.session.modal === 'lose') { this.returnScreen = 'board'; this.setScreen('lose'); }   // 限步用尽 / 时间到
+    else if (this.session.dead) {                                                                      // 可靠死局判定
+      // 必须让 Session 也进入失败态：只切视图的话，限时关会继续走表（失败原因被改写成"时间到"），
+      // 死盘还会被写进存档，冷启动后落在一个走不动的牌桌上。
+      this.session.finishDead();
+      this.returnScreen = 'board';
+      this.setScreen('lose');
+    }
     this.dirty = true;
   }
   /* ── 渲染 ─────────────────────────────────────────────── */
@@ -410,7 +429,7 @@ export class GameRoot extends Component {
     show(this.screens.home, homeFlow);
     if (homeFlow) this.renderHome();
     const boardVisible = this.screen === 'board' || this.screen === 'win' || this.screen === 'lose' || this.screen === 'pause'
-      || (dialog && this.dialogBase === 'board');
+      || this.screen === 'restart' || (dialog && this.dialogBase === 'board');
     show(this.screens.board, boardVisible);
     if (boardVisible) this.renderBoard();
     // 诊断行画在当前看得见的那块底图上（牌桌故障最需要它，而它偏偏不画在大厅）
@@ -423,6 +442,7 @@ export class GameRoot extends Component {
       case 'win': this.renderWin(); break;
       case 'lose': this.renderLose(); break;
       case 'pause': this.renderPause(); break;
+      case 'restart': this.renderRestart(); break;
       case 'help': this.renderHelp(); break;
     }
     // 「新玩法」说明卡：进关时 Session 给出待展示的 tip，看完（tip-ok）才开局
@@ -923,7 +943,11 @@ export class GameRoot extends Component {
     makeLabel(root, `${S.moves} 步`, {x: (W - 156) / 2 - 70, y: py - oR1, size: 26, color: palette.ink, align: 'right', bold: true});
     makeLabel(root, '三星门槛', {x: -(W - 156) / 2 + 70, y: py - oR2, size: 26, color: palette.inkSoft, align: 'left'});
     makeLabel(root, `${S.par} 步`, {x: (W - 156) / 2 - 70, y: py - oR2, size: 26, color: palette.ink, align: 'right', bold: true});
-    makeButton(root, this.ui, {x: 0, y: py - oNext, w: W - 248, h: 92, text: '下一关', style: 'jade', size: 36, icon: 'icon-play', onTap: () => this.activate('next')});
+    const last = S.levelIndex >= LEVELS.length - 1;
+    // 最后一关没有「下一关」：以前这颗按钮按下去会 `startLevel(levelIndex+1)`，
+    // 被钳回同一关 → 玩家以为进了新关，实际把刚通关的这一盘重开了一遍。
+    makeButton(root, this.ui, {x: 0, y: py - oNext, w: W - 248, h: 92, text: last ? '再玩一次' : '下一关', style: 'jade', size: 36,
+      icon: 'icon-play', onTap: () => this.activate(last ? 'replay' : 'next')});
     makeButton(root, this.ui, {x: 0, y: py - oHome, w: W - 248, h: 76, text: '返回首页', style: 'cream', size: 30, onTap: () => this.activate('home')});
     fadeIn(root);
   }
@@ -946,10 +970,15 @@ export class GameRoot extends Component {
     // 同样是 1:1.24，只是这里按失败页的版面缩小显示
     makeSprite(root, atlas.face('z5'), 116, 116 * 1.24, 0, py - oTile);
     makeLabel(root, `第 ${S.levelIndex + 1} 关`, {x: 0, y: py - oLevel, size: 30, color: palette.ink, align: 'center', bold: true});
-    makeLabel(root, `剩余 ${count(S.grid)} / ${S.total} 张`, {x: 0, y: py - oLeft, size: 25, color: palette.inkSoft, align: 'center'});
+    // 与顶栏同一口径：方言关的「剩余」要数还能消的牌，否则失败页写着"剩余 6 张"、
+    // 实际上全是哑弹，玩家会以为是判错了。
+    makeLabel(root, `剩余 ${S.remaining} / ${S.liveTotal} 张`, {x: 0, y: py - oLeft, size: 25, color: palette.inkSoft, align: 'center'});
     makeLabel(root, `${S.moves} 步 · 三星 ≤ ${S.par} 步`, {x: 0, y: py - oMoves, size: 25, color: palette.inkSoft, align: 'center'});
     const half = (W - 168 - 116) / 2;
-    makeButton(root, this.ui, {x: -(half + 46) / 2, y: py - oBtn, w: half, h: 84, text: '撤销一步', style: 'cream', size: 28, onTap: () => this.activate('undo-lose')});
+    // 没有可撤销的操作时（比如开局就超时）不要给一颗按了没反应的按钮：
+    // 失败页在遮罩之上，横幅里的「还没有需要撤销的操作」玩家根本看不见。
+    makeButton(root, this.ui, {x: -(half + 46) / 2, y: py - oBtn, w: half, h: 84, text: '撤销一步',
+      style: S.canUndo ? 'cream' : 'disabled', size: 28, onTap: S.canUndo ? () => this.activate('undo-lose') : undefined});
     makeButton(root, this.ui, {x: (half + 46) / 2, y: py - oBtn, w: half, h: 84, text: '重新开始', style: 'jade', size: 28, onTap: () => this.activate('restart-lose')});
     makeLabel(root, '再接再厉，下一次一定！', {x: 0, y: py - oFoot, size: 26, color: palette.inkSoft, align: 'center', bold: true});
     fadeIn(root);
@@ -980,6 +1009,30 @@ export class GameRoot extends Component {
     items.forEach((it, i) => {
       makeButton(root, this.ui, {x: 0, y: py - oStart - i * step, w: pw - 88, h: 82, text: it.label, style: it.style, size: 30, icon: it.icon, onTap: () => this.activate(it.id)});
     });
+    fadeIn(root);
+  }
+
+  /**
+   * 重开确认。牌桌工具条「重开」紧挨着「撤销」，误触一次就整盘清空（reset 还会丢掉撤销历史），
+   * 所以必须先问一句。Session 侧的 'restart' 弹窗态会同时停表、屏蔽牌桌输入。
+   */
+  private renderRestart(): void {
+    const root = this.screens.overlay;
+    this.veil();
+    const W = this.size.w, S = this.session;
+    const pw = W - 192;
+    const oHead = 30 + 72;
+    const oText = oHead + 48, oBtn = oText + 96;
+    const ph = oBtn + 41 + 64;
+    const py = this.centeredTop(ph);
+    makePanel(root, this.ui, pw, ph, 0, py - ph / 2);
+    const plate = makePlate(root, this.ui, 340, 72, -40, py - 30 - 36);
+    makeLabel(plate, '重新开始', {x: 0, y: 20, size: 32, color: '#FBF3DE', align: 'center', bold: true, serif: true});
+    makeIconButton(root, this.ui, pw / 2 - 52, py - 30 - 36, 58, 'close', () => this.activate('__back'));
+    makeLabel(root, `第 ${S.levelIndex + 1} 关的进度、步数与撤销记录都会清空。`, {x: 0, y: py - oText, size: 25, color: palette.inkSoft, align: 'center'});
+    const half = (pw - 88 - 16) / 2;
+    makeButton(root, this.ui, {x: -(half + 16) / 2, y: py - oBtn, w: half, h: 82, text: '取消', style: 'cream', size: 30, onTap: () => this.activate('__back')});
+    makeButton(root, this.ui, {x: (half + 16) / 2, y: py - oBtn, w: half, h: 82, text: '重新开始', style: 'jade', size: 30, onTap: () => this.activate('confirm-restart')});
     fadeIn(root);
   }
 

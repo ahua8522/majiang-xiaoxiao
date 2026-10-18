@@ -219,6 +219,53 @@ test('说明卡：第 1 关弹教学、机制关弹机制说明、看过之后�
   delete G.LEVELS[1].intro;
 });
 
+test('通关的一局不再当成"可继续的进度"落盘（否则冷启动回到已赢的盘）', () => {
+  const store = {value: null, load() { return this.value; }, save(v) { this.value = typeof v === 'string' ? v : JSON.stringify(v); }, feedback() {}};
+  const s = new mod.Session(7, store);
+  s.command('continue');
+  if (s.tip) s.dismissTip();
+  install(s, [[['1p'], ['1p']]]);
+  s.par = 1;
+  s.tap({r: 0, c: 0});
+  assert.equal(s.modal, 'win');
+  assert.equal(JSON.parse(store.value).run, null, '通关后仍写入了可继续的牌局');
+  const again = new mod.Session(8, store);
+  assert.equal(again.modal, 'home');
+  assert.equal(again.levelIndex, 1, '解锁进度要保住，但牌桌应落在下一关');
+  assert.ok(R.count(again.grid) > 0);
+});
+
+test('判死之后 finishDead 会把 Session 也切到失败态并停止落盘死盘', () => {
+  const store = {value: null, load() { return this.value; }, save(v) { this.value = typeof v === 'string' ? v : JSON.stringify(v); }, feedback() {}};
+  const s = new mod.Session(7, store);
+  s.command('continue');
+  if (s.tip) s.dismissTip();
+  install(s, [[null, ['f7', 'f7'], null], [null, null, null]]);
+  assert.equal(s.dead, true);
+  s.finishDead();
+  assert.equal(s.modal, 'lose');
+  assert.match(s.message, /牌走死/);
+  assert.equal(JSON.parse(store.value).run, null, '死盘不该被写成可继续的进度');
+});
+
+test('读档命中时不再额外发一次牌（冷启动不做重复生成）', () => {
+  const store = {value: null, load() { return this.value; }, save(v) { this.value = typeof v === 'string' ? v : JSON.stringify(v); }, feedback() {}};
+  const a = new mod.Session(7, store);
+  a.command('continue');                         // 落一次盘，形成合法中盘
+  const before = JSON.stringify(a.grid);
+  const G = require('../.test/core/Generator.js');
+  const real = G.generate;
+  let calls = 0;
+  G.generate = (...args) => { calls++; return real(...args); };
+  try {
+    const b = new mod.Session(8, store);
+    assert.equal(JSON.stringify(b.grid), before, '读档的盘面要一字不差');
+    assert.equal(calls, 0, '有合法中盘还先发了一副新牌：冷启动会白花 61~553ms');
+  } finally {
+    G.generate = real;
+  }
+});
+
 /* ---------------- 关卡是固定谜题：钉了种子的关，重开必须看到同一盘 ---------------- */
 // 以前 `reset(index,fresh=true)` 无条件翻种子，"重开这一关"约等于"换一副新牌"。
 // 对无尽随机池是对的，对关卡制是错的：玩家背板重来应该面对同一盘，作者试玩的那一盘

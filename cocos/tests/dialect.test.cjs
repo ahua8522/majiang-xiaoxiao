@@ -73,6 +73,19 @@ test('断门：缺门的牌能点消，但不能被滑消顺手带走', () => {
   assert.equal(R.partners(g, {r: 0, c: 0}, DROP).length, 1, '点消必须还开得着');
 });
 
+test('断门：缺门的对子点得掉，所以不许判死、提示也要找得到', () => {
+  // 只剩一组筒（断门：不能滑消，但点消合法）时，`pairs()` 是空数组。
+  // 用它做判死/提示的直接对子检查，会把"点一下就消"的盘面报成死局。
+  const g = row('2p', '2p', '3s', '4s');
+  assert.equal(R.pairs(g, DROP).length, 0, '滑动连消里不许出现缺门');
+  assert.equal(R.partners(g, {r: 0, c: 0}, DROP).length, 1, '点消必须还开得着');
+  assert.equal(R.isDead(g, (grid) => R.runsFor(grid, [], []), 2000, 60, DROP), false, '有可点消的对子不算死局');
+  const h = R.searchHint(g, R.runsFor(g, [], []), {}, DROP);
+  assert.equal(h.status, 'found', '提示必须找到这条点消路线');
+  assert.equal(h.actions[0].kind, 'match');
+  assert.deepEqual(h.actions[0], {kind: 'match', a: {r: 0, c: 0}, b: {r: 0, c: 1}});
+});
+
 test('liveCount：只剩哑弹就等于清台', () => {
   const g = row('3p', '3p');
   assert.equal(R.count(g), 2);
