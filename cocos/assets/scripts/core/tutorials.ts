@@ -58,8 +58,9 @@ export const CHAPTER_TUTORIALS: Tutorial[] = [
     chapter: 5,
     title: '将将胡',
     // 开局 pairs()/tapPairs() 都是 0：不推就什么都消不掉，教学必须由动作开口。
-    // 6 筒是哑弹（ranks 只放行 2、5、8），8 筒和 5 筒能配但此刻不相邻。
-    board: ['2p 6s 2p', '8m 5m 8m'],
+    // 哑弹故意也用「筒」（6p 而不是 6s）：同花色、不同点数，"只有 2、5、8 能配"这条规则
+    // 才不会被玩家理解成"筒子不行、条子行"。8 万 / 5 万 能配但此刻不相邻。
+    board: ['2p 6p 2p', '8m 5m 8m'],
     dialect: {ranks: [2, 5, 8]},
     steps: [
       {

@@ -43,6 +43,8 @@ export class TutorialRun {
   /** 视图取证与玩法说明的重放入口都要认章号。 */
   get chapterIndex(): number { return this.t.chapter; }
   get closing(): string { return this.t.close; }
+  /** 取证用：把滑轨表读成 `row:0×3`，让自动化能按 axis+index 挑对轨道，而不是猜数组下标。 */
+  get runsText(): string[] { return this.runs.map((r) => `${r.axis}:${r.index}×${r.cells.length}${r.locked ? '(锁)' : ''}`); }
 
   /**
    * 唯一的状态入口。手指拖出来的动作和自动演示的规范动作都从这里进，区别只在来源。

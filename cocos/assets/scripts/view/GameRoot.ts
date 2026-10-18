@@ -15,7 +15,9 @@ import {_decorator, Component, Director, EventTouch, Game, game, Label, Node, Sp
 import {Modal, Session, Platform} from '../core/Session';
 import {LEVELS, levelAt} from '../core/Generator';
 import {CHAPTER_NAMES} from '../core/levels';
-import {count, Run} from '../core/Rules';
+import {CHAPTER_TUTORIALS, Tutorial, tutorialFor} from '../core/tutorials';
+import {TutorialRun} from '../core/Tutorial';
+import {Action, count, Run} from '../core/Rules';
 import {SceneAtlas, TileAtlas, UiAtlas, UiName} from './assets';
 import {atlasReport, watchContext} from './atlas';
 import {Board, Pos} from './Board';
@@ -77,6 +79,35 @@ function textWidth(s: string, px: number): number {
 }
 
 /**
+ * 按估算字宽把一句文案折行。
+ *
+ * `makeLabel` 的 overflow 是 NONE（不换行不缩放），而教学的 `say` 是一整句长文案——
+ * 27 号字 28 个字符就顶到 750 的屏宽，不折行会直接画到屏幕外面去。
+ * 折行宽度沿用 textWidth 那套估算：Label 的 contentSize 要到渲染阶段才算得出来。
+ */
+/** 不能出现在行首的中文字符（避头点）：句号被甩到下一行行首，读起来就是"话没说完"。 */
+const NO_LINE_HEAD = new Set(['。', '，', '、', '：', '；', '！', '？', '）', '》', '」', '』', '…', '·']);
+
+function wrapText(s: string, px: number, maxW: number): string[] {
+  const out: string[] = [];
+  let line = '';
+  for (const ch of s) {
+    if (line && textWidth(line + ch, px) > maxW) { out.push(line); line = ch; }
+    else line += ch;
+  }
+  if (line) out.push(line);
+  // 断点落在避头点前面时，把上一个字符一起带下来：宁可少一个字，也不让标点开头。
+  for (let i = 1; i < out.length; i++) {
+    if (NO_LINE_HEAD.has(out[i][0]) && out[i - 1].length > 1) {
+      const carry = out[i - 1].slice(-1);
+      out[i - 1] = out[i - 1].slice(0, -1);
+      out[i] = carry + out[i];
+    }
+  }
+  return out;
+}
+
+/**
  * 这条滑轨是否被锁住（视图只读不改）。
  *
  * core 的 `runs` 定长且顺序稳定：锁轨也在数组里、只是 `locked:true`。
@@ -102,7 +133,7 @@ const storage: Platform = {
   feedback: () => vibrate('medium')
 };
 
-type Screen = 'home' | 'levels' | 'board' | 'settings' | 'win' | 'lose' | 'pause' | 'help' | 'restart';
+type Screen = 'home' | 'levels' | 'board' | 'settings' | 'win' | 'lose' | 'pause' | 'help' | 'restart' | 'tutorial';
 
 /**
  * 每一屏对应 Session 的哪一态。**必须穷举所有 Screen**（`Record` 少一行就编译不过）：
@@ -112,7 +143,10 @@ type Screen = 'home' | 'levels' | 'board' | 'settings' | 'win' | 'lose' | 'pause
  */
 const SCREEN_MODAL: Record<Screen, Modal> = {
   home: 'home', board: 'none', settings: 'settings', levels: 'levels', win: 'win', lose: 'lose',
-  help: 'help', pause: 'pause', restart: 'restart'
+  help: 'help', pause: 'pause', restart: 'restart',
+  // 教学屏也映射 'none'：停表与挡输入已经由 Session.tip 非空负责（tick/apply/tap/notice/command 五处）。
+  // 这里再造一个 modal 只会让"到底谁停的表"变成两处逻辑——而 tip 那五处是真机验证过的。
+  tutorial: 'none'
 };
 
 /**
@@ -155,10 +189,26 @@ export class GameRoot extends Component {
   private screen: Screen = 'home';
   /** 入场动画放到哪一屏了：同一屏的重绘不能再重播（见 animateIn）。 */
   private overlayAnimated = '';
-  private screens!: {home: Node; board: Node; overlay: Node};
+  private screens!: {home: Node; board: Node; overlay: Node; tutorial: Node};
   private board!: Board;
   /** 牌桌的「外壳」（顶栏 / 工具条）挂这里，每次重绘只清它，绝不动 Board 自己的节点。 */
   private boardChrome!: Node;
+  /** 教学牌桌：Board 的第二个实例。显存代价≈0——牌图集只烘一张基准格，显示尺寸靠 contentSize 缩放，
+   *  多一份只有节点池（十来个 Sprite）。但"≈0"是推理不是证据：验收要用 __mjDiag() 的 atlasReport
+   *  在真机预览里读一次实际纹理占用（spec §十）。 */
+  private tutBoard!: Board;
+  /** 教学屏的一次性 UI（匾额 / 文案 / 按钮）：每帧清它，绝不动 tutBoard 的池。 */
+  private tutChrome!: Node;
+  private tut: TutorialRun | null = null;
+  /** 教学是从哪一屏进来的：看完/跳过之后回它（不能用 dialogParent()，那时 screen 已经是 'tutorial'）。 */
+  private tutFrom: Screen = 'board';
+  /** 自动演示的节拍（dt 累加，和限时关同一个 update 入口，不新增 cc.schedule）。 */
+  private tutWait = 0;
+  private tutCell: {cellW: number; cellH: number} | null = null;
+  private tutHint = '';
+  private tutSel: Pos | null = null;
+  private tutPress: {x: number; y: number; cell: Pos | null; blocked: boolean; axis: 'row' | 'col' | null} | null = null;
+  private tutDrag: {run: number; offset: number} | null = null;
 
   private dirty = true;
   private revision = -1;
@@ -217,11 +267,17 @@ export class GameRoot extends Component {
       this.screens = {
         home: makeNode(this.node, {name: 'screen-home'}),
         board: makeNode(this.node, {name: 'screen-board'}),
-        overlay: makeNode(this.node, {name: 'screen-overlay'})
+        overlay: makeNode(this.node, {name: 'screen-overlay'}),
+        // 教学屏必须**独立于 overlay**：render() 每帧 clearChildren(overlay) 会连节点池一起销毁，
+        // 而 Board 的 tilesRoot/ghostRoot 是它长期持有的（widgets.clearChildren 的注释里就写着这条警告）。
+        tutorial: makeNode(this.node, {name: 'screen-tutorial'})
       };
       this.board = new Board(this.screens.board, this.ui);
       this.boardChrome = makeNode(this.screens.board, {name: 'board-chrome'});
       this.boardChrome.setSiblingIndex(1); // 顶栏 / 工具条画在牌桌之上
+      this.tutBoard = new Board(this.screens.tutorial, this.ui);
+      this.tutChrome = makeNode(this.screens.tutorial, {name: 'tutorial-chrome'});
+      this.tutChrome.setSiblingIndex(1);   // 匾额 / 文案 / 按钮画在教学牌桌之上
       mark('D-nodes');
 
       const q = this.queryParam('screen') as Screen | null;
@@ -250,6 +306,12 @@ export class GameRoot extends Component {
     (globalThis as any).__mj = () => ({
       size: this.size, screen: this.screen, render: this.renders,
       board: this.board ? {cellW: this.board.cellW, cellH: this.board.cellH, origin: this.board.origin, rows: this.board.gridRows, cols: this.board.gridCols} : null,
+      // 教学屏取证：真机读不到 console，"这一步到底走没走"必须是个能读回来的数字。
+      // tip 非空 = 还没释放（牌桌输入仍被挡着）；failed=true = 这一段已经降级进关。
+      tutorial: this.tut ? {chapter: this.tut.chapterIndex, step: this.tut.index, done: this.tut.done, failed: this.tut.failed,
+        watch: this.tut.watchMode, cellW: this.tutCell ? this.tutCell.cellW : 0,
+        runs: this.tut.runsText, hint: this.tutHint,
+        rows: this.tutBoard.gridRows, cols: this.tutBoard.gridCols, origin: this.tutBoard.origin, tip: this.session.introTip} : null,
       model: this.session ? {levelIndex: this.session.levelIndex, grid: this.session.grid, runs: this.session.runs, modal: this.session.modal,
         total: this.session.total, moves: this.session.moves, hintsLeft: this.session.hintsLeft, shufflesLeft: this.session.shufflesLeft,
         stars: this.session.stars, maxLevel: this.session.maxLevel, par: this.session.par,
@@ -260,6 +322,22 @@ export class GameRoot extends Component {
         atlas: atlasReport()} : null
     });
     (globalThis as any).__mjTap = (id: string) => this.activate(id);
+    /**
+     * 教学取证：把 `onTutorialTouch` 松手之后要提交的那个 Action 直接喂进状态机。
+     *
+     * 为什么需要它：Cocos 在桌面构建里（`cc.sys.isMobile === false`）不把 DOM 触摸转成全局
+     * `Input.EventType.TOUCH_*`，所以**牌桌拖轨在这个 headless 环境里本来就推不动**——
+     * 这是既有的环境限制，不是教学引入的。于是这里把「状态机 + 渲染 + 释放进真关」这段
+     * 能自动验的全验掉；`__mjTutHit` 再把「页面坐标 → 格子」这段换算单独量一次。
+     * ⚠️ 真机/开发者工具里仍然必须手动推一次轨道（spec §十 未验项）。
+     */
+    (globalThis as any).__mjTut = (action: any) => {
+      if (this.screen !== 'tutorial' || !this.tut) return null;
+      this.commitTutorial(action);
+      const t = this.tut;
+      return {step: t.index, done: t.done, failed: t.failed, screen: this.screen, tip: this.session.introTip};
+    };
+    (globalThis as any).__mjTutHit = (x: number, y: number) => this.tutBoard.cellAt(x, y);
     input.on(Input.EventType.TOUCH_START, this.onTouch, this);
     input.on(Input.EventType.TOUCH_MOVE, this.onTouch, this);
     input.on(Input.EventType.TOUCH_END, this.onTouch, this);
@@ -336,6 +414,23 @@ export class GameRoot extends Component {
       this.dirty = true;
     }
     if (this.session.revision !== this.revision) { why += (why ? '+' : '') + 'rev'; this.dirty = true; }
+    /**
+     * 教学屏的自动演示节拍：走 dt 累加，和限时关同一个 update 入口，不新增 cc.schedule。
+     * 切后台掉帧时 dt 会很大，所以钳到 0.25——演示是给人看的，一次跳过三步就成了闪屏。
+     * 间隔比"看"长一点（1.6 秒）：这一步的效果（对子碰头、消掉）要留在眼里，才谈得上教学。
+     */
+    if (this.screen === 'tutorial' && this.tut && !this.tut.failed) {
+      const st = this.tut.step;
+      if (st && (!st.need || this.tut.watchMode)) {
+        this.tutWait += Math.min(Math.max(dt, 0), 0.25);
+        if (this.tutWait >= (this.tut.watchMode ? 1.2 : 1.6)) {
+          this.tutWait = 0;
+          const r = this.tut.advance(this.tut.canonical());
+          if (this.tut.failed) { this.tutorialFail(); }
+          else { if (r.erased.length) this.tutBoard.playErase(r.erased); this.dirty = true; }
+        }
+      } else this.tutWait = 0;
+    }
     if (!this.dirty) return;
     // 三个源都没动却重绘了 = 视图自己安排的（点按钮 / 手势 / 开关弹框）
     this.noteRender(why || 'act');
@@ -377,10 +472,49 @@ export class GameRoot extends Component {
   }
 
   private setScreen(s: Screen): void {
+    // 首见教学插在进牌桌之前：只在「进牌桌」这一个口子上拦，
+    // 别在冷启动 / 选关 / 下一关 / 继续四个调用点各写一遍（漏一个就是"有的进关路径不教学"）。
+    if (s === 'board' && this.session.introTutorial) {
+      s = 'tutorial';
+      this.startTutorial(this.session.introTutorial, 'board');
+    }
+    // 离开教学屏就丢掉控制器：下一次进关必须由 Session 重新决定该展示什么。
+    if (s !== 'tutorial') this.tut = null;
     this.screen = s;
     this.session.modal = SCREEN_MODAL[s];
     if (s === 'levels') this.page = Math.floor(this.session.levelIndex / 16);
     this.dirty = true;
+  }
+
+  /**
+   * 开一段教学。`from` 记下关掉之后回哪一屏：进关前拦截 = 'board'，玩法说明重放 = 'help'。
+   * 构造函数里 parseBoard 会抛（字面量写错、行宽不一致），所以整块包起来——教学坏了不许带崩界面。
+   */
+  private startTutorial(t: Tutorial, from: Screen): void {
+    try {
+      this.tut = new TutorialRun(t, from === 'help');
+      this.tutFrom = from;
+      this.tutWait = 0;
+      this.tutHint = '';
+      this.tutSel = null;
+      this.tutDrag = null;
+      this.tutPress = null;
+      this.tutCell = null;
+    } catch (e) {
+      console.error('[tutorial] 这一段起不来，直接进关', {title: t.title, err: String((e as Error)?.message || e)});
+      this.tut = null;
+      this.tutorialFail();
+    }
+  }
+
+  /**
+   * 降级：教学是加法，任何不对劲都立刻释放 tip 进真关，行为退化成今天的文字卡。
+   * 真机读不到 console，所以"教学坏了玩家照样能开局"必须是设计承诺（spec §5.6），不是 try-catch 的心情。
+   */
+  private tutorialFail(): void {
+    if (this.session.introTutorial) this.session.command('tip-ok');
+    this.tut = null;
+    this.setScreen(this.tutFrom === 'help' ? 'help' : 'board');
   }
 
   /**
@@ -437,7 +571,23 @@ export class GameRoot extends Component {
       }
       case 'undo-lose': if (this.session.undo()) this.setScreen('board'); break;
       case 'restart-lose': this.session.reset(); this.setScreen('board'); break;
-      default: if (id.startsWith('level:')) this.startLevel(Number(id.slice(6)));
+      // ── 教学屏 ──
+      case 'tutorial-skip': this.session.command('tip-ok'); this.setScreen('board'); break;
+      // 回跳只认 tutFrom（从哪一屏进来的）。不能用 dialogParent()：那时 screen 已经是 'tutorial'，
+      // 它的第一条分支不成立，会把「从玩法说明进来重放」甩回牌桌——就是 commit e82ec48 修过的同一类错。
+      case 'tutorial-close': this.tut = null; this.setScreen(this.tutFrom); break;
+      case 'tutorial-ok':
+        if (this.tut && !this.tut.failed) { this.session.command('tip-ok'); this.setScreen('board'); }
+        else this.tutorialFail();
+        break;
+      default:
+        if (id.startsWith('level:')) this.startLevel(Number(id.slice(6)));
+        else if (id.startsWith('tutorial:')) {
+          // 不依赖玩家进度：CDP 截图与玩法说明的重放都走这个口子（体验版可以从 ?level= 之后直接点）
+          const n = Number(id.slice(9)), t = tutorialFor(n), from = this.screen;
+          if (t) { this.setScreen('tutorial'); this.startTutorial(t, from); }
+          else this.tutorialFail();
+        }
     }
     this.dirty = true;
   }
@@ -477,8 +627,12 @@ export class GameRoot extends Component {
       || this.screen === 'restart' || (dialog && this.dialogBase === 'board');
     show(this.screens.board, boardVisible);
     if (boardVisible) this.renderBoard();
+    // 教学屏与牌桌互斥：screen='tutorial' 时真牌桌整块不画（9×9 的盘白建一次池子不值）
+    const tutVisible = this.screen === 'tutorial';
+    show(this.screens.tutorial, tutVisible);
+    if (tutVisible) this.renderTutorial();
     // 诊断行画在当前看得见的那块底图上（牌桌故障最需要它，而它偏偏不画在大厅）
-    this.atlasDiag(boardVisible ? this.boardChrome : this.screens.home);
+    this.atlasDiag(tutVisible ? this.tutChrome : boardVisible ? this.boardChrome : this.screens.home);
 
     clearChildren(this.screens.overlay);
     switch (this.screen) {
@@ -537,6 +691,73 @@ export class GameRoot extends Component {
       makeLabel(root, ln, {x: -(W - 120) / 2 + 56, y: py - 104 - 36 - i * lineH, size: 25, color: palette.ink, align: 'left'});
     });
     makeButton(root, this.ui, {x: 0, y: py - ph + 30 + 48, w: 340, h: 92, text: '知道了，开始', style: 'jade', size: 30, onTap: () => this.session.command('tip-ok')});
+  }
+
+  /**
+   * 教学屏：庭院背景 + 手写小盘（木框由 Board 自己画）+ 匾额 + 一句话 + 按钮。
+   *
+   * 四条约束，动之前先读：
+   * ① 牌区必须落在**按钮与文案之外**，且手势只在 `tutBoard.cellAt()` 命中时才开启——
+   *    与牌桌同一套规则（按钮走各自节点的 TOUCH_END，全局 input 只管牌区），所以不需要手工命中数组；
+   * ② 教学 Board 不挂 overlay（每帧 clearChildren 会销毁它的节点池）；这里只清 tutChrome；
+   * ③ 目标提示直接喂 `hintCells`，Board.drawHighlights 已经把它画成蓝框，不再画遮罩洞；
+   * ④ 长句必须折行：makeLabel 的 overflow 是 NONE，一整句 27 号字直接画到屏幕外。
+   */
+  private renderTutorial(): void {
+    const run = this.tut;
+    // 没有控制器 = 这一屏不该开着（tip 已释放 / 上一步刚降级）。直接降级，别画半张屏：
+    // "画面只剩文字"这类事故都是从兜底分支随手画了个面板开始的。
+    if (!run) { this.tutorialFail(); return; }
+    if (run.failed) { this.tutorialFail(); return; }
+
+    const W = this.size.w, H = this.size.h, safe = this.safeTop;
+    clearChildren(this.tutChrome);
+    const root = this.tutChrome;
+
+    const rows = run.grid.length, cols = (run.grid[0] || []).length;
+    const top = H / 2 - 200 - safe;
+    const bottom = -H / 2 + 200;
+    const availH = top - bottom;
+    const sidePad = cols <= 4 ? 34 : 44;
+    const cellW = Math.min((W - sidePad * 2) / cols, availH / (rows + .4) / 1.24, 156);
+    const cellH = cellW * 1.24;
+    const bw = cellW * cols, bh = cellH * rows;
+    this.tutCell = {cellW, cellH};
+    const st = run.step;
+    this.tutBoard.build({
+      grid: run.grid, runs: run.runs, selected: this.tutSel,
+      hintCells: run.targetCells(), drag: this.tutDrag,
+      lockedRows: [], lockedCols: [], oneWay: [], pendingUnlock: []
+    }, this.ensureTileAtlas(), -bw / 2, top - Math.max(0, (availH - bh) / 2), cellW, cellH);
+
+    const plate = makePlate(root, this.ui, 360, 72, 0, H / 2 - 66 - safe);
+    makeLabel(plate, run.watchMode ? `${run.title} · 回看` : `${run.title} · 怎么玩`, {x: 0, y: 20, size: 32, color: '#FBF3DE', align: 'center', bold: true, serif: true});
+
+    const text = st ? st.say : run.closing;
+    const lineH = 40;
+    wrapText(text, 25, W - 110).forEach((ln, i) => {
+      makeLabel(root, ln, {x: -(W - 110) / 2, y: H / 2 - 132 - safe - i * lineH, size: 25, color: palette.ink, align: 'left'});
+    });
+    if (this.tutHint) {
+      makeLabel(root, this.tutHint, {x: -(W - 110) / 2, y: -H / 2 + 250, size: 24, color: palette.jadeDeep, align: 'left', bold: true});
+    }
+
+    // 进度：让玩家知道这是一段有始有终的东西，不是无休无止的打断
+    const total = run.watchMode ? 1 : 2;
+    if (!st) {
+      makeButton(root, this.ui, {x: 0, y: -H / 2 + 150, w: 340, h: 92, text: run.watchMode ? '看完了' : '明白了，开始', style: 'jade', size: 30,
+        onTap: () => this.activate(run.watchMode ? 'tutorial-close' : 'tutorial-ok')});
+    } else {
+      const interactive = !!st.need && !run.watchMode;
+      if (interactive) {
+        // 要动手的那一步：底部只留「跳过」，把整块牌区让给手势（按钮在牌区之外，见约束①）
+        makeButton(root, this.ui, {x: 0, y: -H / 2 + 150, w: 240, h: 80, text: `跳过（${Math.min(run.index + 1, total)}/${total} 步）`, style: 'cream', size: 24,
+          onTap: () => this.activate('tutorial-skip')});
+      } else {
+        makeButton(root, this.ui, {x: 0, y: -H / 2 + 150, w: 240, h: 80, text: '跳过教学', style: 'cream', size: 24,
+          onTap: () => this.activate('tutorial-skip')});
+      }
+    }
   }
 
   /* ── 首页 ─────────────────────────────────────────────── */
@@ -1222,6 +1443,8 @@ export class GameRoot extends Component {
   private onTouch(e: EventTouch): void {
     if (!this.session) return;
     const id = e.getID();
+    // 教学屏的手势自成一套路（盘面、滑轨、提交判据都在 TutorialRun 里），别掉进牌桌那套
+    if (this.screen === 'tutorial') { this.onTutorialTouch(e); return; }
     if (e.type === Input.EventType.TOUCH_START) {
       if (this.touchId !== null) return; // 多指：不抢占已在进行的手势
       if (this.screen !== 'board') return; // 弹窗 / 其它屏的按钮各自处理
@@ -1321,6 +1544,89 @@ export class GameRoot extends Component {
         if (this.session.revision !== before) { this.afterAction(); return; }
       }
     }
+    this.dirty = true;
+  }
+
+  /**
+   * 教学屏手势：只做牌桌那套的子集——判定轴 → 找轨 → 跟手预览 → 松手提交。
+   *
+   * 与牌桌的关键区别：**只有和脚本 expect 一致的动作会被提交**（`TutorialRun.advance` 负责回弹），
+   * 所以"硬引导"不需要遮罩挖洞就已经成立了；小盘就 2×3，误触本身几乎不可能。
+   * 拖动的符号与牌桌一致：cc 的 +y 向上，列方向要取负，否则预览跟着手、松手却排到反方向。
+   */
+  private onTutorialTouch(e: EventTouch): void {
+    const run = this.tut;
+    if (!run) return;
+    const id = e.getID();
+    if (e.type === Input.EventType.TOUCH_START) {
+      if (this.touchId !== null || run.failed) return;
+      const st = run.step;
+      if (!st || !st.need || run.watchMode) return;                  // 自动演示期间不吃操作
+      const {x, y} = this.toDesign(e);
+      const cell = this.tutBoard.cellAt(x, y);
+      if (!cell) return;                                             // 落在按钮区 → 交给节点自己的 TOUCH_END
+      this.touchId = id;
+      this.tutPress = {x, y, cell, axis: null, blocked: false};
+      this.tutDrag = null;
+      this.tutHint = '';
+      return;
+    }
+    if (!this.tutPress || id !== this.touchId) return;
+    const p = this.tutPress;
+    if (e.type === Input.EventType.TOUCH_MOVE) {
+      const {x, y} = this.toDesign(e);
+      const cw = this.tutCell ? this.tutCell.cellW : 1, chh = this.tutCell ? this.tutCell.cellH : 1;
+      const dx = x - p.x, dy = y - p.y;
+      if (!p.axis) {
+        const slop = Math.max(8, Math.min(cw, chh) * .22);
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < slop) return;
+        p.axis = Math.abs(dx) >= Math.abs(dy) ? 'row' : 'col';
+        const ri = run.runs.findIndex((r) => r.axis === p.axis && !r.locked && r.cells.some((q) => q.r === p.cell!.r && q.c === p.cell!.c));
+        if (ri < 0) { p.blocked = true; this.tutHint = '这一条推不动：按住亮起来的那一条。'; this.dirty = true; return; }
+        this.tutDrag = {run: ri, offset: 0};
+      }
+      if (!this.tutDrag) return;
+      const dragRun = run.runs[this.tutDrag.run];
+      const len = dragRun ? dragRun.cells.length : 0;
+      if (!len) { this.tutDrag = null; this.tutPress = null; this.dirty = true; return; }
+      const raw = p.axis === 'row' ? dx / cw : -dy / chh;
+      this.tutDrag = {run: this.tutDrag.run, offset: Math.max(-len, Math.min(len, raw))};
+      this.tutBoard.setDrag(this.tutDrag);                           // 每次 move 都跟手，不重建整屏
+      return;
+    }
+    this.touchId = null;
+    const drag = this.tutDrag;
+    this.tutPress = null;
+    this.tutDrag = null;
+    this.tutBoard.setDrag(null);
+    this.dirty = true;
+    if (e.type === Input.EventType.TOUCH_CANCEL || run.failed) return;
+    const {x, y} = this.toDesign(e);
+    if (drag) {
+      const dragRun = run.runs[drag.run];
+      const len = dragRun ? dragRun.cells.length : 0;
+      if (!len) return;
+      const k = ((Math.round(drag.offset) % len) + len) % len;
+      if (k) this.commitTutorial({kind: 'slide', run: drag.run, step: k > len / 2 ? k - len : k});
+      return;
+    }
+    if (p.cell && !p.blocked && !p.axis) {
+      const end = this.tutBoard.cellAt(x, y);
+      if (!end || end.r !== p.cell.r || end.c !== p.cell.c) return;
+      if (!this.tutSel) this.tutSel = end;
+      else { this.commitTutorial({kind: 'match', a: this.tutSel, b: end}); this.tutSel = null; }
+      this.dirty = true;
+    }
+  }
+
+  /** 把动作交给状态机：前进就播消除动画，回弹就把话术贴到横幅上（盘面不会被偷偷改掉）。 */
+  private commitTutorial(action: Action): void {
+    const run = this.tut;
+    if (!run) return;
+    const r = run.advance(action);
+    if (run.failed) { this.tutorialFail(); return; }
+    if (r.advanced) { if (r.erased.length) this.tutBoard.playErase(r.erased); this.tutHint = ''; }
+    else this.tutHint = r.message;
     this.dirty = true;
   }
 
