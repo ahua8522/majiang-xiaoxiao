@@ -219,6 +219,42 @@ test('说明卡：第 1 关弹教学、机制关弹机制说明、看过之后�
   delete G.LEVELS[1].intro;
 });
 
+test('章教学键优先：章 6 首见弹手写小盘，看完同关不再弹任何东西',()=>{
+  const s=new mod.Session(18);s.tipsSeen={};
+  s.reset(80,false);                                  // 章 6 首关：既有 ch5 教学，又有 only258 机制卡
+  assert.equal(s.tip,'ch5','有教学脚本的章必须优先弹教学');
+  assert.equal(s.introTutorial && s.introTutorial.title,'将将胡');
+  s.command('tip-ok');
+  assert.equal(s.tip,null);
+  assert.equal(s.tipsSeen['ch5'],true);
+  assert.equal(s.tipsSeen['only258'],true,'机制键必须一起去重，否则演完小盘又弹一张同义的文字卡');
+  s.reset(80,false);
+  assert.equal(s.tip,null,'看过的章教学不许重演：8 秒的交互不能每次开游戏都来一遍');
+});
+
+test('没有教学脚本的章：继续走机制文字卡，行为一字不变',()=>{
+  const s=new mod.Session(18);s.tipsSeen={};
+  s.reset(48,false);                                  // 章 4 首关（ice）本阶段还没有小盘脚本
+  assert.equal(s.tip,'ice');
+  assert.equal(s.introTutorial,null);
+});
+
+test('第 1 关从「每次进都弹 basic」改成只弹一次（它现在是 8 秒的交互）',()=>{
+  const s=new mod.Session(18);s.tipsSeen={};
+  assert.equal(s.tip,'basic','构造即停在第 1 关：首见要弹');
+  s.dismissTip();
+  assert.equal(s.tipsSeen['basic'],true);
+  s.reset(0,false);
+  assert.equal(s.tip,null);
+});
+
+test('终章与超范围章号：查不到脚本就不许弹教学，也不许把机制卡一起吞掉',()=>{
+  const s=new mod.Session(18);s.tipsSeen={};
+  s.reset(223,false);                                 // 章 14 首关：本章还没有教学条目
+  assert.equal(s.tip,null);
+  assert.equal(s.introTutorial,null);
+});
+
 test('通关的一局不再当成"可继续的进度"落盘（否则冷启动回到已赢的盘）', () => {
   const store = {value: null, load() { return this.value; }, save(v) { this.value = typeof v === 'string' ? v : JSON.stringify(v); }, feedback() {}};
   const s = new mod.Session(7, store);

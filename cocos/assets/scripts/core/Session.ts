@@ -1,5 +1,6 @@
 import {Action,Grid,Pos,Run,Pair,clone,count,Dialect,equal,hasIce,isDead,liveCount,partners,pairs,runsFor,searchHint,signature,stripIce,top,transition,unwild} from './Rules';
 import {Deal,generate,goalPairs,redeal,stateLegal,LEVELS,levelAt,isFace,activeLocks,LevelDef} from './Generator';
+import {Tutorial,tutorialByKey,tutorialFor,tutorialKey} from './tutorials';
 export type Modal='none'|'home'|'help'|'settings'|'restart'|'win'|'levels'|'lose'|'pause';
 export interface Platform {load():unknown;save(data:unknown):void;feedback():void}
 interface Snapshot {grid:Grid;moves:number;lastChain:number;solution:Action[];hint:Action[];clearedPairs:number;goalDone:number;timeLeft:number}
@@ -171,9 +172,20 @@ export class Session {
   }
   /** 待展示的说明卡：第 1 关固定教学；其余机制只在首次出现时弹一次。 */
   get introTip():string|null{return this.tip;}
+  /** 这一关该弹的是「手写小盘教学」还是「文字卡」：非 null 就开教学屏（视图据此分岔）。 */
+  get introTutorial():Tutorial|null{return this.tip?tutorialByKey(this.tip):null;}
   dismissTip():void{
     const t=this.tip;
-    if(t&&t!=='basic'){this.tipsSeen[t]=true;this.save();}
+    if(!t)return;
+    this.tipsSeen[t]=true;
+    // 章小盘演过，就算看过它覆盖的那张机制卡——否则「演完冰、进关又弹一张冰的文字卡」。
+    // 只标真命中过的键，别把无关的机制写脏。
+    // 第 1 关同理：章 1 的教学脚本补上之后，dismiss 完不许再掉去弹 basic 文字卡。
+    if(tutorialByKey(t)){
+      if(this.def.intro&&!this.tipsSeen[this.def.intro])this.tipsSeen[this.def.intro]=true;
+      if(this.levelIndex===0)this.tipsSeen['basic']=true;
+    }
+    this.save();
     this.tip=null;this.revision++;
   }
   /** 当前弹窗是从哪一屏打开的：'home' 表示首页，'none' 表示牌桌。
@@ -189,8 +201,15 @@ export class Session {
     this.hintsUsed=0;this.shufflesUsed=0;this.levelPage=Math.floor(chosen/PAGE_SIZE);this.returnModal='none';
     this.clearedPairs=0;this.goalDone=0;this.goalTarget=0;
     this.timeLeft=this.def.timeLimit||0;this.paused=false;
-    // 第 1 关的教学卡每次进都弹（新玩家可能重开）；机制说明只在首次出现时弹
-    this.tip=chosen===0?'basic':(this.def.intro&&!this.tipsSeen[this.def.intro]?this.def.intro:null);
+    // 展示决策（spec §5.1）：章教学优先，其次机制首见，最后才是第 1 关的基础卡。
+    // 章号从 def.chapter 取，取不到退回 floor(index/16)——与 difficulty 同一个口径（见上面 :134）。
+    // 判据是「这一章第一次被进入」而不是「这一关是章首」：玩家从选关跳进章 6 的第 4 关也得补上，
+    // 而教学内容与具体盘面无关（小盘是手写的），插在哪一关都不会错。
+    const chapter=this.def.chapter??Math.floor(chosen/16);
+    const tutKey=tutorialFor(chapter)?tutorialKey(chapter):null;
+    if(tutKey&&!this.tipsSeen[tutKey])this.tip=tutKey;
+    else if(chosen===0&&!this.tipsSeen['basic'])this.tip='basic';
+    else this.tip=this.def.intro&&!this.tipsSeen[this.def.intro]?this.def.intro:null;
   }
   /**
    * 发牌，**绝不向上抛**。
