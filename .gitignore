@@ -19,3 +19,22 @@ demo/.verify/
 .DS_Store
 *.log
 cocos/preview/dist/
+
+# 上传密钥 / 证书：入库等于永久泄露（git 历史里删不干净，只能重置密钥）。
+# 约定放 cocos/.secrets/ 下，upload-ci.cjs 会自动从这里取；也可以用环境变量 WX_PRIVATE_KEY_PATH。
+# 已用 git ls-files 核对：仓库里没有任何被跟踪的 .key/.pem，这三条不会误伤既有内容。
+*.key
+*.pem
+cocos/.secrets/
+
+# 备案流程截图：里面有主体名称/证件号/联系方式。远端是 GitHub，推上去删不干净。
+备案/
+
+# 关卡整屏切图（约 71MB）：`node cocos/temp/mjshot.cjs gallery 0 <n>` 一条命令可重生成，
+# 而且每改一次关卡就要重拍，留在 git 里只会越滚越大。要看图请直接跑命令或开本地目录。
+docs/关卡切图/
+
+# 各类代理/工具的临时工作区
+.workbuddy/
+.workbuddy-ai/
+.playwright-mcp/

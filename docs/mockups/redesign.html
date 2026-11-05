@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>麻将小游戏 · 重做设计稿</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:750px;height:1334px;overflow:hidden;background:#FFF;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+  .screen{position:relative;width:750px;height:1334px;overflow:hidden}
+</style>
+</head>
+<body><div id="root"></div>
+<script>
+/* ══ 三套方向 ══════════════════════════════════════════════════
+   A 清透：近白冷底 + 单一蓝强调 + 扁平细描边       —— 最现代 App
+   B 青瓷：淡青底 + 翡翠绿强调 + 朱砂点睛           —— 东方有质感
+   C 明快：浅蓝底 + 蓝橙双色 + 牌顶花色条           —— 最卡通活泼
+   ═══════════════════════════════════════════════════════════ */
+const DIRS = {
+  airy: {
+    key:'airy', name:'A · 清透', tag:'近白冷底 · 单一蓝强调 · 扁平细描边',
+    bg:'#F4F6FA', panel:'#FFFFFF', panelEdge:'#E6EAF2',
+    table:'#EDF1F7', tableEdge:'#DFE5EF',
+    slot:'#FFFFFF', slotEdge:'#E3E9F2',
+    face:'#FFFFFF', faceEdge:'#DFE6F0',
+    ink:'#0F172A', inkSoft:'#5A6B82', muted:'#93A1B5',
+    accent:'#3B82F6', accentDeep:'#2563EB', accentInk:'#FFFFFF',
+    sec:'#FFFFFF', secEdge:'#DFE5EF', secInk:'#334155',
+    bar:'#3B82F6', barTrack:'#E6EAF2',
+    suit:{p:'#2563EB', s:'#16A34A', m:'#DC2626', z:'#7C3AED'},
+    topStrip:false, shadow:'0 2px 6px rgba(15,23,42,.07)'
+  },
+  jade: {
+    key:'jade', name:'B · 青瓷', tag:'淡青底 · 翡翠绿强调 · 朱砂点睛',
+    bg:'#F1F6F4', panel:'#FFFFFF', panelEdge:'#DEEAE5',
+    table:'#E4EFEA', tableEdge:'#D2E2DB',
+    slot:'#F7FBF9', slotEdge:'#D8E7E1',
+    face:'#FFFFFF', faceEdge:'#D6E4DE',
+    ink:'#12241E', inkSoft:'#4E6A60', muted:'#8AA69B',
+    accent:'#0E9F6E', accentDeep:'#0A7F58', accentInk:'#FFFFFF',
+    sec:'#FFFFFF', secEdge:'#D8E7E1', secInk:'#2C4A40',
+    bar:'#0E9F6E', barTrack:'#DEEAE5',
+    suit:{p:'#2B5F8F', s:'#0E9F6E', m:'#C8443C', z:'#5B4B8A'},
+    topStrip:false, shadow:'0 2px 6px rgba(18,36,30,.07)'
+  },
+  vivid: {
+    key:'vivid', name:'C · 明快', tag:'浅蓝底 · 蓝橙双色 · 牌顶花色条',
+    bg:'#EEF4FF', panel:'#FFFFFF', panelEdge:'#DEE7F7',
+    table:'#E3ECFB', tableEdge:'#D2DEF3',
+    slot:'#FFFFFF', slotEdge:'#DCE6F7',
+    face:'#FFFFFF', faceEdge:'#DAE4F5',
+    ink:'#111827', inkSoft:'#55647E', muted:'#8F9DB5',
+    accent:'#2563EB', accentDeep:'#1D4ED8', accentInk:'#FFFFFF',
+    sec:'#FFFFFF', secEdge:'#DCE6F7', secInk:'#334155',
+    bar:'#2563EB', barTrack:'#DEE7F7',
+    suit:{p:'#2563EB', s:'#16A34A', m:'#EF4444', z:'#8B5CF6'},
+    topStrip:true, shadow:'0 2px 6px rgba(17,24,39,.08)'
+  }
+};
+
+const suitOf = (D,f) => D.suit[/^[a-z]/i.test(f[0]) ? f[0] : f[1]] || D.ink;
+const numOf  = f => Number(/^[a-z]/i.test(f[0]) ? f.slice(1) : f[0]);
+const NUMERALS='一二三四五六七八九', HONORS=['東','南','西','北','中','發','白'];
+
+const DOTS={
+ 1:[[.5,.5,.30]],2:[[.5,.27,.17],[.5,.73,.17]],3:[[.25,.22,.15],[.5,.5,.15],[.75,.78,.15]],
+ 4:[[.29,.28,.15],[.71,.28,.15],[.29,.72,.15],[.71,.72,.15]],
+ 5:[[.27,.25,.14],[.73,.25,.14],[.5,.5,.14],[.27,.75,.14],[.73,.75,.14]],
+ 6:[[.29,.2,.13],[.71,.2,.13],[.29,.5,.13],[.71,.5,.13],[.29,.8,.13],[.71,.8,.13]],
+ 7:[[.24,.15,.11],[.5,.25,.11],[.76,.35,.11],[.29,.6,.11],[.71,.6,.11],[.29,.85,.11],[.71,.85,.11]],
+ 8:[[.3,.14,.11],[.7,.14,.11],[.3,.38,.11],[.7,.38,.11],[.3,.62,.11],[.7,.62,.11],[.3,.86,.11],[.7,.86,.11]],
+ 9:[[.22,.17,.11],[.5,.17,.11],[.78,.17,.11],[.22,.5,.11],[.5,.5,.11],[.78,.5,.11],[.22,.83,.11],[.5,.83,.11],[.78,.83,.11]]
+};
+
+/* 牌面内容：全部用花色色绘制，牌身保持白色 */
+function faceArt(D,face,w,h){
+  const suit=/^[a-z]/i.test(face[0])?face[0]:face[1], n=numOf(face), c=suitOf(D,face);
+  const dot=(x,y,r,col)=>`<div style="position:absolute;left:${x*100}%;top:${y*100}%;width:${r*200}%;height:${r*200*.9}%;transform:translate(-50%,-50%);border-radius:50%;background:${col}"></div>`;
+  if(suit==='p'&&DOTS[n]){
+    if(n===1){
+      const r=w*.36;
+      return `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+        <div style="width:${r*2}px;height:${r*2}px;border-radius:50%;background:${D.suit.s};display:flex;align-items:center;justify-content:center">
+        <div style="width:${r*1.55}px;height:${r*1.55}px;border-radius:50%;background:#FFF;display:flex;align-items:center;justify-content:center">
+        <div style="width:${r*1.15}px;height:${r*1.15}px;border-radius:50%;background:${D.suit.m};display:flex;align-items:center;justify-content:center">
+        <div style="width:${r*.62}px;height:${r*.62}px;border-radius:50%;background:#FFF"></div></div></div></div></div>`;
+    }
+    const cols=n===2||n===4?[D.suit.p,D.suit.s]:[D.suit.p,D.suit.s,D.suit.m];
+    return DOTS[n].map(([x,y,r],i)=>dot(x,y,r,cols[i%cols.length])).join('');
+  }
+  if(suit==='s'&&DOTS[n]){
+    if(n===1) return `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:${h*.46}px;font-weight:700;color:${D.suit.s}">雀</div>`;
+    const len=h*(n>6?.2:.3), sw=w*.12;
+    return DOTS[n].map(([x,y],i)=>{
+      const red=(n===5&&i===2)||(n===7&&i===0)||(n===9&&i%3===1);
+      return `<div style="position:absolute;left:${x*100}%;top:${y*100}%;width:${sw}px;height:${len}px;background:${red?D.suit.m:D.suit.s};border-radius:${sw/2}px;transform:translate(-50%,-50%)">
+        <div style="position:absolute;left:50%;top:50%;width:${sw*.42}px;height:${sw*.5}px;background:#FFF;transform:translate(-50%,-50%)"></div></div>`;
+    }).join('');
+  }
+  if(suit==='m') return `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:serif;font-weight:700;line-height:1.02">
+      <div style="font-size:${h*.32}px;color:${D.suit.p}">${NUMERALS[n-1]}</div>
+      <div style="font-size:${h*.34}px;color:${D.suit.m}">萬</div></div>`;
+  if(suit==='z'){
+    if(n===7) return `<div style="position:absolute;left:18%;top:20%;width:64%;height:60%;border:${Math.max(2,w*.06)}px solid ${D.suit.p};border-radius:${w*.1}px"></div>`;
+    const col=n===5?D.suit.m:n===6?D.suit.s:D.ink;
+    return `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:serif;font-weight:700;font-size:${h*.48}px;color:${col}">${HONORS[n-1]}</div>`;
+  }
+  return '';
+}
+
+/* 一张牌：白牌面 + 极浅侧边（下移 3px）+ 细描边 + 柔和投影。没有高饱和牌背。 */
+function tile(D,face,w,h,opts={}){
+  const {stack=1, ring=null} = opts;
+  const m=w*.06, my=h*.045, lift=h*.05;
+  const tw=w-m*2, th=h-my*2-lift*2, r=Math.min(10,w*.1);
+  const liftN=Math.min(stack,3)-1;
+  let back='';
+  for(let i=0;i<liftN;i++) back+=`<div style="position:absolute;left:${m}px;width:${tw}px;top:${my+lift*2-i*lift}px;height:${th}px;background:${D.faceEdge};border-radius:${r}px"></div>`;
+  const top=my+lift*2-liftN*lift;
+  const strip=D.topStrip?`<div style="position:absolute;left:${m+10}px;width:${tw-20}px;top:${top+6}px;height:4px;background:${suitOf(D,face)};border-radius:2px;opacity:.9"></div>`:'';
+  const ringStyle=ring?`box-shadow:0 0 0 ${ring[1]}px ${ring[0]},${D.shadow}`:`box-shadow:${D.shadow}`;
+  return `<div style="position:absolute;left:0;top:0;width:${w}px;height:${h}px">
+    <div style="position:absolute;left:${m}px;width:${tw}px;top:${top+3}px;height:${th}px;background:${D.faceEdge};border-radius:${r}px"></div>
+    ${back}
+    <div style="position:absolute;left:${m}px;width:${tw}px;top:${top}px;height:${th}px;background:${D.face};border:1.5px solid ${D.faceEdge};border-radius:${r}px;${ringStyle}"></div>
+    ${strip}
+    <div style="position:absolute;left:${m+tw*.11}px;top:${top+(D.topStrip?th*.14:th*.07)}px;width:${tw*.78}px;height:${th-(D.topStrip?th*.2:th*.14)}px">${faceArt(D,face,tw*.78,th-(D.topStrip?th*.2:th*.14))}</div>
+    ${stack>1?`<div style="position:absolute;right:${m}px;top:${top-h*.03}px;min-width:${w*.26}px;height:${w*.26}px;background:${D.accent};border-radius:${w*.08}px;display:flex;align-items:center;justify-content:center;font-size:${w*.19}px;font-weight:700;color:#fff;padding:0 ${w*.05}px">${stack}</div>`:''}
+  </div>`;
+}
+
+/* 扁平按钮：细描边 + 柔和投影 */
+function button(D,text,w,h,opts={}){
+  const {kind='sec', x=0, y=0, sub='', size=30, abs=true} = opts;
+  const S = kind==='primary' ? [D.accent, D.accentDeep, D.accentInk, D.accent]
+          : kind==='ghost'   ? ['#FFFFFF', D.secEdge, D.muted, D.secEdge]
+          : [D.sec, D.secEdge, D.secInk, D.secEdge];
+  const top = sub ? (h-size-20)/2 : (h-size)/2 - 2;
+  return `<div style="${abs?`position:absolute;left:${x}px;top:${y}px;`:'position:relative;'}width:${w}px;height:${h}px;font-size:${size}px">
+    <div style="position:absolute;inset:0;background:${S[0]};border:1.5px solid ${S[3]};border-radius:${Math.min(16,h/3)}px;box-shadow:${D.shadow};display:flex;flex-direction:column;align-items:center;justify-content:center;color:${S[2]};font-weight:600">
+      <div>${text}</div>${sub?`<div style="font-size:19px;font-weight:400;opacity:.7;margin-top:3px">${sub}</div>`:''}
+    </div>
+  </div>`;
+}
+
+/* logo：三张牌 萬 / 乐 / 筒，微倾。白色牌身，只有字是彩色。 */
+function logo(D,scale=1,y=0){
+  const w=124*scale, h=160*scale, gap=12*scale;
+  const items=[['萬',D.suit.m],['乐',D.accent],['筒',D.suit.p]];
+  return `<div style="position:absolute;left:50%;top:${y}px;transform:translateX(-50%);display:flex;gap:${gap}px">
+    ${items.map((it,i)=>`
+      <div style="position:relative;width:${w}px;height:${h}px;transform:rotate(${(i-1)*5}deg)">
+        <div style="position:absolute;left:0;top:4px;width:${w}px;height:${h}px;background:${D.faceEdge};border-radius:${16*scale}px"></div>
+        <div style="position:absolute;left:0;top:0;width:${w}px;height:${h}px;background:#FFF;border:1.5px solid ${D.faceEdge};border-radius:${16*scale}px;box-shadow:${D.shadow};display:flex;align-items:center;justify-content:center">
+          <div style="font-family:serif;font-weight:700;font-size:${72*scale}px;color:${it[1]};margin-top:-${6*scale}px">${it[0]}</div>
+        </div>
+        <div style="position:absolute;left:10%;width:80%;top:8%;height:4px;background:${it[1]};border-radius:2px;opacity:.85"></div>
+      </div>`).join('')}
+  </div>`;
+}
+
+function bg(D){ return `<div style="position:absolute;inset:0;background:${D.bg}"></div>`; }
+
+/* ══ 牌桌 ══ */
+function boardContent(D){
+  const grid=[
+    ['p5','s2','m3','z1','p7','s9'],
+    ['m1','p5','s2','z5','m3','p1'],
+    ['s2','m3','p7','p5','z1','s9'],
+    ['z1','p1','s9','m1','p5','s2'],
+    ['p7','s9','m1','p5','s2','m3'],
+    ['m3','z5','p5','s2','p1','p7']
+  ];
+  const cw=100, ch=124, bx=75, by=326;
+  let cells='';
+  grid.forEach((row,r)=>row.forEach((f,c)=>{
+    const x=bx+c*cw, y=by+r*ch, hl=(r===2&&c===2);
+    cells+=`<div style="position:absolute;left:${x}px;top:${y}px;width:${cw}px;height:${ch}px">
+      <div style="position:absolute;left:4px;top:4px;right:4px;bottom:4px;background:${D.slot};border:1.5px solid ${D.slotEdge};border-radius:10px"></div>
+      ${tile(D,f,cw,ch,{stack:r===1&&c===3?2:1,ring:hl?[D.bar,3]:null})}
+    </div>`;
+  }));
+  const tool=(t,s,x,en)=>button(D,t,160,104,{kind:en?'sec':'ghost',x,y:1130,size:27,sub:s});
+  const icon=(t,x,y,w,h,size)=>`<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:#FFF;border:1.5px solid ${D.panelEdge};border-radius:16px;box-shadow:${D.shadow};display:flex;align-items:center;justify-content:center;font-size:${size}px;color:${D.inkSoft}">${t}</div>`;
+  return `${bg(D)}
+    ${icon('‹',24,40,88,88,44)}
+    <div style="position:absolute;left:124px;top:40px;width:190px;height:88px;background:#FFF;border:1.5px solid ${D.panelEdge};border-radius:16px;box-shadow:${D.shadow};display:flex;align-items:center;justify-content:center;font-size:27px;font-weight:600;color:${D.ink}">第 12 关</div>
+    ${icon('⚙',638,40,88,88,40)}
+    <div style="position:absolute;left:40px;top:158px;width:340px;font-size:24px;font-weight:600;color:${D.ink}">剩余 34 / 48 张</div>
+    <div style="position:absolute;left:370px;top:158px;width:340px;font-size:24px;color:${D.inkSoft};text-align:right">11 步 · 三星 ≤ 21 步</div>
+    <div style="position:absolute;left:40px;top:200px;width:670px;height:10px;background:${D.barTrack};border-radius:5px">
+      <div style="width:${670*.29}px;height:10px;background:${D.bar};border-radius:5px"></div>
+    </div>
+    <div style="position:absolute;left:30px;top:236px;width:690px;height:58px;background:#FFF;border:1.5px solid ${D.panelEdge};border-radius:14px;display:flex;align-items:center;padding-left:22px;font-size:21px;color:${D.inkSoft}">
+      <span style="width:6px;height:22px;background:${D.accent};border-radius:3px;margin-right:14px"></span>正在向右推 2 格 · 松手消除亮起的对子</div>
+    <div style="position:absolute;left:24px;top:308px;width:702px;height:${ch*6+44}px;background:#FFF;border:1.5px solid ${D.panelEdge};border-radius:22px;box-shadow:${D.shadow}"></div>
+    <div style="position:absolute;left:36px;top:320px;width:678px;height:${ch*6+20}px;background:${D.table};border-radius:16px"></div>
+    ${cells}
+    <div style="position:absolute;left:0;top:1102px;width:750px;text-align:center;font-size:19px;color:${D.muted}">轻点配对 / 横竖拖动整段</div>
+    ${tool('提示','免费 2 次',24,true)}
+    ${tool('洗牌','免费 1 次',200,true)}
+    ${tool('撤销','退回整步',376,true)}
+    ${tool('重开','重新发牌',552,true)}
+  `;
+}
+
+/* ══ 首页 ══ */
+function homeContent(D){
+  return `${bg(D)}
+    ${logo(D,1.05,232)}
+    <div style="position:absolute;left:0;top:452px;width:750px;text-align:center;font-size:24px;color:${D.muted};letter-spacing:5px">推一推 · 碰个对</div>
+    ${button(D,'继续 · 第 12 关',558,116,{kind:'primary',x:96,y:552,size:33,sub:'已走 8 步'})}
+    ${button(D,'选关',558,100,{kind:'sec',x:96,y:706,size:28})}
+    ${button(D,'设置',558,100,{kind:'sec',x:96,y:826,size:28})}
+    <div style="position:absolute;left:96px;top:980px;width:558px;height:10px;background:${D.barTrack};border-radius:5px">
+      <div style="width:${558*.12}px;height:10px;background:${D.bar};border-radius:5px"></div>
+    </div>
+    <div style="position:absolute;left:96px;top:1006px;width:558px;font-size:21px;color:${D.muted};text-align:center">已清台 12 局 · 28 颗星</div>
+    <div style="position:absolute;left:0;top:1244px;width:750px;text-align:center;font-size:19px;color:${D.muted}">轻点配对 / 拖动整段</div>
+  `;
+}
+
+const SCREENS = {};
+for(const k of Object.keys(DIRS)){
+  SCREENS[k+'-board'] = () => `<div class="screen">${boardContent(DIRS[k])}</div>`;
+  SCREENS[k+'-home']  = () => `<div class="screen">${homeContent(DIRS[k])}</div>`;
+}
+function paint(){
+  const name = location.hash.replace('#','') || 'airy-board';
+  document.getElementById('root').innerHTML = (SCREENS[name] || SCREENS['airy-board'])();
+  document.title = name;
+}
+paint();
+window.addEventListener('hashchange', paint);
+</script>
+</body>
+</html>

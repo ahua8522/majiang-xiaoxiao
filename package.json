@@ -1,0 +1,18 @@
+{
+    "name": "majiang-xiaoxiao",
+    "version": "1.0.0",
+    "private": true,
+    "description": "快乐推麻对对消 · 微信小游戏（Cocos Creator 3.8）",
+    "scripts": {
+        "test": "cd cocos && npm run test:all",
+        "build:wechat": "node cocos/tools/rebuild-watch.cjs",
+        "verify": "node cocos/tools/devtools-verify.cjs --wait 75",
+        "verify:ui": "node cocos/tools/verify-ui-nav.cjs",
+        "upload:ci": "node cocos/tools/upload-ci.cjs",
+        "demo:build": "node demo/h5/build.cjs",
+        "demo:watch": "node demo/h5/build.cjs --watch",
+        "demo": "node demo/h5/serve.cjs",
+        "demo:check": "node demo/h5/check.cjs",
+        "demo:test": "python demo/h5/tests/e2e.py"
+    }
+}
