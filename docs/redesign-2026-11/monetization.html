@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>快乐推麻对对消 · 广告收益试算</title>
+<style>
+:root{color-scheme:light;--ink:#244d3d;--muted:#6d806f;--line:#d5dfcb;--paper:#f7f8ef;--green:#386e51;--peach:#c98368}
+*{box-sizing:border-box}body{margin:0;background:#eef2e6;color:var(--ink);font:15px/1.7 "Microsoft YaHei","PingFang SC",sans-serif}main{max-width:1140px;margin:auto;padding:40px 32px 60px}a{color:var(--green);text-underline-offset:4px}nav{display:flex;gap:24px;align-items:center;font-size:12px}nav strong{margin-right:auto}header{margin:44px 0 30px;display:grid;grid-template-columns:1.5fr 1fr;gap:40px;align-items:end}.eyebrow{text-transform:uppercase;font-size:11px;letter-spacing:3px;color:var(--muted)}h1{font:700 40px/1.5 "STKaiti","KaiTi",serif;margin:10px 0 0}header p{font-size:13px;color:var(--muted);margin:0}.tag{display:inline-block;background:#e4dcc0;color:#6b6340;border-radius:4px;padding:2px 8px;font-size:11px;margin-bottom:9px}.layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:24px}.card{min-width:0;background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:25px;box-shadow:0 4px #d9e2ce}h2{margin:0 0 20px;font-size:17px}h2 small{font-weight:400;font-size:11px;color:var(--muted);margin-left:8px}.group{border-bottom:1px solid var(--line);padding:0 0 20px;margin-bottom:20px}.group:last-child{border:none;padding-bottom:0;margin-bottom:0}.group-title{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:700;margin-bottom:16px}.dot{width:8px;height:8px;border-radius:50%;background:var(--green)}.dot.peach{background:var(--peach)}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px}label{display:block;font-size:12px;color:var(--muted)}input[type=number]{display:block;min-width:0;width:100%;margin-top:7px;padding:9px 11px;border:1px solid #c9d6bd;border-radius:8px;background:#fffef8;color:var(--ink);font:600 21px Georgia,serif;min-height:45px}input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #c98d67;outline-offset:3px}.delta-label{display:flex;justify-content:space-between;align-items:center;margin-top:18px}.delta-label output{font:600 20px Georgia,serif;color:var(--ink)}input[type=range]{width:100%;accent-color:var(--green);margin:12px 0 0;min-height:24px}.range-ends{display:flex;justify-content:space-between;color:var(--muted);font-size:10px}.hint{font-size:11px;color:var(--muted);margin:16px 0 0;line-height:1.8}.results{display:flex;flex-direction:column}.hero-number{background:#e6edda;border-radius:12px;padding:21px 22px}.hero-number small{color:#647b64;font-size:12px}.amount{font:500 51px/1.4 Georgia,serif;overflow-wrap:anywhere}.amount span{font:12px "Microsoft YaHei",sans-serif;margin-left:8px;color:var(--muted)}.change{font-size:13px;margin-top:2px;color:var(--green)}.change.negative{color:#aa624e}.bars{margin:25px 0 18px}.bar-line{display:grid;grid-template-columns:62px 1fr 80px;gap:9px;align-items:center;font-size:11px;margin:12px 0}.bar-line>b{text-align:right;font:600 16px Georgia,serif}.track{height:13px;border-radius:4px;background:#e4e8db;overflow:hidden}.fill{height:100%;min-width:0;max-width:100%;background:var(--green);transition:width .15s}.fill.peach{background:var(--peach)}.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.metrics span{font-size:11px;color:var(--muted)}.metrics b{display:block;font:600 24px Georgia,serif;color:var(--ink);margin-top:7px}.breakeven{margin:18px 0 0;font-size:12px}.reset{margin-top:auto;align-self:flex-start;border:1px solid #bcccaf;color:var(--green);background:transparent;padding:8px 12px;border-radius:7px;cursor:pointer;font:inherit;font-size:11px}.formula{padding:21px 0;margin-top:13px;color:var(--muted);font-size:12px;text-align:center}.strategy{margin-top:8px;border-top:1px solid var(--line);padding-top:25px}.strategy-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:26px}.strategy h3{font-size:15px;margin:0 0 8px}.strategy p{font-size:12px;color:var(--muted);margin:0}.number{font:22px Georgia,serif;color:#a8b79c;margin-bottom:7px}footer{border-top:1px solid var(--line);padding-top:18px;margin-top:30px;color:var(--muted);font-size:11px}.error{color:#a74e3e;font-size:12px;min-height:20px;margin:10px 0}.error:empty{display:none}@media(max-width:780px){main{padding:22px 18px 36px}nav{gap:14px;flex-wrap:wrap}header{display:block;margin-top:30px}header p{margin-top:16px}h1{font-size:32px}.layout{grid-template-columns:1fr}.strategy-grid{grid-template-columns:1fr;gap:20px}.card{padding:21px}.reset{margin-top:20px}.amount{font-size:36px}.amount span{display:block;margin-left:0}.metrics b{font-size:20px}h2 small{display:block;margin:4px 0 0}}@media(prefers-reduced-motion:reduce){.fill{transition:none}}
+</style>
+<main>
+  <nav><strong>快乐推麻对对消</strong><a href="index.html">游戏设计稿</a><a href="MONETIZATION.md">完整广告方案</a></nav>
+  <header><div><div class="eyebrow">Revenue sensitivity / 广告收益敏感性</div><h1>多一次展示，<br>也要留得住玩家。</h1></div><div><span class="tag">参数示例 · 非收益预测</span><p>比较广告频次与活跃人数变化对日收入的影响。默认值只是算术示例，eCPM 并非平台行情。正式决策还要看留存和每位新玩家的累计收入。</p></div></header>
+  <div class="layout">
+    <section class="card" aria-labelledby="inputs-title"><h2 id="inputs-title">输入假设 <small>全部可改，不上传任何数据</small></h2>
+      <form id="inputs">
+        <div class="group"><div class="group-title"><i class="dot"></i>基准方案</div><div class="fields">
+          <label>每日活跃人数 / DAU<input id="dau" type="number" min="0" max="10000000" step="1" value="1000" required></label>
+          <label>每人每日有效展示<input id="adsA" type="number" min="0" max="100" step="any" value="1" required></label>
+          <label>基准 eCPM / 元<input id="ecpmA" type="number" min="0" max="10000" step="any" value="50" required></label>
+        </div></div>
+        <div class="group"><div class="group-title"><i class="dot peach"></i>调整后的假设</div><div class="fields">
+          <label>每人每日有效展示<input id="adsB" type="number" min="0" max="100" step="any" value="1.3" required></label>
+          <label>调整后 eCPM / 元<input id="ecpmB" type="number" min="0" max="10000" step="any" value="50" required></label>
+        </div><label class="delta-label" for="activeDelta">稳态活跃人数变化<output id="deltaValue" for="activeDelta">−20%</output></label><input id="activeDelta" type="range" min="-100" max="100" step="1" value="-20"><div class="range-ends"><span>−100%</span><span>不变</span><span>+100%</span></div><p class="hint">这是你输入的假设，不代表广告一定造成这样的变化，也不是按天模拟的留存曲线。“每人”包含当日没看广告的玩家。</p></div>
+      </form><p class="error" id="error" role="alert"></p>
+    </section>
+    <section class="card results" aria-labelledby="results-title"><h2 id="results-title">收入比较 <small>人民币 / 日</small></h2><div aria-live="polite" aria-atomic="true">
+      <div class="hero-number"><small>调整后的估算日收入</small><div class="amount" id="revenue">¥52.00<span>/ 日</span></div><div class="change" id="change"></div></div>
+      <div class="bars"><div class="bar-line"><span>基准</span><div class="track"><div class="fill" id="barA"></div></div><b id="baseline"></b></div><div class="bar-line"><span>调整后</span><div class="track"><div class="fill peach" id="barB"></div></div><b id="variant"></b></div></div>
+      <div class="metrics"><div><span>调整后活跃人数</span><b id="active"></b></div><div><span>调整后广告 ARPDAU / 元</span><b id="arpdau"></b></div></div>
+      <p class="breakeven" id="breakEven"></p>
+    </div><p class="hint">公式使用有效展示口径，不重复乘填充率或完播率。真实收入以流量主结算为准；更多展示也不等于更高的 7 日累计收入。</p><button class="reset" id="reset" type="button">恢复算术示例</button></section>
+  </div>
+  <div class="formula">估算日收入 = 活跃人数 × 每人每日有效展示 × eCPM ÷ 1000</div>
+  <section class="strategy"><div class="strategy-grid">
+    <article><div class="number">01</div><h3>先做续局与提示</h3><p>玩家主动选择。一次奖励说清楚、给到位；免费重开和自然充能一直保留。</p></article>
+    <article><div class="number">02</div><h3>再做通关装饰</h3><p>已有收集目标时，提供额外装饰进度。基本花笺先发，下一关直接可进。</p></article>
+    <article><div class="number">03</div><h3>频次最后调整</h3><p>先解决广告不可用、奖励失效和关卡挫败，再用真实报表比较频率与留存。</p></article>
+  </div></section>
+  <footer>本页是离线计算工具，未接广告 SDK、统计服务或账户；不提供收入承诺。完整产品参数、无服务器接入结构与官方依据见<a href="MONETIZATION.md">广告收益方案</a>。</footer>
+</main>
+<script>
+const form=document.querySelector('#inputs');
+const $=id=>document.getElementById(id);
+const money=value=>value>=100000000?'¥'+(value/100000000).toFixed(2)+' 亿':value>=10000?'¥'+(value/10000).toFixed(2)+' 万':'¥'+value.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+function calculate(){
+  const delta=Number($('activeDelta').value);
+  $('deltaValue').textContent=(delta>0?'+':'')+delta+'%';
+  if(!form.checkValidity()){
+    $('error').textContent='请填写范围内的非负数字；活跃人数使用整数。';
+    for(const id of ['revenue','change','baseline','variant','active','arpdau','breakEven'])$(id).textContent='—';
+    $('barA').style.width='0%';$('barB').style.width='0%';return;
+  }
+  $('error').textContent='';
+  const dau=Number($('dau').value),a=Number($('adsA').value),b=Number($('adsB').value),ea=Number($('ecpmA').value),eb=Number($('ecpmB').value);
+  const active=dau*(1+delta/100),ra=dau*a*ea/1000,rb=active*b*eb/1000,change=rb-ra;
+  $('revenue').innerHTML=money(rb)+'<span>/ 日</span>';
+  $('baseline').textContent=money(ra);$('variant').textContent=money(rb);
+  $('active').textContent=active.toLocaleString('zh-CN',{maximumFractionDigits:1});
+  $('arpdau').textContent=active>0?(b*eb/1000).toFixed(3):'—';
+  const percent=ra>0?(change/ra*100):null;
+  $('change').textContent='比基准 '+(change>=0?'+':'−')+money(Math.abs(change))+(percent===null?'（基准为零，不计算增幅）':' / '+(percent>=0?'+':'')+percent.toFixed(1)+'%');
+  $('change').classList.toggle('negative',change<0);
+  const max=Math.max(ra,rb,1);$('barA').style.width=(ra/max*100)+'%';$('barB').style.width=(rb/max*100)+'%';
+  const threshold=active>0&&eb>0?ra*1000/(active*eb):null;
+  $('breakEven').textContent=ra===0?'基准收入为零，先验证是否有真实、可持续的有效展示。':threshold===null?'调整后的活跃人数或 eCPM 为零，增加展示次数也无法追平基准。':'按当前活跃人数与 eCPM，调整后人均每天至少需要 '+threshold.toFixed(2)+' 次有效展示，才能追平基准日收入。';
+}
+form.addEventListener('submit',e=>e.preventDefault());form.addEventListener('input',calculate);
+$('reset').addEventListener('click',()=>{form.reset();calculate();});calculate();
+</script>
+</html>
