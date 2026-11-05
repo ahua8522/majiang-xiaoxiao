@@ -10,7 +10,7 @@ export function renderSunny(ctx:CanvasRenderingContext2D,items:SunnyItem[],hits:
   ctx.save();
   if(it.kind==='text'){
    ctx.font=`${it.bold?'700 ':''}${it.size}px ${it.serif?FONT_SERIF:FONT_SANS}`;ctx.textAlign=it.align||'left';ctx.textBaseline='top';ctx.fillStyle=it.color||SUNNY.ink;ctx.fillText(it.text||'',it.x,it.y);
-  }else if(it.kind==='tile')drawTile(ctx,it.name!,it.x+it.w*.08,it.y+it.h*.05,{w:it.w*.84,h:it.h*.84,lift:it.h*.07});
+  }else if(it.kind==='tile')drawTile(ctx,it.name!,it.x+it.w*.05,it.y+it.h*.05,{w:it.w*.90,h:it.h*.90,lift:it.h*.07});
   else if(it.kind==='hero')drawSunnyHero(ctx,it.x,it.y,it.w,it.h);
   else if(it.kind==='icon')drawSunnyIcon(ctx,it.name!,it.x,it.y,it.w,it.color||SUNNY.ink);
   else if(it.kind==='line'){

@@ -11,7 +11,7 @@ export class SunnyView {
  constructor(){
   const c=this.atlas.context;
   drawSunnyHero(c,0,0,700,475);this.atlas.region('hero',{x:0,y:0,w:700,h:475});
-  ['paper','peach','jade','off'].forEach((kind,i)=>{drawSunnySurface(c,i*246,480,240,180,kind);this.atlas.region(kind,{x:i*246,y:480,w:240,h:180});});
+  ['paper','peach','jade','off'].forEach((kind,i)=>{const h=kind==='peach'||kind==='jade'?96:180;drawSunnySurface(c,i*246,480,240,h,kind);this.atlas.region(kind,{x:i*246,y:480,w:240,h});});
   ['home','map','flower','workshop','book','gear','pause','hint','undo','restart','back','next','spark','close','play','ice','tiles'].forEach((n,i)=>{const x=(i%16)*62,y=700+Math.floor(i/16)*62;drawSunnyIcon(c,n,x+5,y+5,48,'#FFFFFF');this.atlas.region(n,{x,y,w:58,h:58});});
   this.atlas.bake();
  }
@@ -32,7 +32,9 @@ export class SunnyView {
     const x=it.angle!==undefined?it.x-W/2:cx,y=it.angle!==undefined?H/2-it.y:cy;
     n=makeNode(root,{x,y,w:it.w,h:it.h});const g=n.addComponent(Graphics);g.fillColor=hex(it.color||'#D4DFC1');g.roundRect(-it.w/2,-it.h/2,it.w,it.h,Math.min(it.h/2,7));g.fill();if(it.angle!==undefined)n.angle=-it.angle*180/Math.PI;
    }else {
-    const key=it.kind==='icon'?it.name!:it.kind,sp=makeSprite(root,this.atlas.frame(key),it.w,it.h,cx,cy,!['icon','hero'].includes(it.kind),[34,34,34,34]);n=sp.node;if(it.color)sp.color=hex(it.color);
+    // 彩色按钮只沿水平方向切片，竖向完整缩放，保持渐变连续；瓷白卡片仍保留九宫格圆角。
+    const insets:[number,number,number,number]=it.kind==='peach'||it.kind==='jade'?[26,26,0,0]:[26,26,26,26];
+    const key=it.kind==='icon'?it.name!:it.kind,sp=makeSprite(root,this.atlas.frame(key),it.w,it.h,cx,cy,!['icon','hero'].includes(it.kind),insets);n=sp.node;if(it.color)sp.color=hex(it.color);
    }
    if(n&&it.id){n.name='sunny:'+it.id;if(it.enabled!==false)bindPress(n,()=>onTap(it.id!));}
   }

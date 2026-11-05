@@ -39,6 +39,9 @@ with sync_playwright() as p:
  click('home');click('start');screen('board');page.screenshot(path=str(out/f'{"native" if native else "h5"}-blue.png'))
  for w,h in [(320,568),(390,844),(430,932)]:
   page.set_viewport_size({'width':w,'height':h});page.wait_for_timeout(220)
+  if native:
+   page.evaluate("s=>{const el=document.querySelector('#GameDiv');el.style.width=s.w+'px';el.style.height=(s.h-50)+'px';cc.view.setFrameSize(s.w,s.h-50);window.dispatchEvent(new Event('resize'));}",{'w':w,'h':h});page.wait_for_timeout(180)
+   rect=page.locator('#GameCanvas').bounding_box();assert abs(rect['x'])<1 and abs(rect['width']-w)<1,rect
   for sc in ['home','levels','workshop','album']:
    page.evaluate("s=>{testApp.activate(s)}",sc);page.wait_for_timeout(150);screen(sc)
    if native:

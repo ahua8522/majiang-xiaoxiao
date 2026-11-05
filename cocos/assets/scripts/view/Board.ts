@@ -10,6 +10,7 @@
 import {Graphics, Mask, Node, Sprite, Tween, UIOpacity, UITransform, Vec3, tween} from 'cc';
 import {TileAtlas, UiAtlas} from './assets';
 import {iceLayers} from './art';
+import {BOARD_PAD} from './sunnyLayout';
 import {clearChildren, slicedFrame, hex, makeHighlight, makeLabel, makeNode, makeSprite} from './widgets';
 
 /** 与 core/Rules 结构兼容，避免视图层 import core。 */
@@ -333,7 +334,7 @@ export class Board {
 
   private drawFrame(x: number, y: number, w: number, h: number,theme:'jade'|'blue'|'rose'): void {
     const frame=theme==='jade'?'wood':theme==='blue'?'wood-blue':'wood-rose';
-    const pad = Math.max(22, this.cellHei * .2);
+    const pad = BOARD_PAD;
     const fw = w + pad * 2, fh = h + pad * 2;
     const cx = x + w / 2, cy = y - h / 2;
     // 遮罩跟着木框走；tilesRoot 反向偏移，抵消掉遮罩节点的位移
@@ -392,7 +393,7 @@ export class Board {
    */
   private placeRails(model: BoardModel, w: number, h: number): void {
     clearChildren(this.railRoot);
-    const pad = Math.max(22, this.cellHei * .2);
+    const pad = BOARD_PAD;
     /**
      * 牌区在 Board 本地坐标里的**真实矩形**（`cellCenter` 就是按 originX/originY 往下排的）。
      *

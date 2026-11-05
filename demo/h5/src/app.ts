@@ -1,4 +1,4 @@
-import {SunnyState,sunnyHome,sunnyMap,sunnyWorkshop,sunnyAlbum,sunnyBoard,sunnyWin,sunnySettings,sunnyPause,sunnyLose,sunnyIntro,sunnyRestart,WORKSHOP,totalStars} from '../../../cocos/assets/scripts/view/sunnyLayout';
+import {BOARD_PAD,SunnyState,sunnyHome,sunnyMap,sunnyWorkshop,sunnyAlbum,sunnyBoard,sunnyWin,sunnySettings,sunnyPause,sunnyLose,sunnyIntro,sunnyRestart,WORKSHOP,totalStars} from '../../../cocos/assets/scripts/view/sunnyLayout';
 import {drawSunnyTable,TableTheme,TABLE_THEMES} from '../../../cocos/assets/scripts/view/sunnyArt';
 import {renderSunny} from './sunny';
 /**
@@ -22,7 +22,7 @@ import {Box, Hit, KIND, backChevron, button, chevron, fillRR, fit, panel, pill, 
 
 export const DW = 750;
 /** 应用版本号：与 upload-ci.cjs 上传时传的版本保持一致（提版时手动同步）。 */
-export const APP_VERSION = '1.4.1';
+export const APP_VERSION = '1.4.2';
 
 /**
  * 「新玩法」说明卡的内容（与 cocos GameRoot 的 TIP_CONTENT 同文案）：
@@ -457,7 +457,7 @@ export class App {
     const S = this.session;
     const line=this.drag?'拖动整行或整列，松手配对':S.message||'同牌相邻，轻点或推移';
     const layout=sunnyBoard(this.sunnyState(),line);renderSunny(ctx,layout.items,this.hits);
-    const rows=this.rows(),cols=this.cols(),cellW=layout.cellW,cellH=layout.cellH,bw=cellW*cols,bh=cellH*rows,pad=Math.max(22,cellH*.2),bx=layout.x,by=layout.y;
+    const rows=this.rows(),cols=this.cols(),cellW=layout.cellW,cellH=layout.cellH,bw=cellW*cols,bh=cellH*rows,pad=BOARD_PAD,bx=layout.x,by=layout.y;
     this.boardBox = {x: bx, y: by, w: bw, h: bh};
     const frame: Box = {x: bx - pad, y: by - pad, w: bw + pad * 2, h: bh + pad * 2};
     this.woodFrame(ctx, frame);
@@ -557,7 +557,7 @@ export class App {
         const liftY = cellH * .05;
         for (let k = 0; k < visible; k++) {
           const depth = (visible - 1 - k);
-          const tw = cellW * .84, th = cellH * .84;
+          const tw = cellW * .90, th = cellH * .90;
           const isTop = k === visible - 1;
           const cx = x0 + cellW / 2, cy = y0 + cellH * .5 - depth * liftY;
           drawTile(ctx, cx, cy, {face: cell[k], w: tw, h: th, lift: th * .08});

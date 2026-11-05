@@ -479,20 +479,20 @@
   ];
   function drawSunnySurface(c, x, y, w, h, kind = "paper") {
     const peach = kind === "peach", jade = kind === "jade", off = kind === "off";
-    const r = Math.min(28, h * 0.25);
-    fillRR(c, x, y + 7, w, h - 7, r, peach ? "#B7785F" : jade ? "#345F4C" : "#BFCEAF");
-    fillRR(c, x, y, w, h - 8, r, linear(c, x, y, x, y + h, [[0, peach ? "#EDA68A" : jade ? "#739D7A" : off ? "#E7ECD9" : "#FFFEF7"], [1, peach ? "#D58C70" : jade ? "#477B61" : off ? "#DDE5CE" : "#F5F7E9"]]));
-    strokeRR(c, x + 1, y + 1, w - 2, h - 10, r, peach ? "#D9987E" : jade ? "#658E70" : "#CEDABD", 2);
-    strokeRR(c, x + 5, y + 5, w - 10, h - 18, Math.max(4, r - 4), "rgba(255,255,245,.55)", 1.5);
+    const r = Math.min(23, h * 0.25), depth = peach || jade ? 5 : 3;
+    fillRR(c, x, y + depth, w, h - depth, r, peach ? "#B97358" : jade ? "#39644E" : "#CCD6BF");
+    const fill = peach || jade ? linear(c, x, y, x, y + h - depth, [[0, peach ? "#EDA789" : "#7CA387"], [0.5, peach ? "#E39878" : "#648F73"], [1, peach ? "#D88968" : "#507D63"]]) : off ? "#E4EAD9" : "#FFFEF7";
+    fillRR(c, x, y, w, h - depth - 1, r, fill);
+    strokeRR(c, x + 1, y + 1, w - 2, h - depth - 3, r, peach ? "#CF886A" : jade ? "#547E63" : "#D1DAC4", 1.5);
+    if (peach || jade) strokeRR(c, x + 3, y + 3, w - 6, h - depth - 7, Math.max(3, r - 3), "rgba(255,255,245,.25)", 1);
   }
   function drawSunnyTable(c, x, y, w, h, theme = "jade") {
     const felt = TABLE_THEMES.find((t) => t.id === theme).felt;
-    fillRR(c, x, y + 9, w, h - 9, 32, "#527D65");
-    fillRR(c, x, y, w, h - 10, 32, linear(c, x, y, x, y + h, [[0, "#BED5AA"], [1, "#83AA89"]]));
-    strokeRR(c, x + 3, y + 2, w - 6, h - 13, 30, "#EAF1D7", 3);
-    fillRR(c, x + 22, y + 24, w - 44, h - 55, 22, felt);
-    strokeRR(c, x + 22, y + 24, w - 44, h - 55, 22, "#D8E5C9", 2);
-    strokeRR(c, x + 9, y + 10, w - 18, h - 31, 25, "rgba(250,255,234,.7)", 1.5);
+    fillRR(c, x, y + 5, w, h - 5, 22, "#527D65");
+    fillRR(c, x, y, w, h - 5, 22, "#B5CCA8");
+    strokeRR(c, x + 2, y + 2, w - 4, h - 9, 20, "#EAF1D7", 2);
+    fillRR(c, x + 9, y + 9, w - 18, h - 23, 15, felt);
+    strokeRR(c, x + 9, y + 9, w - 18, h - 23, 15, "#D8E5C9", 1.5);
   }
   function ellipse(c, x, y, rx, ry, col, angle = 0) {
     c.beginPath();
@@ -700,6 +700,18 @@
   }
 
   // cocos/assets/scripts/view/sunnyLayout.ts
+  function sunnyBannerArea(a) {
+    return { x: 0, y: a.h - 144, w: a.w, h: 120 };
+  }
+  var BOARD_PAD = 18;
+  function fitBoard(a, rows, cols, top2, bottom, margin = 28) {
+    const cellW = Math.min((a.w - 2 * margin) / cols, (bottom - top2 - 2 * BOARD_PAD) / rows / 1.24, 156), cellH = cellW * 1.24;
+    return { x: (a.w - cols * cellW) / 2, y: top2 + (bottom - top2 - rows * cellH) / 2, cellW, cellH };
+  }
+  function boardTools(a) {
+    const h = Math.max(84, Math.min(104, 44 / (a.cssScale || 0.52))), y = a.h - 36 - h;
+    return { h, y, messageY: y - 44, bottom: y - 60 };
+  }
   var WORKSHOP = [
     { name: "\u8F7B\u63A8\u78B0\u5BF9", icon: "tiles", note: "\u540C\u724C\u76F8\u90BB\uFF0C\u5C31\u80FD\u914D\u5BF9", level: 0 },
     { name: "\u53E0\u5F71\u4E0E\u51B0", icon: "ice", note: "\u5148\u7834\u51B0\uFF0C\u518D\u6536\u8D70", level: 40 },
@@ -756,7 +768,7 @@
     return { out, box, txt, ico, button: button2, circle, tile, top: top2, nav };
   }
   function sunnyHome(a) {
-    const { out, box, txt, button: button2, ico, top: top2, nav } = kit(a);
+    const { out, box, txt, button: button2, ico, top: top2 } = kit(a);
     top2();
     const sy = a.safe, free = a.h - sy, short = free < 1420;
     txt("\u9633\u5149\u6B63\u597D \xB7 \u78B0\u4E2A\u5F00\u5FC3", a.w / 2, sy + 179, 20, SUNNY.soft, "center");
@@ -766,7 +778,7 @@
       txt("\u5BF9\u5BF9\u6D88", logoX + 280, sy + 241 + dy, 51, dy ? col : "#4D7959", "left", true);
     }
     txt("\u63A8\u4E00\u63A8\uFF0C\u540C\u724C\u78B0\u5934\u5C31\u6D88", a.w / 2, sy + 317, 23, SUNNY.soft, "center");
-    const cardY = a.h - 558, heroY = sy + (short ? 334 : 360), heroH = Math.max(140, Math.min(480, cardY - heroY - 18)), heroW = Math.min(a.w - 50, heroH * 700 / 475);
+    const cardY = sunnyBannerArea(a).y - 396, heroY = sy + (short ? 334 : 360), heroH = Math.max(140, Math.min(480, cardY - heroY - 18)), heroW = Math.min(a.w - 50, heroH * 700 / 475);
     box("hero", (a.w - heroW) / 2, heroY, heroW, heroH);
     box("paper", 44, cardY, a.w - 88, 248);
     const chapter = CHAPTERS[Math.floor(a.s.levelIndex / CHAPTER_LENGTH)];
@@ -774,17 +786,13 @@
     txt(chapter[0], 76, cardY + 68, 38, SUNNY.ink, "left", true, true);
     txt(String(a.s.levelIndex + 1).padStart(2, "0"), a.w - 97, cardY + 46, 42, SUNNY.jade, "center", true, true);
     button2(a.s.moves ? "\u7EE7\u7EED\u8FD9\u4E00\u684C" : "\u5F00\u684C\u6D88\u4E00\u5C40", "start", 76, cardY + 133, a.w - 152, 92, "peach");
-    const cy = cardY + 275, cw = (a.w - 114) / 2;
-    box("paper", 44, cy, cw, 111, "workshop");
-    ico("workshop", 64, cy + 33, 40, "#BD8D48");
-    txt("\u673A\u5173\u5DE5\u574A", 119, cy + 23, 27, SUNNY.ink, "left", true);
-    txt("\u65B0\u673A\u5173\uFF0C\u968F\u5FC3\u8BD5", 119, cy + 66, 19, SUNNY.soft);
-    box("paper", 70 + cw, cy, cw, 111, "album");
-    ico("flower", 90 + cw, cy + 33, 40, "#7A9B6C");
-    txt("\u6211\u7684\u6536\u85CF", 145 + cw, cy + 23, 27, SUNNY.ink, "left", true);
-    txt("\u6362\u5F20\u684C\u5E03\uFF0C\u6362\u4E2A\u5FC3\u60C5", 145 + cw, cy + 66, 18, SUNNY.soft);
-    if (a.h - (cy + 111) > 154) txt("\u540C\u724C\u6D88\u9664 \xB7 \u8F7B\u677E\u52A8\u52A8\u8111", a.w / 2, cy + 138, 20, SUNNY.soft, "center");
-    nav("home");
+    const cy = cardY + 266, cw = (a.w - 120) / 3;
+    [["levels", "map", "\u6E38\u56ED\u9009\u5173"], ["workshop", "workshop", "\u673A\u5173\u5DE5\u574A"], ["album", "flower", "\u6211\u7684\u6536\u85CF"]].forEach(([id, icon2, label], i) => {
+      const x = 44 + i * (cw + 16);
+      box("paper", x, cy, cw, 108, id);
+      ico(icon2, x + cw / 2 - 17, cy + 17, 34, i === 1 ? "#B38A51" : SUNNY.jade);
+      txt(label, x + cw / 2, cy + 65, 24, SUNNY.ink, "center", true);
+    });
     return out;
   }
   function sunnyMap(a) {
@@ -873,54 +881,35 @@
     return out;
   }
   function sunnyBoard(a, message) {
-    const { out, box, txt, ico, circle, tile } = kit(a), S = a.s, W = a.w, H = a.h, safe = a.safe, dense = H - safe < 1450 && S.grid.length >= 8;
-    circle("pause", "pause", 35, safe + 29);
-    circle("gear", "settings", W - 117, safe + 29);
-    txt(a.practice ? "\u673A\u5173\u8BD5\u73A9" : dense ? `\u7B2C ${S.levelIndex + 1} \u5173 \xB7 ${CHAPTERS[Math.floor(S.levelIndex / 20)][0]}` : CHAPTERS[Math.floor(S.levelIndex / 20)][0], W / 2, safe + 35, dense ? 30 : 37, SUNNY.ink, "center", true, true);
-    txt(dense ? message.slice(0, 23) : a.practice ? "\u4E0D\u8BA1\u4E3B\u7EBF\u8FDB\u5EA6" : `\u7B2C ${S.levelIndex + 1} \u5173 \xB7 ${S.grid[0].length} \xD7 ${S.grid.length}`, W / 2, safe + 89, dense ? 18 : 21, SUNNY.soft, "center");
-    if (dense) out[out.length - 1].name = "board-message";
-    const cy = safe + 148;
-    box("paper", 36, cy, W - 72, dense ? 106 : 130);
+    const { out, box, txt, ico, circle, tile } = kit(a), S = a.s, W = a.w, safe = a.safe, tools = boardTools(a);
+    circle("pause", "pause", 24, safe + 12);
+    circle("gear", "settings", W - 106, safe + 12);
+    txt(a.practice ? "\u673A\u5173\u8BD5\u73A9" : `\u7B2C ${S.levelIndex + 1} \u5173 \xB7 ${CHAPTERS[Math.floor(S.levelIndex / 20)][0]}`, W / 2, safe + 32, 30, SUNNY.ink, "center", true, true);
+    const cy = safe + 111;
+    box("paper", 24, cy, W - 48, 82);
     const goal = S.goal, target = goal?.kind === "collect" ? goal.faces || [] : goal?.kind === "face" ? [goal.face] : [];
-    ico(goal?.kind === "garden" ? "flower" : target.length ? "book" : "tiles", 62, cy + 44, 43, "#BB9552");
-    txt(target.length ? "\u5FC3\u613F\u6E05\u5355 \xB7 \u6BCF\u79CD\u4E00\u5BF9" : goal ? S.def.floors?.[0]?.kind === "dew" ? "\u5728\u9732\u73E0\u65C1\u6D88\u724C" : S.def.floors?.[0]?.kind === "bud" ? "\u5206\u4E24\u6B21\u5524\u9192\u82B1\u82DE" : "\u8BA9\u82B1\u5703\u5168\u90E8\u5F00\u82B1" : "\u6536\u8D70\u8FD9\u4E00\u684C\u9EBB\u5C06", 122, cy + 24, 22, "#92937C");
+    ico(goal?.kind === "garden" ? "flower" : target.length ? "book" : "tiles", 43, cy + 22, 31, "#AE8D50");
     if (target.length) target.slice(0, 4).forEach((f, i) => {
-      tile(f, 119 + i * 73, cy + 51, 40);
-      txt((S.mechanics.collected[f.replace(/[~*]+$/, "")] || 0) >= 2 ? "\u2713" : "2", 166 + i * 73, cy + 66, 23, SUNNY.ink);
+      tile(f, 88 + i * 81, cy + 9, 44);
+      txt((S.mechanics.collected[f.replace(/[~*]+$/, "")] || 0) >= 2 ? "\u2713" : "2", 139 + i * 81, cy + 27, 23, SUNNY.ink);
     });
-    else txt(goal ? S.objectiveText : `${S.remaining} \u5F20\u5F85\u6536`, 122, cy + 65, dense ? 28 : 32, SUNNY.ink, "left", true);
-    box("line", W - 169, cy + 23, 2, 79);
-    out[out.length - 1].color = "#D9DCC2";
-    txt(S.moveLimit ? "\u5269\u4F59\u6B65\u6570" : "\u5DF2\u7528\u6B65\u6570", W - 107, cy + 23, 20, SUNNY.soft, "center");
-    txt(String(S.moveLimit ? S.movesLeft : S.moves), W - 106, cy + 58, dense ? 35 : 45, S.moveLimit && S.movesLeft < 4 ? "#BF755E" : SUNNY.jade, "center", true, true);
-    if (S.def.energy && !dense) {
-      ico("spark", 45, safe + 304, 29, "#BA934D");
-      txt("\u7075\u611F", 88, safe + 304, 22, SUNNY.soft);
-      for (let i = 0; i < 4; i++) {
-        box("paper", 154 + i * 83, safe + 303, 75, 18);
-        if (i < S.mechanics.charge) {
-          box("line", 158 + i * 83, safe + 307, 67, 8);
-          out[out.length - 1].color = "#92B48A";
-        }
-      }
-      box("paper", W - 219, safe + 293, 181, 46, "energy-hint");
-      txt(S.mechanics.charge >= 4 ? "\u7528\u4E00\u6B21\u63D0\u793A" : "\u6D88\u5BF9\u5145\u80FD", W - 129, safe + 303, 20, S.mechanics.charge >= 4 ? SUNNY.jade : "#A4AC91", "center");
-    }
-    const top2 = safe + (dense ? 288 : S.def.energy ? 376 : 328), bottom = H - (dense ? 175 : 233), avail = bottom - top2, rows = S.grid.length, cols = S.grid[0].length;
-    const cellW = Math.min((W - 94) / cols, avail / (rows + 0.65) / 1.24, 156), cellH = cellW * 1.24, x = (W - cols * cellW) / 2, y = top2 + (avail - rows * cellH) / 2;
-    if (!dense) {
-      txt(message.slice(0, 29), W / 2, H - 192, 23, SUNNY.soft, "center");
-      out[out.length - 1].name = "board-message";
-    }
-    const toolH = Math.max(88, Math.min(104, 44 / (a.cssScale || 0.52))), toolY = H - 43 - toolH;
-    const tw = (W - 102) / 3;
+    else txt(goal ? S.objectiveText : `${S.remaining} \u5F20\u5F85\u6536`, 89, cy + 25, 26, SUNNY.ink, "left", true);
+    txt(S.moveLimit ? `\u4F59 ${S.movesLeft} \u6B65` : `${S.moves} \u6B65`, W - 45, cy + 25, 27, S.moveLimit && S.movesLeft < 4 ? "#BF755E" : SUNNY.jade, "right", true);
+    txt(message.slice(0, 29), W / 2, tools.messageY, 20, SUNNY.soft, "center");
+    out[out.length - 1].name = "board-message";
+    const tw = (W - 72) / 3;
     ["\u63D0\u793A", "\u64A4\u9500", "\u91CD\u5F00"].forEach((text2, i) => {
-      const id = ["hint", "undo", "restart"][i], bx = 36 + i * (tw + 15);
-      box("paper", bx, toolY, tw, toolH, id);
-      ico(id, bx + tw / 2 - 51, toolY + toolH / 2 - 17, 30, SUNNY.jade);
-      txt(dense && id === "hint" && S.def.energy ? `\u63D0\u793A ${S.mechanics.charge}/4` : text2, bx + tw / 2 + 16, toolY + toolH / 2 - 17, dense && id === "hint" && S.def.energy ? 20 : 25, SUNNY.ink, "center");
+      const id = ["hint", "undo", "restart"][i], bx = 24 + i * (tw + 12), charged = id === "hint" && S.def.energy;
+      box("paper", bx, tools.y, tw, tools.h, id);
+      const labelY = tools.y + tools.h / 2 - (charged ? 23 : 17);
+      ico(id, bx + tw / 2 - 50, labelY, 30, charged && S.mechanics.charge >= 4 ? "#AD8747" : SUNNY.jade);
+      txt(text2, bx + tw / 2 + 20, labelY, 26, SUNNY.ink, "center");
+      if (charged) for (let j = 0; j < 4; j++) {
+        box("line", bx + tw / 2 - 30 + j * 18, tools.y + tools.h - 17, 12, 4);
+        out[out.length - 1].color = j < S.mechanics.charge ? "#7AA181" : "#DFE6D6";
+      }
     });
-    return { items: out, x, y, cellW, cellH };
+    return { items: out, ...fitBoard(a, S.grid.length, S.grid[0].length, safe + 211, tools.bottom, 40) };
   }
   function sunnyWin(a) {
     const { out, box, txt, ico, button: button2 } = kit(a), S = a.s, h = 666, y = (a.h + a.safe - h) / 2;
@@ -1040,7 +1029,7 @@
         ctx.textBaseline = "top";
         ctx.fillStyle = it.color || SUNNY.ink;
         ctx.fillText(it.text || "", it.x, it.y);
-      } else if (it.kind === "tile") drawTile(ctx, it.name, it.x + it.w * 0.08, it.y + it.h * 0.05, { w: it.w * 0.84, h: it.h * 0.84, lift: it.h * 0.07 });
+      } else if (it.kind === "tile") drawTile(ctx, it.name, it.x + it.w * 0.05, it.y + it.h * 0.05, { w: it.w * 0.9, h: it.h * 0.9, lift: it.h * 0.07 });
       else if (it.kind === "hero") drawSunnyHero(ctx, it.x, it.y, it.w, it.h);
       else if (it.kind === "icon") drawSunnyIcon(ctx, it.name, it.x, it.y, it.w, it.color || SUNNY.ink);
       else if (it.kind === "line") {
@@ -4734,7 +4723,7 @@
 
   // demo/h5/src/app.ts
   var DW = 750;
-  var APP_VERSION = "1.4.1";
+  var APP_VERSION = "1.4.2";
   var App = class {
     constructor(canvas2) {
       this.mainSession = null;
@@ -5356,7 +5345,7 @@
       const line = this.drag ? "\u62D6\u52A8\u6574\u884C\u6216\u6574\u5217\uFF0C\u677E\u624B\u914D\u5BF9" : S.message || "\u540C\u724C\u76F8\u90BB\uFF0C\u8F7B\u70B9\u6216\u63A8\u79FB";
       const layout = sunnyBoard(this.sunnyState(), line);
       renderSunny(ctx, layout.items, this.hits);
-      const rows = this.rows(), cols = this.cols(), cellW = layout.cellW, cellH = layout.cellH, bw = cellW * cols, bh = cellH * rows, pad = Math.max(22, cellH * 0.2), bx = layout.x, by = layout.y;
+      const rows = this.rows(), cols = this.cols(), cellW = layout.cellW, cellH = layout.cellH, bw = cellW * cols, bh = cellH * rows, pad = BOARD_PAD, bx = layout.x, by = layout.y;
       this.boardBox = { x: bx, y: by, w: bw, h: bh };
       const frame = { x: bx - pad, y: by - pad, w: bw + pad * 2, h: bh + pad * 2 };
       this.woodFrame(ctx, frame);
@@ -5456,7 +5445,7 @@
           const liftY = cellH * 0.05;
           for (let k = 0; k < visible; k++) {
             const depth = visible - 1 - k;
-            const tw = cellW * 0.84, th = cellH * 0.84;
+            const tw = cellW * 0.9, th = cellH * 0.9;
             const isTop = k === visible - 1;
             const cx = x0 + cellW / 2, cy = y0 + cellH * 0.5 - depth * liftY;
             drawTile2(ctx, cx, cy, { face: cell[k], w: tw, h: th, lift: th * 0.08 });

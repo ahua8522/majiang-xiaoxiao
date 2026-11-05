@@ -110,8 +110,8 @@ export class TileAtlas {
     const S = fitScale(this.cellW * cols, this.cellH * rows, TILE_BASE_SCALE);
     const cw = Math.max(2, Math.round(this.cellW * S));
     const ch = Math.max(2, Math.round(this.cellH * S));
-    // 牌身占格子的 84%、花色脚厚 h*.08 —— 与 H5 的 drawBoard() 一致
-    const w = cw * .84, h = ch * .84;
+    // 牌身占格子的 90%、花色脚厚 h*.08 —— 与 H5 的 drawBoard() 一致
+    const w = cw * .90, h = ch * .90;
     const lift = Math.max(2, h * .08);
     const atlas = new Atlas(cols * cw, rows * ch);
     const ctx = atlas.context;
@@ -312,7 +312,7 @@ export class UiAtlas {
       fillRR(c, x, y, w, h, 5, 'rgba(96,64,28,.30)');
       strokeRR(c, x + 1, y + 1, w - 2, h - 2, 5, 'rgba(60,38,14,.35)', 2);
     }, [22, 22, 12, 12]);
-    for(const theme of ['jade','blue','rose'] as const)put(theme==='jade'?'wood':'wood-'+theme,200,200,(c,x,y,w,h)=>drawSunnyTable(c,x,y,w,h,theme),[40,40,44,44]);
+    for(const theme of ['jade','blue','rose'] as const)put(theme==='jade'?'wood':'wood-'+theme,200,200,(c,x,y,w,h)=>drawSunnyTable(c,x,y,w,h,theme),[26,26,26,30]);
     put('tile-tray', 120, 120, (c, x, y, w, h) => {
       fillRR(c, x, y, w, h, 14, palette.woodInner);
       strokeRR(c, x, y, w, h, 14, 'rgba(30,50,20,.55)', 3);

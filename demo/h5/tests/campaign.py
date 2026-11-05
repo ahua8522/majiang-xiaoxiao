@@ -48,13 +48,16 @@ with sync_playwright() as p:
   for index in levels:
    page.goto(args.url+f'?screen=board&level={index}&preview=1',wait_until='domcontentloaded')
    page.wait_for_function('typeof __mj === "function" && !!__mj().model' if args.native else 'window.__mjReady===true')
+   if args.native:
+    page.evaluate("s=>{const el=document.querySelector('#GameDiv');el.style.width=s.w+'px';el.style.height=(s.h-50)+'px';cc.view.setFrameSize(s.w,s.h-50);window.dispatchEvent(new Event('resize'));}",{'w':w,'h':h});page.wait_for_timeout(180)
+    rect=page.locator('#GameCanvas').bounding_box();assert abs(rect['x'])<1 and abs(rect['width']-w)<1,rect
    page.evaluate("__mjTap('tip-ok')" if args.native else "mj.session.dismissTip();mj.invalidate()")
    if not args.native:page.wait_for_function("mj.hits.filter(h=>['hint','undo','restart'].includes(h.id)).length===3")
    wait();s=state();assert s['level']==index
    if args.native:assert not page.evaluate('__mj().model.atlas.misses')
    else:
     geo=page.evaluate("() => ({b:mj.boardBox,H:mj.H,tools:mj.hits.filter(h=>['hint','undo','restart'].includes(h.id)),s:mj.s})")
-    b=geo['b'];assert b['x']>=0 and b['y']>=280 and b['y']+b['h']<geo['H']-132
+    b=geo['b'];assert b['x']>=0 and b['y']>=211 and b['y']+b['h']<geo['H']-132
     assert len(geo['tools'])==3 and all(t['h']*geo['s']<=56 for t in geo['tools'])
     assert b['w']/len(s['grid'][0])*geo['s']>=28,'tiles too small'
    if w==390:

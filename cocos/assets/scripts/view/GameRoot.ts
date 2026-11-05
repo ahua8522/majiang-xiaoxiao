@@ -43,7 +43,7 @@ const dirLabel = (axis: Axis, step: number): string => axis === 'row' ? (step > 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 /** 应用版本号：与 cocos/package.json 的 version、upload-ci 上传版本保持一致（提版时三处一起改）。 */
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.2';
 
 /**
  * 「新玩法」说明卡的内容：每关首次出现某机制时，进关先弹这张卡（看完才开局）。

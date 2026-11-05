@@ -7,6 +7,15 @@ export type SunnyKind='paper'|'peach'|'jade'|'off'|'circle'|'hero'|'line'|'text'
 export interface SunnyItem {kind:SunnyKind;x:number;y:number;w:number;h:number;text?:string;size?:number;color?:string;bold?:boolean;serif?:boolean;align?:'left'|'center'|'right';id?:string;enabled?:boolean;name?:string;angle?:number}
 export interface SunnyState {w:number;h:number;safe:number;s:Session;page:number;theme:TableTheme;practice:boolean;cssScale?:number}
 export interface SunnyBoardLayout {items:SunnyItem[];x:number;y:number;cellW:number;cellH:number}
+/** 首页留给未来横幅的独立区域；当前只留白，不创建广告或占位按钮。 */
+export function sunnyBannerArea(a:Pick<SunnyState,'w'|'h'>){return {x:0,y:a.h-144,w:a.w,h:120};}
+export const BOARD_PAD=18;
+/** 牌面保持实物比例，先扣除窄桌沿，再同时适配横纵空间。 */
+function fitBoard(a:SunnyState,rows:number,cols:number,top:number,bottom:number,margin=28){
+ const cellW=Math.min((a.w-2*margin)/cols,(bottom-top-2*BOARD_PAD)/rows/1.24,156),cellH=cellW*1.24;
+ return {x:(a.w-cols*cellW)/2,y:top+(bottom-top-rows*cellH)/2,cellW,cellH};
+}
+function boardTools(a:SunnyState){const h=Math.max(84,Math.min(104,44/(a.cssScale||.52))),y=a.h-36-h;return {h,y,messageY:y-44,bottom:y-60};}
 export const WORKSHOP=[
   {name:'轻推碰对',icon:'tiles',note:'同牌相邻，就能配对',level:0},
   {name:'叠影与冰',icon:'ice',note:'先破冰，再收走',level:40},
@@ -31,13 +40,13 @@ function kit(a:SunnyState){
  return {out,box,txt,ico,button,circle,tile,top,nav};
 }
 export function sunnyHome(a:SunnyState):SunnyItem[]{
- const {out,box,txt,button,ico,top,nav}=kit(a);top();
+ const {out,box,txt,button,ico,top}=kit(a);top();
  const sy=a.safe,free=a.h-sy,short=free<1420;
  txt('阳光正好 · 碰个开心',a.w/2,sy+179,20,SUNNY.soft,'center');
  const logoX=(a.w-433)/2;
  for(const [dy,col]of [[5,'#C9DAC0'],[2,'#FFFEF4'],[0,'#315F49']] as [number,string][]){txt('快乐推麻',logoX,sy+221+dy,68,col,'left',true);txt('对对消',logoX+280,sy+241+dy,51,dy?col:'#4D7959','left',true);}
  txt('推一推，同牌碰头就消',a.w/2,sy+317,23,SUNNY.soft,'center');
- const cardY=a.h-558,heroY=sy+(short?334:360),heroH=Math.max(140,Math.min(480,cardY-heroY-18)),heroW=Math.min(a.w-50,heroH*700/475);
+ const cardY=sunnyBannerArea(a).y-396,heroY=sy+(short?334:360),heroH=Math.max(140,Math.min(480,cardY-heroY-18)),heroW=Math.min(a.w-50,heroH*700/475);
  box('hero',(a.w-heroW)/2,heroY,heroW,heroH);
  box('paper',44,cardY,a.w-88,248);
  const chapter=CHAPTERS[Math.floor(a.s.levelIndex/CHAPTER_LENGTH)];
@@ -45,10 +54,10 @@ export function sunnyHome(a:SunnyState):SunnyItem[]{
  txt(chapter[0],76,cardY+68,38,SUNNY.ink,'left',true,true);
  txt(String(a.s.levelIndex+1).padStart(2,'0'),a.w-97,cardY+46,42,SUNNY.jade,'center',true,true);
  button(a.s.moves?'继续这一桌':'开桌消一局','start',76,cardY+133,a.w-152,92,'peach');
- const cy=cardY+275,cw=(a.w-114)/2;
- box('paper',44,cy,cw,111,'workshop');ico('workshop',64,cy+33,40,'#BD8D48');txt('机关工坊',119,cy+23,27,SUNNY.ink,'left',true);txt('新机关，随心试',119,cy+66,19,SUNNY.soft);
- box('paper',70+cw,cy,cw,111,'album');ico('flower',90+cw,cy+33,40,'#7A9B6C');txt('我的收藏',145+cw,cy+23,27,SUNNY.ink,'left',true);txt('换张桌布，换个心情',145+cw,cy+66,18,SUNNY.soft);
- if(a.h-(cy+111)>154)txt('同牌消除 · 轻松动动脑',a.w/2,cy+138,20,SUNNY.soft,'center');nav('home');return out;
+ const cy=cardY+266,cw=(a.w-120)/3;
+ [['levels','map','游园选关'],['workshop','workshop','机关工坊'],['album','flower','我的收藏']].forEach(([id,icon,label],i)=>{
+  const x=44+i*(cw+16);box('paper',x,cy,cw,108,id);ico(icon,x+cw/2-17,cy+17,34,i===1?'#B38A51':SUNNY.jade);txt(label,x+cw/2,cy+65,24,SUNNY.ink,'center',true);
+ });return out;
 }
 export function sunnyMap(a:SunnyState):SunnyItem[]{
  const {out,box,txt,ico,button,circle,top,nav}=kit(a);top();const ci=a.page;
@@ -80,23 +89,23 @@ export function sunnyAlbum(a:SunnyState):SunnyItem[]{
  nav('album');return out;
 }
 export function sunnyBoard(a:SunnyState,message:string):SunnyBoardLayout{
- const {out,box,txt,ico,circle,tile}=kit(a),S=a.s,W=a.w,H=a.h,safe=a.safe,dense=H-safe<1450&&S.grid.length>=8;
- circle('pause','pause',35,safe+29);circle('gear','settings',W-117,safe+29);
- txt(a.practice?'机关试玩':dense?`第 ${S.levelIndex+1} 关 · ${CHAPTERS[Math.floor(S.levelIndex/20)][0]}`:CHAPTERS[Math.floor(S.levelIndex/20)][0],W/2,safe+35,dense?30:37,SUNNY.ink,'center',true,true);
- txt(dense?message.slice(0,23):a.practice?'不计主线进度':`第 ${S.levelIndex+1} 关 · ${S.grid[0].length} × ${S.grid.length}`,W/2,safe+89,dense?18:21,SUNNY.soft,'center');if(dense)out[out.length-1].name='board-message';
- const cy=safe+148;box('paper',36,cy,W-72,dense?106:130);
+ const {out,box,txt,ico,circle,tile}=kit(a),S=a.s,W=a.w,safe=a.safe,tools=boardTools(a);
+ circle('pause','pause',24,safe+12);circle('gear','settings',W-106,safe+12);
+ txt(a.practice?'机关试玩':`第 ${S.levelIndex+1} 关 · ${CHAPTERS[Math.floor(S.levelIndex/20)][0]}`,W/2,safe+32,30,SUNNY.ink,'center',true,true);
+ const cy=safe+111;box('paper',24,cy,W-48,82);
  const goal=S.goal,target=goal?.kind==='collect'?goal.faces||[]:goal?.kind==='face'?[goal.face!]:[];
- ico(goal?.kind==='garden'?'flower':target.length?'book':'tiles',62,cy+44,43,'#BB9552');
- txt(target.length?'心愿清单 · 每种一对':goal?(S.def.floors?.[0]?.kind==='dew'?'在露珠旁消牌':S.def.floors?.[0]?.kind==='bud'?'分两次唤醒花苞':'让花圃全部开花'):'收走这一桌麻将',122,cy+24,22,'#92937C');
- if(target.length)target.slice(0,4).forEach((f,i)=>{tile(f,119+i*73,cy+51,40);txt((S.mechanics.collected[f.replace(/[~*]+$/,'')]||0)>=2?'✓':'2',166+i*73,cy+66,23,SUNNY.ink);});
- else txt(goal?S.objectiveText:`${S.remaining} 张待收`,122,cy+65,dense?28:32,SUNNY.ink,'left',true);
- box('line',W-169,cy+23,2,79);out[out.length-1].color='#D9DCC2';txt(S.moveLimit?'剩余步数':'已用步数',W-107,cy+23,20,SUNNY.soft,'center');txt(String(S.moveLimit?S.movesLeft:S.moves),W-106,cy+58,dense?35:45,S.moveLimit&&S.movesLeft<4?'#BF755E':SUNNY.jade,'center',true,true);
- if(S.def.energy&&!dense){ico('spark',45,safe+304,29,'#BA934D');txt('灵感',88,safe+304,22,SUNNY.soft);for(let i=0;i<4;i++){box('paper',154+i*83,safe+303,75,18);if(i<S.mechanics.charge){box('line',158+i*83,safe+307,67,8);out[out.length-1].color='#92B48A';}}box('paper',W-219,safe+293,181,46,'energy-hint');txt(S.mechanics.charge>=4?'用一次提示':'消对充能',W-129,safe+303,20,S.mechanics.charge>=4?SUNNY.jade:'#A4AC91','center');}
- const top=safe+(dense?288:S.def.energy?376:328),bottom=H-(dense?175:233),avail=bottom-top,rows=S.grid.length,cols=S.grid[0].length;
- const cellW=Math.min((W-94)/cols,avail/(rows+.65)/1.24,156),cellH=cellW*1.24,x=(W-cols*cellW)/2,y=top+(avail-rows*cellH)/2;
- if(!dense){txt(message.slice(0,29),W/2,H-192,23,SUNNY.soft,'center');out[out.length-1].name='board-message';}
- const toolH=Math.max(88,Math.min(104,44/(a.cssScale||.52))),toolY=H-43-toolH;const tw=(W-102)/3;['提示','撤销','重开'].forEach((text,i)=>{const id=['hint','undo','restart'][i],bx=36+i*(tw+15);box('paper',bx,toolY,tw,toolH,id);ico(id,bx+tw/2-51,toolY+toolH/2-17,30,SUNNY.jade);txt(dense&&id==='hint'&&S.def.energy?`提示 ${S.mechanics.charge}/4`:text,bx+tw/2+16,toolY+toolH/2-17,dense&&id==='hint'&&S.def.energy?20:25,SUNNY.ink,'center');});
- return {items:out,x,y,cellW,cellH};
+ ico(goal?.kind==='garden'?'flower':target.length?'book':'tiles',43,cy+22,31,'#AE8D50');
+ if(target.length)target.slice(0,4).forEach((f,i)=>{tile(f,88+i*81,cy+9,44);txt((S.mechanics.collected[f.replace(/[~*]+$/,'')]||0)>=2?'✓':'2',139+i*81,cy+27,23,SUNNY.ink);});
+ else txt(goal?S.objectiveText:`${S.remaining} 张待收`,89,cy+25,26,SUNNY.ink,'left',true);
+ txt(S.moveLimit?`余 ${S.movesLeft} 步`:`${S.moves} 步`,W-45,cy+25,27,S.moveLimit&&S.movesLeft<4?'#BF755E':SUNNY.jade,'right',true);
+ txt(message.slice(0,29),W/2,tools.messageY,20,SUNNY.soft,'center');out[out.length-1].name='board-message';
+ const tw=(W-72)/3;
+ ['提示','撤销','重开'].forEach((text,i)=>{const id=['hint','undo','restart'][i],bx=24+i*(tw+12),charged=id==='hint'&&S.def.energy;
+  box('paper',bx,tools.y,tw,tools.h,id);const labelY=tools.y+tools.h/2-(charged?23:17);ico(id,bx+tw/2-50,labelY,30,charged&&S.mechanics.charge>=4?'#AD8747':SUNNY.jade);
+  txt(text,bx+tw/2+20,labelY,26,SUNNY.ink,'center');
+  if(charged)for(let j=0;j<4;j++){box('line',bx+tw/2-30+j*18,tools.y+tools.h-17,12,4);out[out.length-1].color=j<S.mechanics.charge?'#7AA181':'#DFE6D6';}
+ });
+ return {items:out,...fitBoard(a,S.grid.length,S.grid[0].length,safe+211,tools.bottom,40)};
 }
 export function sunnyWin(a:SunnyState):SunnyItem[]{
  const {out,box,txt,ico,button}=kit(a),S=a.s,h=666,y=(a.h+a.safe-h)/2;
@@ -135,13 +144,12 @@ export function sunnyRestart(a:SunnyState):SunnyItem[]{
 }
 interface ChallengeView {level:number;rows:number;cols:number;remaining:number;total:number;moves:number;won:boolean;message:string}
 export function sunnyChallenge(a:SunnyState,c:ChallengeView):SunnyBoardLayout{
- const {out,box,txt,ico,button,circle}=kit(a),W=a.w,H=a.h,safe=a.safe;
- circle('back','challenge-home',35,safe+30);txt(`独立挑战 · 第 ${c.level} 盘`,W/2,safe+42,35,SUNNY.ink,'center',true,true);txt('整线推移，同线配对',W/2,safe+95,21,SUNNY.soft,'center');
- box('paper',36,safe+150,W-72,116);txt('收走这一桌麻将',66,safe+169,21,SUNNY.soft);txt(`${c.remaining} 张待收`,66,safe+207,29,SUNNY.ink,'left',true);txt(`${c.moves} 步`,W-69,safe+198,37,SUNNY.jade,'right',true,true);
- const top=safe+310,bottom=H-218,cellW=Math.min((W-94)/c.cols,(bottom-top)/(c.rows+.65)/1.24,156),cellH=cellW*1.24;
- txt(c.message.slice(0,29),W/2,H-188,22,SUNNY.soft,'center');out[out.length-1].name='board-message';
- const tw=(W-102)/3;['提示','洗牌','重开'].forEach((label,i)=>{const id=['challenge-hint','challenge-shuffle','challenge-restart'][i];button(label,id,36+i*(tw+15),H-138,tw,94);});
- return {items:out,x:(W-cellW*c.cols)/2,y:top+(bottom-top-cellH*c.rows)/2,cellW,cellH};
+ const {out,txt,ico,button,circle}=kit(a),W=a.w,safe=a.safe,tools=boardTools(a);
+ circle('back','challenge-home',24,safe+12);txt(`独立挑战 · 第 ${c.level} 盘`,W/2,safe+32,32,SUNNY.ink,'center',true,true);
+ ico('tiles',34,safe+115,30,SUNNY.jade);txt(`${c.remaining} 张待收`,79,safe+116,26,SUNNY.ink,'left',true);txt(`${c.moves} 步`,W-34,safe+116,27,SUNNY.jade,'right',true);
+ txt(c.message.slice(0,29),W/2,tools.messageY,20,SUNNY.soft,'center');out[out.length-1].name='board-message';
+ const tw=(W-72)/3;['提示','洗牌','重开'].forEach((label,i)=>{const id=['challenge-hint','challenge-shuffle','challenge-restart'][i];button(label,id,24+i*(tw+12),tools.y,tw,tools.h);});
+ return {items:out,...fitBoard(a,c.rows,c.cols,safe+168,tools.bottom)};
 }
 export function sunnyChallengeResult(a:SunnyState,c:ChallengeView):SunnyItem[]{
  const {out,box,txt,ico,button}=kit(a),h=505,y=(a.h+a.safe-h)/2;box('paper',67,y,a.w-134,h);ico('flower',a.w/2-30,y+32,60,'#A79961');txt(c.won?'这一桌，收得漂亮！':'换个思路试试',a.w/2,y+140,39,SUNNY.ink,'center',true,true);txt(`第 ${c.level} 盘 · ${c.moves} 步`,a.w/2,y+219,27,SUNNY.soft,'center');button(c.won?'去下一桌':'重新开这一桌',c.won?'challenge-next':'challenge-restart',108,y+295,a.w-216,88,'peach');button('返回花园','challenge-home',108,y+410,a.w-216,59);return out;

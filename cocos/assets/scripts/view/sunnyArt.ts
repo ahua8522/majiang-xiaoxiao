@@ -10,20 +10,21 @@ export const TABLE_THEMES: {id:TableTheme;name:string;stars:number;felt:string}[
 ];
 export function drawSunnySurface(c:Ctx2D,x:number,y:number,w:number,h:number,kind='paper'):void{
   const peach=kind==='peach',jade=kind==='jade',off=kind==='off';
-  const r=Math.min(28,h*.25);
-  fillRR(c,x,y+7,w,h-7,r,peach?'#B7785F':jade?'#345F4C':'#BFCEAF');
-  fillRR(c,x,y,w,h-8,r,linear(c,x,y,x,y+h,[[0,peach?'#EDA68A':jade?'#739D7A':off?'#E7ECD9':'#FFFEF7'],[1,peach?'#D58C70':jade?'#477B61':off?'#DDE5CE':'#F5F7E9']]));
-  strokeRR(c,x+1,y+1,w-2,h-10,r,peach?'#D9987E':jade?'#658E70':'#CEDABD',2);
-  strokeRR(c,x+5,y+5,w-10,h-18,Math.max(4,r-4),'rgba(255,255,245,.55)',1.5);
+  const r=Math.min(23,h*.25),depth=peach||jade?5:3;
+  fillRR(c,x,y+depth,w,h-depth,r,peach?'#B97358':jade?'#39644E':'#CCD6BF');
+  // 卡片用干净的瓷白；彩色按钮用连续的纵向渐变，避免奶油色带。
+  const fill=peach||jade?linear(c,x,y,x,y+h-depth,[[0,peach?'#EDA789':'#7CA387'],[.5,peach?'#E39878':'#648F73'],[1,peach?'#D88968':'#507D63']]):off?'#E4EAD9':'#FFFEF7';
+  fillRR(c,x,y,w,h-depth-1,r,fill);
+  strokeRR(c,x+1,y+1,w-2,h-depth-3,r,peach?'#CF886A':jade?'#547E63':'#D1DAC4',1.5);
+  if(peach||jade)strokeRR(c,x+3,y+3,w-6,h-depth-7,Math.max(3,r-3),'rgba(255,255,245,.25)',1);
 }
 export function drawSunnyTable(c:Ctx2D,x:number,y:number,w:number,h:number,theme:TableTheme='jade'):void{
   const felt=TABLE_THEMES.find(t=>t.id===theme)!.felt;
-  fillRR(c,x,y+9,w,h-9,32,'#527D65');
-  fillRR(c,x,y,w,h-10,32,linear(c,x,y,x,y+h,[[0,'#BED5AA'],[1,'#83AA89']]));
-  strokeRR(c,x+3,y+2,w-6,h-13,30,'#EAF1D7',3);
-  fillRR(c,x+22,y+24,w-44,h-55,22,felt);
-  strokeRR(c,x+22,y+24,w-44,h-55,22,'#D8E5C9',2);
-  strokeRR(c,x+9,y+10,w-18,h-31,25,'rgba(250,255,234,.7)',1.5);
+  fillRR(c,x,y+5,w,h-5,22,'#527D65');
+  fillRR(c,x,y,w,h-5,22,'#B5CCA8');
+  strokeRR(c,x+2,y+2,w-4,h-9,20,'#EAF1D7',2);
+  fillRR(c,x+9,y+9,w-18,h-23,15,felt);
+  strokeRR(c,x+9,y+9,w-18,h-23,15,'#D8E5C9',1.5);
 }
 function ellipse(c:Ctx2D,x:number,y:number,rx:number,ry:number,col:string,angle=0){c.beginPath();c.ellipse(x,y,rx,ry,angle,0,Math.PI*2);c.fillStyle=col;c.fill();}
 function flower(c:Ctx2D,x:number,y:number,r:number){for(let i=0;i<6;i++){const a=i*Math.PI/3;ellipse(c,x+Math.cos(a)*r*.55,y+Math.sin(a)*r*.55,r*.48,r*.3,'#FFFEF0',a);}ellipse(c,x,y,r*.25,r*.25,'#E0B857');}
