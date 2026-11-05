@@ -10,7 +10,7 @@
 import {Graphics, Mask, Node, Sprite, Tween, UIOpacity, UITransform, Vec3, tween} from 'cc';
 import {TileAtlas, UiAtlas} from './assets';
 import {iceLayers} from './art';
-import {clearChildren, hex, makeHighlight, makeLabel, makeNode, makeSprite} from './widgets';
+import {clearChildren, slicedFrame, hex, makeHighlight, makeLabel, makeNode, makeSprite} from './widgets';
 
 /** 与 core/Rules 结构兼容，避免视图层 import core。 */
 export type Cell = string[] | null | '#';
@@ -25,6 +25,7 @@ export interface Pair {a: Pos; b: Pos; face: string; other?: string}
 
 /** 一帧要画的牌桌内容，全部由 GameRoot 从 Session 解析好。 */
 export interface BoardModel {
+  theme?: 'jade'|'blue'|'rose';
   floors?: {r:number;c:number;kind:'flower'|'dew'|'bud';need:number;progress:number}[];
   keyFaces?: string[];
   grid: Cell[][];
@@ -164,7 +165,7 @@ export class Board {
     this.dragLen = this.dragRun ? this.dragRun.cells.length : 0;
 
     const w = this.cols * this.cellWid, h = this.rows * this.cellHei;
-    this.drawFrame(x, y, w, h);
+    this.drawFrame(x, y, w, h,model.theme||'jade');
     this.placeSlots(model.grid, atlas, model.showSlots !== false);
     this.placeRails(model, w, h);
 
@@ -330,7 +331,8 @@ export class Board {
     }
   }
 
-  private drawFrame(x: number, y: number, w: number, h: number): void {
+  private drawFrame(x: number, y: number, w: number, h: number,theme:'jade'|'blue'|'rose'): void {
+    const frame=theme==='jade'?'wood':theme==='blue'?'wood-blue':'wood-rose';
     const pad = Math.max(22, this.cellHei * .2);
     const fw = w + pad * 2, fh = h + pad * 2;
     const cx = x + w / 2, cy = y - h / 2;
@@ -340,11 +342,12 @@ export class Board {
     this.clipRoot.setPosition(cx, cy, 0);
     this.tilesRoot.setPosition(-cx, -cy, 0);
     if (!this.frameNode) {
-      const sp = makeSprite(this.bgRoot, this.ui.frame('wood'), fw, fh, cx, cy, true, this.ui.inset('wood'));
+      const sp = makeSprite(this.bgRoot, this.ui.frame(frame), fw, fh, cx, cy, true, this.ui.inset('wood'));
       sp.node.name = 'wood';
       this.frameNode = sp.node;
       this.frameNode.setSiblingIndex(0);
     } else {
+      this.frameNode.getComponent(Sprite)!.spriteFrame=slicedFrame(this.ui.frame(frame),this.ui.inset(frame));
       this.frameNode.setPosition(cx, cy, 0);
       const ui = this.frameNode.getComponent(UITransform);
       if (ui) ui.setContentSize(fw, fh);

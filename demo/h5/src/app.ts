@@ -1,3 +1,6 @@
+import {SunnyState,sunnyHome,sunnyMap,sunnyWorkshop,sunnyAlbum,sunnyBoard,sunnyWin,sunnySettings,sunnyPause,sunnyLose,sunnyIntro,sunnyRestart,WORKSHOP,totalStars} from '../../../cocos/assets/scripts/view/sunnyLayout';
+import {drawSunnyTable,TableTheme,TABLE_THEMES} from '../../../cocos/assets/scripts/view/sunnyArt';
+import {renderSunny} from './sunny';
 /**
  * H5 demo shell: drives the real core/Session through the UI reference design.
  *
@@ -19,7 +22,7 @@ import {Box, Hit, KIND, backChevron, button, chevron, fillRR, fit, panel, pill, 
 
 export const DW = 750;
 /** 应用版本号：与 upload-ci.cjs 上传时传的版本保持一致（提版时手动同步）。 */
-export const APP_VERSION = '1.4.0';
+export const APP_VERSION = '1.4.1';
 
 /**
  * 「新玩法」说明卡的内容（与 cocos GameRoot 的 TIP_CONTENT 同文案）：
@@ -42,16 +45,19 @@ const TIP_CONTENT: Record<string, {title: string; lines: string[]}> = {
   unlock: {title: '连锁解锁', lines: ['带数字的锁轨是暂时锁住的：', '每消一对就计数，凑够数字自动解锁。']}
 };
 
-export type Screen = 'home' | 'levels' | 'board' | 'settings' | 'progress' | 'win' | 'lose' | 'pause' | 'help';
+export type Screen = 'restart' | 'workshop' | 'album' | 'home' | 'levels' | 'board' | 'settings' | 'progress' | 'win' | 'lose' | 'pause' | 'help';
 
 export interface Ctx2D extends CanvasRenderingContext2D {}
 
 export class App {
-  readonly session: Session;
+  session: Session;
+  private mainSession:Session|null=null;
+  private theme:TableTheme='jade';
   readonly audio=new SoundStudy();
   screen: Screen = 'home';
   /** Screen the current overlay was opened from, so closing returns correctly. */
   private returnScreen: Screen = 'home';
+  private dialogBase:Screen='home';
   hits: Hit[] = [];
   private pressed: string | null = null;
   private page = 0;
@@ -82,6 +88,7 @@ export class App {
     });
     this.page = Math.floor(this.session.levelIndex / CHAPTER_LENGTH);
     try{const p=JSON.parse(localStorage.getItem('majiang-xiaoxiao:h5:audio')||'{}');this.music=p.music!==false;this.sound=p.sound!==false;}catch{}
+    try{const t=localStorage.getItem('mj:sunny-theme');if(TABLE_THEMES.some(x=>x.id===t))this.theme=t as TableTheme;}catch{}
     this.audio.configure(this.music,this.sound);
     document.addEventListener('visibilitychange',()=>this.audio.visibility(document.hidden));
     const q = new URLSearchParams(location.search);
@@ -89,7 +96,7 @@ export class App {
     const lv = Number(q.get('level'));
     if (Number.isFinite(lv) && q.has('level')) this.session.reset(lv, false);
     const scr = q.get('screen') as Screen | null;
-    const valid: Screen[] = ['home', 'levels', 'board', 'settings', 'progress', 'win', 'lose', 'pause', 'help'];
+    const valid: Screen[] = ['workshop','album','home', 'levels', 'board', 'settings', 'progress', 'win', 'lose', 'pause', 'help'];
     this.setScreen(scr && valid.includes(scr) ? scr : 'home');
     this.bindEvents();
     this.resize();
@@ -235,6 +242,7 @@ export class App {
   /* ── actions ────────────────────────────────────────────── */
 
   private go(scr: Screen): void {
+    if(['home','levels','board','workshop','album'].includes(this.screen))this.dialogBase=this.screen;
     this.returnScreen = this.screen;
     this.setScreen(scr);
     this.invalidate();
@@ -246,7 +254,7 @@ export class App {
     this.audio.setScene(['board','win','lose','pause'].includes(scr)?'board':'home');this.audio.duck(['win','lose','pause'].includes(scr));
     this.screen = scr;
     // progress 弹框在 Session 侧复用 'settings' 弹窗态（Session 的 Modal 没有 progress）
-    const overlay: Partial<Record<Screen, string>> = {settings: 'settings', levels: 'levels', win: 'win', help: 'help', progress: 'settings', pause:'pause', lose:'lose'};
+    const overlay: Partial<Record<Screen, string>> = {restart:'restart',workshop:'home',album:'home',settings: 'settings', levels: 'levels', win: 'win', help: 'help', progress: 'settings', pause:'pause', lose:'lose'};
     if (scr === 'board') this.session.modal = 'none';
     else if (scr === 'home') this.session.modal = 'home';
     else if (overlay[scr]) this.session.modal = overlay[scr] as any;
@@ -257,14 +265,20 @@ export class App {
   private dialogParent(): Screen {
     switch (this.screen) {
       case 'progress': case 'help': return 'settings';
-      default: return 'home';
+      default: return this.dialogBase;
     }
   }
 
   private activate(id: string): void {
+    if(id==='energy-hint')id='hint';
+    if(['home','levels','workshop','album'].includes(id)&&this.mainSession){this.session=this.mainSession;this.mainSession=null;this.drag=null;this.press=null;}
+    if(id.startsWith('practice:')){const m=WORKSHOP[Number(id.slice(9))];if(!m)return;if(!this.mainSession)this.mainSession=this.session;this.session=new Session(520);this.session.unlockAll=true;this.session.reset(m.level,false,true);this.setScreen('board');this.invalidate();return;}
+    if(id.startsWith('theme:')){const t=TABLE_THEMES.find(t=>t.id===id.slice(6));if(t&&totalStars(this.session)>=t.stars){this.theme=t.id;try{localStorage.setItem('mj:sunny-theme',t.id);}catch{}}this.invalidate();return;}
+
     this.audio.unlock();this.audio.play(id==='undo'?'undo':'ui');
     switch (id) {
       case 'home': this.go('home'); break;
+      case 'workshop':case 'album':this.go(id);break;
       case 'start': this.session.command('continue'); this.setScreen('board'); break;
       case 'levels': this.go('levels'); break;
       case 'progress': this.go('progress'); break;
@@ -273,7 +287,8 @@ export class App {
       case 'about': this.go('help'); break;
       case 'pause': this.returnScreen = 'board'; this.setScreen('pause'); break;
       case 'resume': this.setScreen('board'); break;
-      case 'restart': case 'replay': this.act(() => { this.session.reset(); this.setScreen('board'); }); break;
+      case 'restart':this.setScreen('restart');break;
+      case 'confirm-restart':case 'restart-lose':case 'replay': this.act(() => { this.session.reset(); this.setScreen('board'); }); break;
       // 失败页的出路（A3）：复活回牌桌 / 死局免费重排。旧版那颗免费「撤销一步」已删。
       case 'revive': this.act(() => { if (this.session.revive()) this.setScreen('board'); }); break;
       case 'rescue': this.act(() => { if (this.session.rescueShuffle()) this.setScreen('board'); }); break;
@@ -344,94 +359,41 @@ export class App {
     ctx.drawImage(bg, 0, 0, this.W, this.H);
     switch (this.screen) {
       case 'home': this.drawHome(ctx); break;
+      case 'workshop': {const items=sunnyWorkshop(this.sunnyState());items.forEach(i=>{if(i.id==='challenge')i.id='about';if(i.text==='独立挑战')i.text='玩法说明';});renderSunny(ctx,items,this.hits);break;}
+      case 'album':renderSunny(ctx,sunnyAlbum(this.sunnyState()),this.hits);break;
       // 设置 / 选关 / 进度 / 玩法说明都是「首页上的弹框」：底图仍是首页，上面盖遮罩 + 面板
-      case 'levels': this.drawHome(ctx); this.drawLevels(ctx); break;
-      case 'settings': this.drawHome(ctx); this.drawSettings(ctx); break;
+      case 'levels': this.drawLevels(ctx); break;
+      case 'settings':this.drawDialogBase(ctx);this.drawSettings(ctx);break;
       case 'progress': this.drawHome(ctx); this.drawProgress(ctx); break;
       case 'board': this.drawBoard(ctx); break;
       case 'win': this.drawBoard(ctx); this.drawWin(ctx); break;
+      case 'restart':this.drawBoard(ctx);this.veil(ctx);renderSunny(ctx,sunnyRestart(this.sunnyState()),this.hits);break;
       case 'lose': this.drawBoard(ctx); this.drawLose(ctx); break;
       case 'pause': this.drawBoard(ctx); this.drawPause(ctx); break;
-      case 'help': this.drawHome(ctx); this.drawHelp(ctx); break;
+      case 'help':this.drawDialogBase(ctx);this.drawHelp(ctx);break;
     }
     // 「新玩法」说明卡：进关时 Session 给出待展示的 tip，看完（tip-ok）才开局
     if (this.screen==='board'&&this.session.introTip) this.drawTipCard(ctx);
   }
 
   /** 「新玩法」说明卡：遮罩 + 面板 + 匾额标题 + 文案 + 知道了。展示期间牌桌输入被 Session 屏蔽。 */
-  private drawTipCard(ctx: Ctx2D): void {
-    const W = this.W;
-    this.veil(ctx);
-    const tip = this.session.introTip!;
-    const ch=CHAPTERS[Number(tip.split(':')[1])];
-    const content=tip.startsWith('ctip:')&&ch?{title:ch[0],lines:[ch[2],ch[3]]}:TIP_CONTENT[tip]||TIP_CONTENT.basic;
-    const lineH = 54, padTop = 104;
-    const ph = padTop + 36 + content.lines.length * lineH + 26 + 96 + 30;
-    const py = this.centeredTop(ph);
-    const b: Box = {x: 60, y: py, w: W - 120, h: ph};
-    panel(ctx, b, {r: 34});
-    pill(ctx, {x: W / 2 - 160, y: py + 34, w: 320, h: 72}, content.title, {size: 34, serif: true});
-    content.lines.forEach((ln, i) => text(ctx, ln, b.x + 56, py + padTop + 36 + i * lineH, 25, T.ink, 'left'));
-    const btn: Box = {x: W / 2 - 170, y: py + ph - 30 - 96, w: 340, h: 92};
-    this.push('tip-ok', btn);
-    button(ctx, btn, '知道了，开始', {kind: 'jade', size: 30, pressed: this.isPressed('tip-ok')});
+  private drawDialogBase(ctx:Ctx2D):void{
+    if(this.dialogBase==='board')this.drawBoard(ctx);
+    else if(this.dialogBase==='levels')this.drawLevels(ctx);
+    else if(this.dialogBase==='workshop')renderSunny(ctx,sunnyWorkshop(this.sunnyState()),this.hits);
+    else if(this.dialogBase==='album')renderSunny(ctx,sunnyAlbum(this.sunnyState()),this.hits);
+    else this.drawHome(ctx);
   }
+
+  private drawTipCard(ctx:Ctx2D):void{this.veil(ctx);renderSunny(ctx,sunnyIntro(this.sunnyState()),this.hits);}
 
   private push(id: string, b: Box, enabled = true): void { this.hits.push({id, x: b.x, y: b.y, w: b.w, h: b.h, enabled}); }
   private isPressed(id: string): boolean { return this.pressed === id; }
 
   /* ══ HOME ══════════════════════════════════════════════ */
 
-  private drawHome(ctx: Ctx2D): void {
-    const W = this.W, H = this.H;
-    // 左上角：头像 + 当前关（不给总星数 / 总关数，保持后面的神秘感）
-    const av = 46, ax = 30 + av / 2, ay = 74;
-    ctx.beginPath(); ctx.arc(ax, ay, av / 2 + 4, 0, Math.PI * 2); ctx.fillStyle = T.jadeDeep; ctx.fill();
-    ctx.beginPath(); ctx.arc(ax, ay, av / 2, 0, Math.PI * 2);
-    const ag = ctx.createLinearGradient(ax, ay - av / 2, ax, ay + av / 2);
-    ag.addColorStop(0, '#F7E9C4'); ag.addColorStop(1, '#E2C68C'); ctx.fillStyle = ag; ctx.fill();
-    this.faceIcon(ctx, ax, ay, av * .62);
-    text(ctx, `第 ${Math.min(this.session.maxLevel + 1, LEVELS.length)} 关`, 30 + av + 16, ay, 27, T.ink, 'left', true);
-    const gear: Box = {x: W - 108, y: 44, w: 66, h: 66};
-    this.gearButton(ctx, gear, 'settings');
-
-    // 标题簇：大字「快乐推麻」+ 右侧红印章「对对消」（竖排三字）——连读即完整游戏名。
-    // 纵向与 cocos 同一套设计单位（1334 基准，按屏高比例）：大字与印章同一中线（470）、
-    // 印章只略高于字面（h156），副标题紧跟其下（中点 576）。
-    // 4 字大字（96px ≈ 384 宽）+ 印章（70 宽）按 24 间隙成组居中：大字中心 -47、印章中心 204。
-    const ty = H * .352, subY = H * .432;
-    text(ctx, '快乐推麻', W / 2 - 47, ty, 96, T.jadeDeep, 'center', true, true);
-    const seal: Box = {x: W / 2 + 204 - 35, y: ty - 78, w: 70, h: 156};
-    fillRR(ctx, seal, 16, '#C0392B');
-    strokeRR(ctx, seal, 16, '#8C2318', 3);
-    ['对', '对', '消'].forEach((ch, i) => text(ctx, ch, seal.x + seal.w / 2, ty - 50 + i * 50, 36, '#FFF3DE', 'center', true, true));
-    text(ctx, '推一推 · 碰个对', W / 2, subY, 34, T.ink, 'center', true, true);
-
-    // wooden table + decorative tiles（萬 / 乐 / 筒 大字牌，加大一号）
-    this.table(ctx, H * .655);
-    const baseY = H * .585, tw = 170, th = 215;
-    ctx.save();
-    ctx.translate(W / 2 - 130, baseY); ctx.rotate(-.16);
-    drawTile(ctx, 0, 0, {face: 'x1', w: tw * .82, h: th * .82});
-    ctx.restore();
-    ctx.save();
-    ctx.translate(W / 2 - 4, baseY - 30); ctx.rotate(-.04);
-    drawTile(ctx, 0, 0, {face: 'x2', w: tw, h: th});
-    ctx.restore();
-    ctx.save();
-    ctx.translate(W / 2 + 122, baseY + 4); ctx.rotate(.13);
-    drawTile(ctx, 0, 0, {face: 'x3', w: tw, h: th});
-    ctx.restore();
-
-    // buttons：开始游戏（通栏）+ 关卡选择（通栏拉长）；「我的进度」收进设置弹框
-    const bw = W - 168, bx = (W - bw) / 2;
-    const start: Box = {x: bx, y: H * .735, w: bw, h: 104};
-    this.push('start', start);
-    button(ctx, start, '开始游戏', {kind: 'jade', size: 42, icon: 'play', pressed: this.isPressed('start')});
-    const lv: Box = {x: bx, y: start.y + 128, w: bw, h: 92};
-    this.push('levels', lv);
-    button(ctx, lv, '关卡选择', {kind: 'cream', size: 32, pressed: this.isPressed('levels')});
-  }
+  private sunnyState():SunnyState{return {w:this.W,h:this.H,safe:0,s:this.session,page:this.page,theme:this.theme,practice:!!this.mainSession,cssScale:this.s};}
+  private drawHome(ctx:Ctx2D):void{renderSunny(ctx,sunnyHome(this.sunnyState()),this.hits);}
 
   private faceIcon(ctx: Ctx2D, cx: number, cy: number, r: number): void {
     ctx.beginPath(); ctx.arc(cx, cy, r * .5, 0, Math.PI * 2); ctx.fillStyle = '#8FBF62'; ctx.fill();
@@ -460,83 +422,7 @@ export class App {
 
   /* ══ LEVELS（首页上的弹框） ═══════════════════════════ */
 
-  private drawLevels(ctx: Ctx2D): void {
-    const W = this.W;
-    this.veil(ctx);
-    const PER = CHAPTER_LENGTH, COLS = 4, gap = 20;
-    // 一章一屏 4×4：与 cocos 选关页同构，也让章节门槛（B2）有地方落。
-    const pages = Math.max(1, Math.ceil(LEVELS.length / PER));
-    this.page = Math.max(0, Math.min(this.page, pages - 1));
-    const count = Math.max(0, Math.min(PER, LEVELS.length - this.page * PER));
-    const rows = Math.max(1, Math.ceil(count / COLS));
-    const pw = W - 68;
-    const cw = (pw - 80 - gap * (COLS - 1)) / COLS, chh = 110;
-    const gridH = rows * chh + (rows - 1) * gap;
-    const ph = 30 + 72 + 24 + 40 + gridH + 38 + 56 + 34 + 30;
-    const py = this.centeredTop(ph);
-    const b: Box = {x: 34, y: py, w: pw, h: ph};
-    panel(ctx, b, {r: 30});
-    const cur: Box = {x: 34 + 40, y: py + 30, w: 300, h: 72};
-    pill(ctx, cur, '选择关卡', {size: 32, fill: '#2E6B3A', edge: T.gold, r: 36, serif: true});
-    const close: Box = {x: b.x + b.w - 96, y: py + 30, w: 58, h: 58};
-    this.push('__back', close); this.circleBtn(ctx, close, 'close');
-
-    // 章名行：与 cocos 选关页同一套信息（第 N 章 · 章名（起-止）），否则两边看起来是两种设计
-    const full = this.session.chapterStars(this.page) >= CHAPTER_LENGTH * 3;
-    text(ctx, `第 ${this.page + 1} 章 · ${CHAPTER_NAMES[this.page] || ''}（${this.page * PER + 1}-${Math.min(LEVELS.length, (this.page + 1) * PER)}）`,
-      b.x + 40, py + 30 + 72 + 24, 24, T.ink, 'left', true);
-    if (full) text(ctx, '全三星', b.x + b.w - 44, py + 30 + 72 + 24, 21, '#B4442F', 'right', true);
-
-    // 本章被上一章门槛挡住 → 整页灰化。**本章内部不设卡**，卡点只在跨章。
-    const gateBlocked = !this.session.canEnterChapter(this.page);
-    const gy = py + 30 + 72 + 24 + 40;
-    for (let i = 0; i < count; i++) {
-      const idx = this.page * PER + i;
-      const col = i % COLS, row = Math.floor(i / COLS);
-      const bx = b.x + 40 + col * (cw + gap), by = gy + row * (chh + gap);
-      const isCur = idx === this.session.levelIndex;
-      const st = this.session.stars[String(idx)] || 0;
-      const box: Box = {x: bx, y: by, w: cw, h: chh};
-      const unlocked = !gateBlocked && this.session.canEnter(idx);
-      if (!unlocked) {
-        // 灰卡也要占位，否则玩家看不出"这一章有 16 关、只是还没开"
-        fillRR(ctx, box, 18, 'rgba(222,216,198,.55)');
-        strokeRR(ctx, box, 18, 'rgba(190,180,158,.5)', 2);
-        text(ctx, String(idx + 1), bx + cw / 2, by + chh * .42, 36, '#B3A98F', 'center', true);
-        continue;
-      }
-      this.push('level:' + idx, box);
-      const g = ctx.createLinearGradient(bx, by, bx, by + chh);
-      g.addColorStop(0, '#6FC46F'); g.addColorStop(1, '#2E7D4F');
-      fillRR(ctx, {x: bx, y: by + 4, w: cw, h: chh - 4}, 18, '#1C5B37');
-      fillRR(ctx, box, 18, g);
-      strokeRR(ctx, box, 18, isCur ? '#FFD84D' : 'rgba(255,255,255,.35)', isCur ? 4 : 2);
-      text(ctx, String(idx + 1), bx + cw / 2, by + chh * .32, 36, '#FFFFFF', 'center', true);
-      stars(ctx, bx + cw / 2, by + chh * .72, 12, st);
-      // 刷星导航：已通关、未满星、差得不远时给「差 N 步」。
-      // 放在关号同一行的右端——放右上角会压住关号（实测 1-9 号关字更大，直接糊在一起）。
-      const bm = this.session.bestMoves[String(idx)] || 0;
-      const par = this.session.pars[String(idx)] || 0;
-      if (bm && par && st > 0 && st < 3) {
-        const line = starLines(par);
-        const diff = bm - (st === 1 ? line.two : line.three);
-        if (diff > 0 && diff <= 9) text(ctx, `差${diff}步`, bx + cw - 8, by + chh * .30, 13, '#8C3A2E', 'right', true);
-      }
-    }
-    // 门槛提示：必须给具体数字，否则玩家以为是 bug
-    if (gateBlocked) {
-      text(ctx, '完成前面的关卡，即可来到这里',
-        W / 2, py + ph - 92, 21, '#B4442F', 'center', true);
-    }
-    // pager
-    const pyy = py + ph - 58;
-    const prev: Box = {x: b.x + 40, y: pyy - 26, w: 70, h: 52};
-    const next: Box = {x: b.x + b.w - 110, y: pyy - 26, w: 70, h: 52};
-    if (this.page > 0) { this.push('page-prev', prev); backChevron(ctx, prev.x + 35, pyy, 30, T.ink, 5); }
-    if (this.page < pages - 1) { this.push('page-next', next); chevron(ctx, next.x + 35, pyy, 30, T.ink, 5); }
-    text(ctx, `${this.page+1} / ${pages}`, W/2, pyy, 24, T.ink, 'center', true);
-
-  }
+  private drawLevels(ctx:Ctx2D):void{this.page=Math.max(0,Math.min(25,this.page));renderSunny(ctx,sunnyMap(this.sunnyState()),this.hits);}
 
   private lockIcon(ctx: Ctx2D, cx: number, cy: number, r: number, col: string): void {
     ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, r * .22);
@@ -569,50 +455,9 @@ export class App {
   private drawBoard(ctx: Ctx2D): void {
     const W = this.W, H = this.H;
     const S = this.session;
-    // header
-    const back: Box = {x: 26, y: 34, w: 68, h: 68};
-    this.push('back-home', back); this.circleBtn(ctx, back, 'back');
-    const title: Box = {x: W / 2 - 165, y: 30, w: 330, h: 76};
-    pill(ctx, title, `第 ${S.levelIndex + 1} 关`, {size: 38, fill: '#2E6B3A', edge: T.gold, serif: true});
-    const gear: Box = {x: W - 94, y: 34, w: 68, h: 68};
-    this.gearButton(ctx, gear, 'pause');
-
-    // stats：目标关把左侧换成目标进度；限步关把右侧换成剩余步数
-    const left = S.total ? count(S.grid) : 0;
-    const goal = S.goal;
-    text(ctx, S.objectiveText, 40, 134, 25, goal ? T.jadeDeep : T.ink, 'left', true);
-    const moveText = S.moveLimit ? `剩 ${S.movesLeft} 步` : `${S.moves} 步`;
-    text(ctx, moveText, W-40,134,25,S.moveLimit&&S.movesLeft<=3?'#B4442F':T.ink,'right',true);
-    const targets=goal?.kind==='collect'?goal.faces||[]:goal?.kind==='face'?[goal.face!]:[];
-    targets.forEach((f,i)=>{const x=62+i*68;drawTile(ctx,x,193,{face:f,w:32,h:40});text(ctx,(S.mechanics.collected[bare(f)]||0)>=2?'✓':'2',x+22,191,17,T.jadeDeep,'left',true);});
-    if(S.def.energy)text(ctx,`灵感 ${S.mechanics.charge}/4`,W-40,193,19,T.jadeDeep,'right',true);
-    const pbar: Box = {x: 40, y: 158, w: W - 80, h: 16};
-    fillRR(ctx, pbar, 8, 'rgba(60,90,50,.3)');
-    const done = goal&&S.goalNeed?S.goalDone/S.goalNeed:S.total?(S.total-left)/S.total:0;
-    if (done > 0) {
-      const g = ctx.createLinearGradient(pbar.x, pbar.y, pbar.x + pbar.w, pbar.y);
-      g.addColorStop(0, '#8FD98F'); g.addColorStop(1, '#4FA46A');
-      fillRR(ctx, {x: pbar.x, y: pbar.y, w: Math.max(12, pbar.w * done), h: pbar.h}, 8, g);
-    }
-
-    // message banner
-    const msg: Box = {x: 34, y: 218, w: W - 68, h: 62};
-    const mg = ctx.createLinearGradient(msg.x, msg.y, msg.x, msg.y + msg.h);
-    mg.addColorStop(0, '#FFF9E6'); mg.addColorStop(1, '#F6EBCB');
-    fillRR(ctx, msg, 31, mg); strokeRR(ctx, msg, 31, T.creamEdge, 2);
-    // 左侧一道玉色竖条即可，不再套一个「!」圆形徽标——圆徽标是这套界面里最模板化的一处。
-    fillRR(ctx, {x: msg.x + 22, y: msg.y + 16, w: 6, h: msg.h - 32}, 3, T.jade);
-    const line = this.drag
-      ? (() => { const r = S.runs[this.drag!.run]; return `正在向${this.drag!.axis === 'row' ? (this.drag!.offset > 0 ? '右' : '左') : (this.drag!.offset > 0 ? '下' : '上')}推 ${Math.max(1, Math.abs(Math.round(this.drag!.offset)))} 格 · 松手消除碰起的对子`; })()
-      : (S.message || '轻点配对 / 横竖拖动整段');
-    text(ctx, fit(ctx, line, 24, msg.w - 76), msg.x + 42, msg.y + msg.h / 2, 24, T.ink, 'left', false);
-
-    // board frame
-    const top = msg.y + msg.h + 18;
-    const rows=this.rows(),cols=this.cols(),availH=H-154-top,sidePad=cols<=4?34:44;
-    const cellW=Math.min((W-sidePad*2)/cols,availH/(rows+.4)/1.24,156),cellH=cellW*1.24;
-    const bw=cellW*cols,bh=cellH*rows,pad=cellH*.2;
-    const bx=(W-bw)/2,by=top+Math.max(0,(availH-bh)/2);
+    const line=this.drag?'拖动整行或整列，松手配对':S.message||'同牌相邻，轻点或推移';
+    const layout=sunnyBoard(this.sunnyState(),line);renderSunny(ctx,layout.items,this.hits);
+    const rows=this.rows(),cols=this.cols(),cellW=layout.cellW,cellH=layout.cellH,bw=cellW*cols,bh=cellH*rows,pad=Math.max(22,cellH*.2),bx=layout.x,by=layout.y;
     this.boardBox = {x: bx, y: by, w: bw, h: bh};
     const frame: Box = {x: bx - pad, y: by - pad, w: bw + pad * 2, h: bh + pad * 2};
     this.woodFrame(ctx, frame);
@@ -779,12 +624,6 @@ export class App {
     }
     ctx.restore(); // 结束牌区裁剪
 
-    const tools:{id:string;icon:IconName;label:string}[]=[{id:'hint',icon:'hint',label:'提示'},{id:'undo',icon:'undo',label:'撤销'},{id:'restart',icon:'restart',label:'重开'}];
-    const tw=(W-68)/3,ty=H-132;
-    fillRR(ctx,{x:34,y:ty,w:W-68,h:96},22,'#F9F3DF');
-    strokeRR(ctx,{x:34,y:ty,w:W-68,h:96},22,'#CCCFAD',2);
-    tools.forEach((t,i)=>{const b={x:34+i*tw,y:ty+4,w:tw,h:88};this.push(t.id,b);icon(ctx,t.icon,b.x+tw/2-40,ty+48,28,T.jadeDeep);text(ctx,t.label,b.x+tw/2+18,ty+48,26,T.jadeDeep,'center',true);});
-
   }
 
   private circleBtn(ctx: Ctx2D, b: Box, kind: 'back' | 'close'): void {
@@ -820,16 +659,7 @@ export class App {
     ctx.save(); ctx.globalAlpha = .35; fillRR(ctx, {x: -20, y, w: W + 40, h: 14}, 0, '#F0C892'); ctx.restore();
   }
 
-  private woodFrame(ctx: Ctx2D, b: Box): void {
-    ctx.save(); ctx.globalAlpha = .3; fillRR(ctx, {x: b.x + 4, y: b.y + 8, w: b.w, h: b.h}, 26, '#20361F'); ctx.restore();
-    const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-    g.addColorStop(0, T.woodLight); g.addColorStop(.5, T.wood); g.addColorStop(1, T.woodDeep);
-    fillRR(ctx, b, 26, g);
-    strokeRR(ctx, b, 26, '#A38F68', 5);
-    const inner: Box = {x: b.x + 12, y: b.y + 12, w: b.w - 24, h: b.h - 24};
-    fillRR(ctx, inner, 18, '#A7C8AA');
-    strokeRR(ctx, inner, 18, 'rgba(30,50,20,.5)', 3);
-  }
+  private woodFrame(ctx:Ctx2D,b:Box):void{drawSunnyTable(ctx,b.x,b.y,b.w,b.h,this.theme);}
 
   private countBadge(ctx: Ctx2D, cx: number, cy: number, n: number): void {
     const r = 15;
@@ -863,43 +693,7 @@ export class App {
 
   /* ══ SETTINGS（首页上的弹框） ══════════════════════════ */
 
-  private drawSettings(ctx: Ctx2D): void {
-    const W = this.W;
-    this.veil(ctx);
-    const rows: {id: string; icon: IconName; label: string; value?: string; toggle?: boolean}[] = [
-      {id: 'progress', icon: 'progress', label: '我的进度'},
-      {id: 'toggle-sound', icon: 'sound', label: '音效', toggle: this.sound},
-      {id: 'toggle-music', icon: 'music', label: '背景音乐', toggle: this.music},
-      {id: 'toggle-vibration', icon: 'vibrate', label: '震动', toggle: this.session.vibration},
-      {id: 'about', icon: 'book', label: '玩法说明'}
-    ];
-    const rh = 104;
-    const ph = 94 + rh * rows.length + 34 + 40;   // +40：版本号页脚
-    const py = this.centeredTop(ph);
-    const b: Box = {x: 40, y: py, w: W - 80, h: ph};
-    panel(ctx, b, {r: 28});
-    pill(ctx, {x: b.x + 40, y: py + 28, w: 240, h: 66}, '设置', {size: 32, fill: '#2E6B3A', edge: T.gold, r: 33, serif: true});
-    const close: Box = {x: b.x + b.w - 98, y: py + 28, w: 58, h: 58};
-    this.push('__back', close); this.circleBtn(ctx, close, 'close');
-    rows.forEach((r, i) => {
-      const y = py + 94 + i * rh;
-      const box: Box = {x: b.x + 24, y, w: b.w - 48, h: rh - 8};
-      if (i % 2 === 0) fillRR(ctx, box, 16, 'rgba(255,255,255,.5)');
-      icon(ctx, r.icon, box.x + 42, y + rh / 2 - 4, 34, T.jade, 3);
-      text(ctx, r.label, box.x + 82, y + rh / 2 - 4, 27, T.ink, 'left');
-      if (r.toggle) {
-        const tw2 = 74;
-        const tb = toggle(ctx, box.x + box.w - tw2 - 8, y + rh / 2 - 4, tw2, !!r.toggle);
-        this.push(r.id, tb, true);
-      } else {
-        chevron(ctx, box.x + box.w - 20, y + rh / 2 - 4, 26, T.inkFaint, 3);
-        this.push(r.id, box);
-      }
-    });
-    text(ctx, `版本 ${APP_VERSION}`, W / 2, py + ph - 34, 22, T.inkSoft, 'center');
-  }
-
-  /* ══ PROGRESS（设置里的弹框） ══════════════════════════ */
+  private drawSettings(ctx:Ctx2D):void{this.veil(ctx);renderSunny(ctx,sunnySettings(this.sunnyState(),this.music,this.sound,APP_VERSION),this.hits);}
 
   private drawProgress(ctx: Ctx2D): void {
     const W = this.W;
@@ -978,126 +772,11 @@ export class App {
     ctx.fillRect(0, 0, this.W, this.H);
   }
 
-  private drawWin(ctx: Ctx2D): void {
-    const W = this.W;
-    this.veil(ctx);
-    const S = this.session;
-    // 面板按内容定高再居中；原来取 H*.56，屏一高中间就空一大块
-    const oLevel = 76, oStars = 182, oR1 = 268, oR2 = 318, oR3 = 368, oR4 = 418, oNext = 512, oHome = 610;
-    const ph = oHome + 38 + 42;
-    const py = this.centeredTop(ph);
-    const b: Box = {x: 78, y: py, w: W - 156, h: ph};
-    panel(ctx, b, {r: 34});
-    // banner
-    const ban: Box = {x: W / 2 - 232, y: py - 54, w: 464, h: 100};
-    const bg = ctx.createLinearGradient(ban.x, ban.y, ban.x, ban.y + ban.h);
-    bg.addColorStop(0, '#B4763C'); bg.addColorStop(1, '#7C4A1E');
-    fillRR(ctx, ban, 26, bg);
-    strokeRR(ctx, ban, 26, '#5A3714', 5);
-    text(ctx, '恭喜通关', W / 2, ban.y + ban.h / 2, 50, '#F7DFA0', 'center', true, true);
-    text(ctx, `第 ${S.levelIndex + 1} 关`, W / 2, py + oLevel, 34, T.ink, 'center', true, true);
-    stars(ctx, W / 2, py + oStars, 44, S.rating);
-    // 四个数都必须是真值：`starLines.three` 是 3 星线（par+8%），不是 par
-    const row = (y: number, k: string, v: string) => {
-      text(ctx, k, b.x + 70, py + y, 26, T.inkSoft, 'left');
-      text(ctx, v, b.x + b.w - 70, py + y, 26, T.ink, 'right', true);
-    };
-    row(oR1, '本局步数', `${S.moves} 步`);
-    row(oR2, '三星线', `${S.starLines.three} 步`);
-    row(oR3, '本局得分', `${S.score}`);
-    const bestNow = S.best[String(S.levelIndex)] || 0;
-    row(oR4, '历史最高', `${bestNow}`);
-    if (S.score > 0 && S.score >= bestNow) text(ctx, '新纪录', b.x + b.w - 70, py + oR3 - 30, 20, '#B4442F', 'right', true);
-    const nb: Box = {x: b.x + 46, y: py + oNext - 46, w: b.w - 92, h: 92};
-    const nextIdx = S.levelIndex + 1;
-    const last = nextIdx >= LEVELS.length;
-    const blocked = !last && !S.canEnter(nextIdx);
-    if (blocked) {
-      // 门槛没过时不许写「下一关」：点不动的按钮比不给按钮更糟
-      this.push('levels', nb);
-      button(ctx, nb, '选择关卡', {kind: 'jade', size: 30, pressed: this.isPressed('levels')});
-    } else {
-      this.push('next', nb);
-      button(ctx, nb, last ? '再玩一次' : '下一关', {kind: 'jade', size: 36, icon: 'play', pressed: this.isPressed('next')});
-    }
-    const hb: Box = {x: b.x + 46, y: py + oHome - 38, w: b.w - 92, h: 76};
-    this.push('home', hb);
-    button(ctx, hb, '返回首页', {kind: 'cream', size: 30, pressed: this.isPressed('home')});
-  }
+  private drawWin(ctx:Ctx2D):void{this.veil(ctx);renderSunny(ctx,sunnyWin(this.sunnyState()),this.hits);}
 
-  private drawLose(ctx: Ctx2D): void {
-    const W = this.W;
-    this.veil(ctx);
-    const S = this.session;
-    const oSub = 76, oTile = 188, oLevel = 298, oLeft = 340, oMoves = 376, oPrimary = 486, oRow = 586, oFoot = 660;
-    const ph = oFoot + 30 + 40;
-    const py = this.centeredTop(ph);
-    const b: Box = {x: 84, y: py, w: W - 168, h: ph};
-    panel(ctx, b, {r: 34});
-    const ban: Box = {x: W / 2 - 214, y: py - 50, w: 428, h: 96};
-    const bg = ctx.createLinearGradient(ban.x, ban.y, ban.x, ban.y + ban.h);
-    bg.addColorStop(0, '#A83B32'); bg.addColorStop(1, '#6E211B');
-    fillRR(ctx, ban, 24, bg);
-    strokeRR(ctx, ban, 24, '#5A1913', 5);
-    text(ctx, '很遗憾', W / 2, ban.y + ban.h / 2, 48, '#F7DFA0', 'center', true, true);
-    // 原因只写短语：横幅上已经有完整句子，弹窗里再抄一遍就是啰嗦
-    const reasonText = S.failReason === 'time' ? '时间到' : S.failReason === 'dead' ? '牌走死了' : '步数用尽';
-    text(ctx, reasonText, W / 2, py + oSub, 28, T.inkSoft, 'center', true, true);
-    drawTile(ctx, W / 2, py + oTile, {face: '5z', w: 116, h: 144});
-    text(ctx, `第 ${S.levelIndex + 1} 关`, W / 2, py + oLevel, 30, T.ink, 'center', true);
-    text(ctx, `剩余 ${S.remaining} / ${S.liveTotal} 张`, W / 2, py + oLeft, 25, T.inkSoft, 'center');
-    text(ctx, `${S.moves} 步 · 三星 ≤ ${S.starLines.three} 步`, W / 2, py + oMoves, 25, T.inkSoft, 'center');
+  private drawLose(ctx:Ctx2D):void{this.veil(ctx);renderSunny(ctx,sunnyLose(this.sunnyState()),this.hits);}
 
-    // 主出路按失败原因分岔（A3）：死局免费重排，其余补步数 / 补时间。
-    // 旧版那颗免费「撤销一步」被删了——撤销不退步数，在步数用尽的盘上撤完立刻又判负。
-    const dead = S.failReason === 'dead';
-    const left = Math.max(0, 2 - S.revivesUsed);
-    const primary: Box = {x: b.x + 58, y: py + oPrimary - 46, w: b.w - 116, h: 92};
-    const primaryOk = dead || S.canRevive;
-    const primaryText = dead ? (S.shuffleBlocked?(S.canUndo?'撤销一步':'重新开始'):'重排这盘牌') : S.failReason === 'time' ? '补 30 秒' : `补 ${S.reviveBonus} 步`;
-    const pid = dead ? (S.shuffleBlocked?(S.canUndo?'undo':'restart'):'rescue') : 'revive';
-    if (primaryOk) {
-      this.push(pid, primary);
-      button(ctx, primary, primaryText, {kind: 'jade', size: 32, pressed: this.isPressed(pid)});
-    } else {
-      button(ctx, primary, '复活次数已用完', {kind: 'disabled', size: 32});
-    }
-    if (!dead) text(ctx, `本关还剩 ${left} 次`, W / 2, py + oPrimary - 74, 22, T.inkSoft, 'center');
-
-    const half = (b.w - 116) / 2;
-    const restart: Box = {x: b.x + 58, y: py + oRow - 40, w: half, h: 80};
-    const home: Box = {x: b.x + 58 + half + 0, y: py + oRow - 40, w: half, h: 80};
-    this.push('restart', restart); this.push('home', home);
-    button(ctx, restart, '重新开始', {kind: 'cream', size: 28, pressed: this.isPressed('restart')});
-    button(ctx, home, '返回首页', {kind: 'cream', size: 28, pressed: this.isPressed('home')});
-    // 原来这句浮在暗遮罩上所以用奶白；现在移进了奶色面板，必须换成深色
-    text(ctx, dead ? (S.shuffleBlocked?'换一条路线，完成目标格。':'试试重排，或从头再来。') : '歇一会，再试试。', W / 2, py + oFoot, 24, T.inkSoft, 'center', true);
-  }
-
-  private drawPause(ctx: Ctx2D): void {
-    const W = this.W;
-    this.veil(ctx);
-    const items: {id: string; icon: IconName; label: string; kind: 'jade' | 'cream'}[] = [
-      {id: 'resume', icon: 'play', label: '继续游戏', kind: 'jade'},
-      {id: 'restart', icon: 'restart', label: '重新开始', kind: 'cream'},
-      {id: 'home', icon: 'home', label: '返回首页', kind: 'cream'}
-    ];
-    if(!this.session.shuffleBlocked)items.splice(1,0,{id:'shuffle',icon:'shuffle',label:`洗牌 · ${this.session.shufflesLeft}`,kind:'cream'});
-    const oStart = 83, step = 100;
-    const ph = oStart + (items.length - 1) * step + 41 + 42;
-    const py = this.centeredTop(ph);
-    const b: Box = {x: 96, y: py, w: W - 192, h: ph};
-    panel(ctx, b, {r: 30});
-    const ban: Box = {x: W / 2 - 150, y: py - 42, w: 300, h: 84};
-    pill(ctx, ban, '已暂停', {size: 40, fill: '#2E6B3A', edge: T.gold, serif: true});
-    const close: Box = {x: b.x + b.w - 52, y: py - 30, w: 62, h: 62};
-    this.push('resume', close); this.circleBtn(ctx, close, 'close');
-    items.forEach((it, i) => {
-      const bb: Box = {x: b.x + 44, y: py + oStart + i * step - 41, w: b.w - 88, h: 82};
-      this.push(it.id, bb);
-      button(ctx, bb, it.label, {kind: it.kind, size: 30, icon: it.icon, pressed: this.isPressed(it.id)});
-    });
-  }
+  private drawPause(ctx:Ctx2D):void{this.veil(ctx);renderSunny(ctx,sunnyPause(this.sunnyState()),this.hits);}
 
   private drawHelp(ctx: Ctx2D): void {
     const W = this.W;

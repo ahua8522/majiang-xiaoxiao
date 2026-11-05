@@ -44,7 +44,7 @@ export function makeNode(parent: Node, o: NodeOpts = {}): Node {
  */
 const slicedFrames = new Map<SpriteFrame, Map<string, SpriteFrame>>();
 
-function slicedFrame(frame: SpriteFrame, insets: [number, number, number, number]): SpriteFrame {
+export function slicedFrame(frame: SpriteFrame, insets: [number, number, number, number]): SpriteFrame {
   const key = insets.join(',');
   let byInsets = slicedFrames.get(frame);
   if (!byInsets) { byInsets = new Map(); slicedFrames.set(frame, byInsets); }

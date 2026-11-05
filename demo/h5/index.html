@@ -27,6 +27,1047 @@
   var __defNormalProp = (obj, key3, value) => key3 in obj ? __defProp(obj, key3, { enumerable: true, configurable: true, writable: true, value }) : obj[key3] = value;
   var __publicField = (obj, key3, value) => __defNormalProp(obj, typeof key3 !== "symbol" ? key3 + "" : key3, value);
 
+  // cocos/assets/scripts/core/Campaign.ts
+  var CAMPAIGN_VERSION = "garden-520-v1";
+  var CHAPTER_LENGTH = 20;
+  var CHAPTERS = [
+    ["\u6674\u65E5\u521D\u89C1", "classic", "\u540C\u724C\u76F8\u90BB\uFF0C\u8F7B\u70B9\u6D88\u9664\u3002", "\u62D6\u52A8\u6574\u884C\u6216\u6574\u5217\uFF0C\u677E\u624B\u81EA\u52A8\u8FDE\u6D88\u3002"],
+    ["\u53E0\u5F71\u5C0F\u5F84", "stack", "\u6536\u8D70\u4E0A\u5C42\uFF0C\u9732\u51FA\u4E0B\u5C42\u3002", "\u5148\u63ED\u54EA\u4E00\u53E0\uFF0C\u4F1A\u6539\u53D8\u540E\u9762\u7684\u8DEF\u7EBF\u3002"],
+    ["\u51B0\u6676\u82B1\u56ED", "ice", "\u540C\u6B3E\u724C\u5148\u914D\u5BF9\u7834\u51B0\uFF0C\u518D\u6536\u8D70\u3002", "\u51B0\u5C42\u4E0D\u540C\u4E5F\u80FD\u914D\uFF0C\u7834\u51B0\u65F6\u4E24\u5F20\u90FD\u7559\u4E0B\u3002"],
+    ["\u82B1\u5703\u521D\u5F00", "flower", "\u5728\u82B1\u5703\u683C\u4E0A\u6D88\u724C\uFF0C\u8FD9\u4E00\u683C\u5C31\u5F00\u82B1\u3002", "\u82B1\u5703\u56FA\u5B9A\u4E0D\u52A8\uFF0C\u5168\u90E8\u5F00\u82B1\u5C31\u8FC7\u5173\u3002"],
+    ["\u5FC3\u613F\u6E05\u5355", "collect", "\u6536\u9F50\u4E0A\u65B9\u5217\u51FA\u7684\u724C\u3002", "\u5176\u4ED6\u540C\u724C\u4E5F\u80FD\u6B63\u5E38\u6D88\u9664\u3002"],
+    ["\u7075\u611F\u65F6\u523B", "energy", "\u6D88\u56DB\u5BF9\uFF0C\u6512\u4E00\u6B21\u514D\u8D39\u63D0\u793A\u3002", "\u6162\u6162\u60F3\u4E5F\u4E0D\u4F1A\u6389\u80FD\u91CF\uFF0C\u6EE1\u683C\u540E\u70B9\u63D0\u793A\u3002"],
+    ["\u6728\u6865\u7ED5\u884C", "block", "\u6728\u5757\u548C\u7F3A\u53E3\u4F1A\u5206\u5F00\u6ED1\u52A8\u8DEF\u7EBF\u3002", "\u6362\u4E00\u6761\u884C\u6216\u5217\uFF0C\u628A\u540C\u724C\u9001\u5230\u4E00\u8D77\u3002"],
+    ["\u987A\u98CE\u957F\u5ECA", "oneWay", "\u5E26\u7BAD\u5934\u7684\u8F68\u9053\u53EA\u80FD\u987A\u7740\u63A8\u3002", "\u6362\u53E6\u4E00\u6761\u8DEF\u7EBF\uFF0C\u7167\u6837\u53EF\u4EE5\u914D\u5BF9\u3002"],
+    ["\u9732\u73E0\u82B1\u56ED", "dew", "\u5728\u6C34\u6EF4\u683C\u7684\u4E0A\u4E0B\u5DE6\u53F3\u6D88\u724C\uFF0C\u7ED9\u5B83\u6D47\u6C34\u3002", "\u6D47\u6EE1\u6240\u6709\u6C34\u6EF4\u5C31\u8FC7\u5173\uFF0C\u659C\u89D2\u4E0D\u7B97\u3002"],
+    ["\u94A5\u5319\u5C0F\u5F84", "key", "\u6536\u8D70\u94A5\u5319\u6807\u8BB0\u7684\u724C\uFF0C\u6253\u5F00\u5BF9\u5E94\u9501\u8F68\u3002", "\u94A5\u5319\u724C\u7167\u5E38\u914D\u5BF9\uFF0C\u9501\u65C1\u663E\u793A\u8FD8\u5DEE\u51E0\u5F20\u3002"],
+    ["\u5C42\u5C42\u82B1\u53F0", "flower-stack", "\u82B1\u5703\u9047\u4E0A\u53E0\u724C\uFF1A\u9009\u62E9\u6D88\u9664\u7684\u4F4D\u7F6E\u3002", "\u53EA\u6536\u8D70\u4E0A\u5C42\u4E5F\u80FD\u8BA9\u811A\u4E0B\u82B1\u5703\u5F00\u82B1\u3002"],
+    ["\u82B1\u82DE\u82CF\u9192", "bud", "\u82B1\u82DE\u683C\u9700\u8981\u4E24\u6B21\u6D88\u724C\u624D\u5F00\u653E\u3002", "\u8FDB\u5EA6\u56FA\u5B9A\u5728\u683C\u5B50\u4E0A\uFF0C\u63A8\u724C\u9001\u6765\u4E0B\u4E00\u5BF9\u3002"],
+    ["\u51B0\u82B1\u76F8\u6620", "flower-ice", "\u5148\u7834\u51B0\uFF0C\u518D\u5728\u82B1\u5703\u4E0A\u6536\u724C\u3002", "\u53EA\u788E\u51B0\u4E0D\u4F1A\u8BA9\u82B1\u5703\u5F00\u82B1\u3002"],
+    ["\u9759\u8F68\u5EAD\u9662", "lock", "\u5E26\u9501\u7684\u884C\u6216\u5217\u4E0D\u80FD\u6CBF\u81EA\u8EAB\u65B9\u5411\u63A8\u3002", "\u5782\u76F4\u65B9\u5411\u548C\u76F8\u90BB\u914D\u5BF9\u4ECD\u53EF\u7528\u3002"],
+    ["\u767E\u642D\u6765\u5BA2", "wild", "\u5E26\u661F\u53F7\u7684\u82B1\u724C\u80FD\u914D\u4EFB\u610F\u724C\u3002", "\u666E\u901A\u9EBB\u5C06\u4ECD\u7136\u8981\u627E\u76F8\u540C\u56FE\u6848\u3002"],
+    ["\u6E05\u8106\u7206\u7AF9", "bomb", "\u7206\u7AF9\u914D\u5BF9\u4F1A\u9707\u788E\u76F8\u90BB\u51B0\u724C\uFF0C", "\u5E76\u5E26\u52A8\u5168\u684C\u540C\u6B3E\u51B0\u724C\u788E\u4E00\u5C42\u3002"],
+    ["\u96EA\u4E2D\u5FC3\u613F", "collect-ice", "\u7834\u51B0\u540E\uFF0C\u771F\u6B63\u6536\u8D70\u76EE\u6807\u724C\u624D\u8BA1\u6570\u3002", "\u6E05\u5355\u8FBE\u6210\u5373\u53EF\u8FC7\u5173\u3002"],
+    ["\u85E4\u95E8\u6DF1\u5904", "key-stack", "\u94A5\u5319\u85CF\u5728\u53E0\u724C\u91CC\uFF0C\u5148\u627E\u51FA\u5B83\u3002", "\u5F00\u95E8\u540E\uFF0C\u65B0\u7684\u6ED1\u52A8\u8DEF\u7EBF\u5C31\u80FD\u7528\u4E86\u3002"],
+    ["\u96E8\u540E\u56DE\u5ECA", "dew-block", "\u7ED5\u8FC7\u6728\u5757\uFF0C\u5728\u6C34\u6EF4\u65C1\u6D88\u724C\u3002", "\u4E00\u5BF9\u724C\u53EF\u4EE5\u540C\u65F6\u6D47\u5230\u591A\u5904\u82B1\u5703\u3002"],
+    ["\u53CC\u751F\u82B1\u82DE", "bud-way", "\u987A\u7740\u7BAD\u5934\uFF0C\u628A\u5BF9\u5B50\u9001\u5230\u82B1\u82DE\u683C\u3002", "\u5728\u540C\u4E00\u683C\u6D88\u4E24\u6B21\uFF0C\u82B1\u82DE\u624D\u4F1A\u5F00\u653E\u3002"],
+    ["\u5348\u540E\u5C0F\u61A9", "classic", "\u56DE\u5230\u719F\u6089\u7684\u63A8\u79FB\u4E0E\u914D\u5BF9\u3002", "\u591A\u89C2\u5BDF\u4E00\u6B65\uFF0C\u8BD5\u8BD5\u4E00\u6B21\u8FDE\u6D88\u591A\u5BF9\u3002"],
+    ["\u4E09\u91CD\u82B1\u5F71", "stack3", "\u4E09\u5C42\u724C\u9010\u5C42\u9732\u51FA\uFF0C\u4FA7\u8FB9\u663E\u793A\u5C42\u6570\u3002", "\u6574\u7406\u597D\u8DEF\u7EBF\uFF0C\u518D\u8FDE\u7EED\u6536\u8D70\u3002"],
+    ["\u8FDE\u9501\u5ECA\u6865", "unlock", "\u6BCF\u6536\u8D70\u4E00\u5BF9\uFF0C\u9501\u4E0A\u7684\u8BA1\u6570\u51CF\u5C11\u3002", "\u8BA1\u6570\u5230\u96F6\uFF0C\u8F68\u9053\u81EA\u52A8\u6253\u5F00\u3002"],
+    ["\u82B1\u56ED\u8FF7\u5F84", "flower-key", "\u6536\u94A5\u5319\u5F00\u8DEF\uFF0C\u518D\u628A\u5BF9\u5B50\u9001\u5230\u82B1\u5703\u3002", "\u76EE\u6807\u662F\u5F00\u82B1\uFF0C\u5176\u4ED6\u724C\u6309\u9700\u8981\u6D88\u3002"],
+    ["\u955C\u6E56\u5FC3\u613F", "collect-way", "\u987A\u7740\u8F68\u9053\u6536\u9F50\u76EE\u6807\u724C\u3002", "\u6CA1\u6709\u82B1\u8272\u7981\u6D88\u9650\u5236\uFF0C\u53EA\u770B\u76EE\u6807\u6E05\u5355\u3002"],
+    ["\u6674\u65E5\u5DE1\u6E38", "final", "\u719F\u6089\u7684\u673A\u5173\u8F6E\u6D41\u7EC4\u5408\u767B\u573A\u3002", "\u770B\u6E05\u672C\u5173\u76EE\u6807\uFF0C\u4E00\u6B65\u6B65\u5B8C\u6210\u82B1\u56ED\u5DE1\u6E38\u3002"]
+  ];
+
+  // cocos/assets/scripts/view/theme.ts
+  var palette = {
+    /** 天空 / 庭院背景 */
+    sky1: "#DAEEE7",
+    sky2: "#F1F4E6",
+    sky3: "#E5EDCD",
+    garden: "#ACCAA0",
+    gardenDeep: "#86AA78",
+    gardenDark: "#72916C",
+    leaf: "#99BC7E",
+    leafDark: "#77975F",
+    leafLight: "#C3D9A6",
+    /** 纸面 / 卡片 */
+    cream: "#FFF9ED",
+    creamDeep: "#F3E6C6",
+    creamEdge: "#E4D2A6",
+    gold: "#D8A94E",
+    goldDeep: "#A87C2C",
+    goldLight: "#F3DC9B",
+    jade: "#2E7D4F",
+    jadeDeep: "#1C5B37",
+    jadeLight: "#4FA46A",
+    jadeBright: "#43A860",
+    /** 文字 */
+    ink: "#2B3A28",
+    inkSoft: "#5D6B52",
+    inkFaint: "#8A957E",
+    /** 木框 */
+    wood: "#C8AF7F",
+    woodDeep: "#A18F6C",
+    woodLight: "#E4D1A9",
+    woodInner: "#A7C8AA",
+    /** 牌面 */
+    tile: "#FDF8E4",
+    tileEdge: "#E8DCBC",
+    red: "#C0392B",
+    navy: "#2B4A7A",
+    blue: "#2E7FB8",
+    white: "#FFFFFF",
+    clear: "#00000000"
+  };
+
+  // cocos/assets/scripts/view/art.ts
+  var SANS = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
+  var SERIF = '"STKaiti","KaiTi","Kaiti SC","Songti SC","Noto Serif CJK SC",serif';
+  function rr(ctx, x, y, w, h, r) {
+    const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+  function fillRR(ctx, x, y, w, h, r, color) {
+    rr(ctx, x, y, w, h, r);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  function strokeRR(ctx, x, y, w, h, r, color, lw) {
+    rr(ctx, x, y, w, h, r);
+    ctx.lineWidth = lw;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+  }
+  function linear(ctx, x0, y0, x1, y1, stops) {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    for (const [at, color] of stops) g.addColorStop(at, color);
+    return g;
+  }
+  var DOTS = {
+    1: [[0.5, 0.5, 0.3]],
+    2: [[0.5, 0.28, 0.18], [0.5, 0.72, 0.18]],
+    3: [[0.26, 0.24, 0.16], [0.5, 0.5, 0.16], [0.74, 0.76, 0.16]],
+    4: [[0.3, 0.29, 0.16], [0.7, 0.29, 0.16], [0.3, 0.71, 0.16], [0.7, 0.71, 0.16]],
+    5: [[0.28, 0.26, 0.15], [0.72, 0.26, 0.15], [0.5, 0.5, 0.15], [0.28, 0.74, 0.15], [0.72, 0.74, 0.15]],
+    6: [[0.3, 0.22, 0.14], [0.7, 0.22, 0.14], [0.3, 0.5, 0.14], [0.7, 0.5, 0.14], [0.3, 0.78, 0.14], [0.7, 0.78, 0.14]],
+    7: [[0.26, 0.17, 0.12], [0.5, 0.27, 0.12], [0.74, 0.37, 0.12], [0.3, 0.63, 0.12], [0.7, 0.63, 0.12], [0.3, 0.85, 0.12], [0.7, 0.85, 0.12]],
+    8: [[0.3, 0.15, 0.12], [0.7, 0.15, 0.12], [0.3, 0.38, 0.12], [0.7, 0.38, 0.12], [0.3, 0.62, 0.12], [0.7, 0.62, 0.12], [0.3, 0.85, 0.12], [0.7, 0.85, 0.12]],
+    9: [[0.24, 0.18, 0.115], [0.5, 0.18, 0.115], [0.76, 0.18, 0.115], [0.24, 0.5, 0.115], [0.5, 0.5, 0.115], [0.76, 0.5, 0.115], [0.24, 0.82, 0.115], [0.5, 0.82, 0.115], [0.76, 0.82, 0.115]]
+  };
+  var NUMERALS = "\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D";
+  var HONORS = ["\u6771", "\u5357", "\u897F", "\u5317", "\u4E2D", "\u767C", "\u767D"];
+  var FLOWERS = ["\u6625", "\u590F", "\u79CB", "\u51AC", "\u6885", "\u5170", "\u7AF9", "\u83CA"];
+  var DECO = { x1: ["\u842C", "#C0392B"], x2: ["\u4E50", "#2E8B57"], x3: ["\u7B52", "#2E7FB8"] };
+  var BOMB_FACE = "b1";
+  var PIP_RED = "#C0392B";
+  var PIP_GREEN = "#2E8B57";
+  var PIP_BLUE = "#2E7FB8";
+  var PIP_PLAN = {
+    2: [PIP_BLUE, PIP_RED],
+    3: [PIP_RED, PIP_BLUE, PIP_RED],
+    4: [PIP_BLUE, PIP_RED, PIP_RED, PIP_BLUE],
+    5: [PIP_GREEN, PIP_GREEN, PIP_RED, PIP_GREEN, PIP_GREEN],
+    6: [PIP_RED, PIP_RED, PIP_GREEN, PIP_GREEN, PIP_BLUE, PIP_BLUE],
+    7: [PIP_RED, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN],
+    8: [PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_RED, PIP_RED, PIP_RED, PIP_RED],
+    9: [PIP_RED, PIP_RED, PIP_RED, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_BLUE, PIP_BLUE, PIP_BLUE]
+  };
+  var STICKS = {
+    2: [{ x: 0.32, y: 0.5, len: 0.6 }, { x: 0.68, y: 0.5, len: 0.6 }],
+    3: [{ x: 0.5, y: 0.23, len: 0.28 }, { x: 0.29, y: 0.72, len: 0.3 }, { x: 0.71, y: 0.72, len: 0.3 }],
+    4: [{ x: 0.27, y: 0.24, len: 0.32 }, { x: 0.73, y: 0.24, len: 0.32 }, { x: 0.27, y: 0.76, len: 0.32 }, { x: 0.73, y: 0.76, len: 0.32 }],
+    5: [{ x: 0.24, y: 0.24, len: 0.26 }, { x: 0.76, y: 0.24, len: 0.26 }, { x: 0.5, y: 0.5, len: 0.26, red: true }, { x: 0.24, y: 0.76, len: 0.26 }, { x: 0.76, y: 0.76, len: 0.26 }],
+    6: [{ x: 0.2, y: 0.24, len: 0.3 }, { x: 0.5, y: 0.24, len: 0.3 }, { x: 0.8, y: 0.24, len: 0.3 }, { x: 0.2, y: 0.76, len: 0.3 }, { x: 0.5, y: 0.76, len: 0.3 }, { x: 0.8, y: 0.76, len: 0.3 }],
+    7: [{ x: 0.5, y: 0.14, len: 0.16, red: true }, { x: 0.25, y: 0.44, len: 0.18 }, { x: 0.5, y: 0.44, len: 0.18 }, { x: 0.75, y: 0.44, len: 0.18 }, { x: 0.25, y: 0.78, len: 0.18 }, { x: 0.5, y: 0.78, len: 0.18 }, { x: 0.75, y: 0.78, len: 0.18 }],
+    8: [{ x: 0.28, y: 0.14, len: 0.14 }, { x: 0.72, y: 0.14, len: 0.14 }, { x: 0.28, y: 0.38, len: 0.14 }, { x: 0.72, y: 0.38, len: 0.14 }, { x: 0.28, y: 0.62, len: 0.14 }, { x: 0.72, y: 0.62, len: 0.14 }, { x: 0.28, y: 0.86, len: 0.14 }, { x: 0.72, y: 0.86, len: 0.14 }],
+    9: [{ x: 0.2, y: 0.17, len: 0.21 }, { x: 0.5, y: 0.17, len: 0.21, red: true }, { x: 0.8, y: 0.17, len: 0.21 }, { x: 0.2, y: 0.5, len: 0.21 }, { x: 0.5, y: 0.5, len: 0.21, red: true }, { x: 0.8, y: 0.5, len: 0.21 }, { x: 0.2, y: 0.83, len: 0.21 }, { x: 0.5, y: 0.83, len: 0.21, red: true }, { x: 0.8, y: 0.83, len: 0.21 }]
+  };
+  function parseFace(face) {
+    const f = face.replace(/[~*]+$/, "");
+    const lead = /[a-z]/i.test(f[0] || "");
+    return { suit: lead ? f[0] : f[1] || "", n: Number(lead ? f.slice(1) : f[0]) };
+  }
+  function pip(ctx, x, y, r, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.62, 0, Math.PI * 2);
+    ctx.fillStyle = palette.tile;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.32, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  function stick(ctx, x, y, len, w, color) {
+    const top2 = y - len / 2, bottom = y + len / 2;
+    const dark = color === PIP_RED ? "#8D2B2A" : "#12553B";
+    const light = color === PIP_RED ? "#C6453A" : "#287C54";
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x - w * 0.32, top2);
+    ctx.quadraticCurveTo(x - w * 0.58, top2 + len * 0.1, x - w * 0.34, y - len * 0.08);
+    ctx.lineTo(x - w * 0.46, y);
+    ctx.lineTo(x - w * 0.34, y + len * 0.08);
+    ctx.quadraticCurveTo(x - w * 0.56, bottom - len * 0.08, x - w * 0.28, bottom);
+    ctx.lineTo(x + w * 0.28, bottom);
+    ctx.quadraticCurveTo(x + w * 0.56, bottom - len * 0.08, x + w * 0.34, y + len * 0.08);
+    ctx.lineTo(x + w * 0.46, y);
+    ctx.lineTo(x + w * 0.34, y - len * 0.08);
+    ctx.quadraticCurveTo(x + w * 0.58, top2 + len * 0.1, x + w * 0.32, top2);
+    ctx.closePath();
+    ctx.fillStyle = linear(ctx, x - w / 2, y, x + w / 2, y, [[0, dark], [0.44, light], [1, dark]]);
+    ctx.fill();
+    ctx.strokeStyle = dark;
+    ctx.lineCap = "round";
+    ctx.lineWidth = Math.max(0.65, w * 0.17);
+    for (const t of [-0.38, 0, 0.38]) {
+      ctx.beginPath();
+      ctx.moveTo(x - w * 0.46, y + len * t);
+      ctx.lineTo(x + w * 0.46, y + len * t);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(240,249,222,.55)";
+    ctx.lineWidth = Math.max(0.45, w * 0.09);
+    ctx.beginPath();
+    ctx.moveTo(x - w * 0.17, top2 + len * 0.18);
+    ctx.lineTo(x - w * 0.12, y - len * 0.13);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - w * 0.12, y + len * 0.13);
+    ctx.lineTo(x - w * 0.17, bottom - len * 0.18);
+    ctx.stroke();
+    ctx.restore();
+  }
+  function bird(ctx, x, y, w, h) {
+    const cx = x + w * 0.5, cy = y + h * 0.55;
+    const dot = (ax, ay, r, col) => {
+      ctx.beginPath();
+      ctx.arc(ax, ay, r, 0, Math.PI * 2);
+      ctx.fillStyle = col;
+      ctx.fill();
+    };
+    const line = (pts, col, lw) => {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.lineWidth = lw;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = col;
+      ctx.stroke();
+    };
+    dot(cx - w * 0.04, cy + h * 0.06, w * 0.2, "#2E8B57");
+    dot(cx + w * 0.14, cy - h * 0.16, w * 0.12, "#2E8B57");
+    dot(cx + w * 0.17, cy - h * 0.18, w * 0.03, palette.ink);
+    line([[cx + w * 0.25, cy - h * 0.2], [cx + w * 0.38, cy - h * 0.14], [cx + w * 0.25, cy - h * 0.1]], palette.red, Math.max(1, w * 0.05));
+    line([[cx - w * 0.2, cy + h * 0.14], [cx - w * 0.38, cy + h * 0.34], [cx - w * 0.08, cy + h * 0.26]], palette.red, Math.max(1, w * 0.06));
+    line([[cx - w * 0.16, cy], [cx - w * 0.3, cy - h * 0.16], [cx - w * 0.04, cy - h * 0.1]], palette.blue, Math.max(1, w * 0.05));
+  }
+  function faceArt(ctx, face, x, y, w, h) {
+    const { suit: suit2, n } = parseFace(face);
+    if (suit2 === "p" && DOTS[n]) {
+      if (n === 1) {
+        const cx = x + w / 2, cy = y + h / 2, r = w * 0.37;
+        const ring = (rr22, col) => {
+          ctx.beginPath();
+          ctx.arc(cx, cy, rr22, 0, Math.PI * 2);
+          ctx.fillStyle = col;
+          ctx.fill();
+        };
+        ring(r, "#2E8B57");
+        ring(r * 0.78, palette.tile);
+        ring(r * 0.6, palette.red);
+        ring(r * 0.36, palette.tile);
+        ring(r * 0.2, palette.blue);
+        return;
+      }
+      const plan = PIP_PLAN[n] || PIP_PLAN[2];
+      DOTS[n].forEach(([px, py, pr], i) => pip(ctx, x + px * w, y + py * h, pr * w, plan[i % plan.length]));
+      return;
+    }
+    if (suit2 === "s") {
+      if (n === 1) {
+        bird(ctx, x, y, w, h);
+        return;
+      }
+      if (STICKS[n]) {
+        const sw = w * (n <= 4 ? 0.19 : n === 9 ? 0.135 : 0.145);
+        for (const { x: px, y: py, len, red } of STICKS[n]) {
+          const cx = x + px * w, cy = y + py * h, cl = len * h;
+          const cwd = cl > h * 0.34 ? sw * 1.16 : sw;
+          stick(ctx, cx, cy, cl, cwd, red ? PIP_RED : PIP_GREEN);
+        }
+        return;
+      }
+    }
+    if (suit2 === "m" && n >= 1 && n <= 9) {
+      const a = Math.min(h * 0.34, w * 0.74), b = Math.min(h * 0.38, w * 0.78);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `700 ${a}px ${SERIF}`;
+      ctx.fillStyle = palette.navy;
+      ctx.fillText(NUMERALS[n - 1], x + w / 2, y + h * 0.06);
+      ctx.font = `700 ${b}px ${SERIF}`;
+      ctx.fillStyle = palette.red;
+      ctx.fillText("\u842C", x + w / 2, y + h * 0.48);
+      return;
+    }
+    if (suit2 === "z" && n >= 1 && n <= 7) {
+      if (n === 7) {
+        rr(ctx, x + w * 0.16, y + h * 0.18, w * 0.68, h * 0.64, w * 0.09);
+        ctx.lineWidth = Math.max(2, w * 0.07);
+        ctx.strokeStyle = "#4F8FB0";
+        ctx.stroke();
+        return;
+      }
+      const size2 = Math.min(h * 0.5, w * 0.84);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `700 ${size2}px ${SERIF}`;
+      ctx.fillStyle = n === 5 ? palette.red : n === 6 ? "#2E8B57" : palette.navy;
+      ctx.fillText(HONORS[n - 1], x + w / 2, y + (h - size2) / 2);
+      return;
+    }
+    if (suit2 === "f" && n >= 1 && n <= 8) {
+      const size2 = Math.min(h * 0.5, w * 0.8);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `700 ${size2}px ${SERIF}`;
+      ctx.fillStyle = palette.jadeDeep;
+      ctx.fillText(FLOWERS[n - 1], x + w / 2, y + h * 0.04);
+      const fx = x + w / 2, fy = y + h * 0.84, fr = w * 0.09;
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + i * Math.PI * 2 / 5;
+        ctx.beginPath();
+        ctx.arc(fx + Math.cos(a) * fr, fy + Math.sin(a) * fr, fr * 0.62, 0, Math.PI * 2);
+        ctx.fillStyle = PIP_RED;
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.arc(fx, fy, fr * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#F6D46B";
+      ctx.fill();
+      return;
+    }
+    if (DECO[face]) {
+      const [ch, col] = DECO[face];
+      const size2 = Math.min(h * 0.56, w * 0.86);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `700 ${size2}px ${SERIF}`;
+      ctx.fillStyle = col;
+      ctx.fillText(ch, x + w / 2, y + (h - size2) / 2);
+      return;
+    }
+    if (suit2 === "b" && face === BOMB_FACE) {
+      const cx = x + w / 2, bw = w * 0.3, bh = h * 0.46, top2 = y + h * 0.5 - bh / 2 + h * 0.06;
+      ctx.beginPath();
+      ctx.moveTo(cx, top2);
+      ctx.quadraticCurveTo(cx + bw * 0.8, top2 - bh * 0.5, cx + bw * 1.5, top2 - bh * 0.3);
+      ctx.lineWidth = Math.max(2, w * 0.045);
+      ctx.strokeStyle = "#8A6A33";
+      ctx.lineCap = "round";
+      ctx.stroke();
+      ctx.strokeStyle = "#E8873B";
+      ctx.lineWidth = Math.max(2, w * 0.038);
+      for (const [dx, dy] of [[0.55, -0.62], [0.95, -0.34], [0.42, -0.9]]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + dx * bw, top2 + dy * bh * 0.5);
+        ctx.lineTo(cx + dx * bw + w * 0.035, top2 + dy * bh * 0.5 - h * 0.05);
+        ctx.stroke();
+      }
+      rr(ctx, cx - bw / 2, top2, bw, bh, bw * 0.3);
+      ctx.fillStyle = "#C0392B";
+      ctx.fill();
+      ctx.lineWidth = Math.max(2, w * 0.04);
+      ctx.strokeStyle = "#8C2318";
+      ctx.stroke();
+      ctx.fillStyle = "#E8C56B";
+      rr(ctx, cx - bw / 2, top2 + bh * 0.3, bw, bh * 0.12, 2);
+      ctx.fill();
+      rr(ctx, cx - bw / 2, top2 + bh * 0.58, bw, bh * 0.1, 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.42)";
+      rr(ctx, cx - bw * 0.34, top2 + bh * 0.1, bw * 0.16, bh * 0.52, bw * 0.08);
+      ctx.fill();
+      return;
+    }
+    const size = Math.min(h * 0.4, w * 0.6);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.font = `700 ${size}px ${SANS}`;
+    ctx.fillStyle = palette.inkFaint;
+    ctx.fillText("?", x + w / 2, y + (h - size) / 2);
+  }
+  function drawFrostFrame(ctx, x, y, w, h, layers) {
+    const rim = (inset, lw, col, fill) => {
+      rr(ctx, x + w * inset, y + h * inset, w * (1 - inset * 2), h * (1 - inset * 2), Math.min(w, h) * 0.14);
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = col;
+      ctx.stroke();
+    };
+    if (layers >= 2) rim(0.015, Math.max(2, w * 0.05), "rgba(120,190,240,.95)", null);
+    rim(layers >= 2 ? 0.075 : 0.04, Math.max(1.5, w * 0.05), "rgba(150,205,245,.95)", "rgba(205,235,255,.42)");
+    const crystal = (cx, cy, s) => {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.strokeStyle = "rgba(235,248,255,.95)";
+      ctx.lineWidth = Math.max(1, s * 0.22);
+      ctx.lineCap = "round";
+      for (let i = 0; i < 4; i++) {
+        const a = i * Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(-Math.cos(a) * s, -Math.sin(a) * s);
+        ctx.lineTo(Math.cos(a) * s, Math.sin(a) * s);
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+    crystal(x + w * 0.78, y + h * 0.22, w * 0.07);
+    crystal(x + w * 0.22, y + h * 0.76, w * 0.06);
+  }
+  function drawFrost(ctx, x, y, w, h, layers = 1) {
+    drawFrostFrame(ctx, x, y, w, h, layers);
+  }
+  function iceLayers(face) {
+    let n = 0;
+    while (face.endsWith("~")) {
+      face = face.slice(0, -1);
+      n++;
+    }
+    return n;
+  }
+  function drawTile(ctx, face, x, y, o) {
+    const { w, h } = o;
+    const lift = o.lift ?? Math.max(3, h * 0.085);
+    const r = Math.min(w, h) * 0.12;
+    const foot = "#347B60";
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    fillRR(ctx, x + w * 0.02, y + h * 0.05, w, h - lift, r, "#1E3A22");
+    ctx.restore();
+    fillRR(
+      ctx,
+      x,
+      y + lift,
+      w,
+      h - lift,
+      r,
+      linear(ctx, x, y, x, y + h, [[0, "#70A18A"], [0.7, foot], [1, "#235740"]])
+    );
+    fillRR(ctx, x, y + lift * 0.35, w, h - lift * 0.95, r, "#D4D5C4");
+    rr(ctx, x, y, w, h - lift, r);
+    ctx.fillStyle = linear(
+      ctx,
+      x,
+      y,
+      x,
+      y + h - lift,
+      [[0, "#FFFFFF"], [0.52, "#FFFFF6"], [1, "#ECECDC"]]
+    );
+    ctx.fill();
+    ctx.lineWidth = Math.max(0.7, w * 0.016);
+    ctx.strokeStyle = "#C6CBB9";
+    ctx.stroke();
+    strokeRR(ctx, x + w * 0.027, y + h * 0.018, w * 0.946, h - lift - h * 0.04, r * 0.82, "#FFFFFF", Math.max(0.7, w * 0.019));
+    fillRR(ctx, x + w * 0.08, y + h * 0.07, w * 0.84, (h - lift) * 0.16, r * 0.6, "rgba(255,255,255,.75)");
+    faceArt(ctx, face, x + w * 0.09, y + h * 0.07, w * 0.82, (h - lift) * 0.84);
+    const ice = iceLayers(face);
+    if (ice > 0) drawFrost(ctx, x + w * 0.06, y + h * 0.06, w * 0.88, (h - lift) * 0.88, ice);
+  }
+
+  // cocos/assets/scripts/view/sunnyArt.ts
+  var SUNNY = { ink: "#214F43", soft: "#82947B", paper: "#FFFDF4", edge: "#D3DEC1", jade: "#477B61", peach: "#DE9476" };
+  var TABLE_THEMES = [
+    { id: "jade", name: "\u96E8\u540E\u8584\u8377", stars: 0, felt: "#477B61" },
+    { id: "blue", name: "\u6708\u4E0B\u9752\u74F7", stars: 20, felt: "#477488" },
+    { id: "rose", name: "\u674F\u6843\u5915\u7167", stars: 60, felt: "#AA7D79" }
+  ];
+  function drawSunnySurface(c, x, y, w, h, kind = "paper") {
+    const peach = kind === "peach", jade = kind === "jade", off = kind === "off";
+    const r = Math.min(28, h * 0.25);
+    fillRR(c, x, y + 7, w, h - 7, r, peach ? "#B7785F" : jade ? "#345F4C" : "#BFCEAF");
+    fillRR(c, x, y, w, h - 8, r, linear(c, x, y, x, y + h, [[0, peach ? "#EDA68A" : jade ? "#739D7A" : off ? "#E7ECD9" : "#FFFEF7"], [1, peach ? "#D58C70" : jade ? "#477B61" : off ? "#DDE5CE" : "#F5F7E9"]]));
+    strokeRR(c, x + 1, y + 1, w - 2, h - 10, r, peach ? "#D9987E" : jade ? "#658E70" : "#CEDABD", 2);
+    strokeRR(c, x + 5, y + 5, w - 10, h - 18, Math.max(4, r - 4), "rgba(255,255,245,.55)", 1.5);
+  }
+  function drawSunnyTable(c, x, y, w, h, theme = "jade") {
+    const felt = TABLE_THEMES.find((t) => t.id === theme).felt;
+    fillRR(c, x, y + 9, w, h - 9, 32, "#527D65");
+    fillRR(c, x, y, w, h - 10, 32, linear(c, x, y, x, y + h, [[0, "#BED5AA"], [1, "#83AA89"]]));
+    strokeRR(c, x + 3, y + 2, w - 6, h - 13, 30, "#EAF1D7", 3);
+    fillRR(c, x + 22, y + 24, w - 44, h - 55, 22, felt);
+    strokeRR(c, x + 22, y + 24, w - 44, h - 55, 22, "#D8E5C9", 2);
+    strokeRR(c, x + 9, y + 10, w - 18, h - 31, 25, "rgba(250,255,234,.7)", 1.5);
+  }
+  function ellipse(c, x, y, rx, ry, col, angle = 0) {
+    c.beginPath();
+    c.ellipse(x, y, rx, ry, angle, 0, Math.PI * 2);
+    c.fillStyle = col;
+    c.fill();
+  }
+  function flower(c, x, y, r) {
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      ellipse(c, x + Math.cos(a) * r * 0.55, y + Math.sin(a) * r * 0.55, r * 0.48, r * 0.3, "#FFFEF0", a);
+    }
+    ellipse(c, x, y, r * 0.25, r * 0.25, "#E0B857");
+  }
+  function drawSunnyBackdrop(c, w, h) {
+    c.fillStyle = linear(c, 0, 0, w, h, [[0, "#F9FAEF"], [0.48, "#F3F7E9"], [1, "#E9F0DF"]]);
+    c.fillRect(0, 0, w, h);
+    const sun = c.createRadialGradient(w * 0.25, h * 0.23, 0, w * 0.25, h * 0.23, w * 0.8);
+    sun.addColorStop(0, "rgba(255,252,229,.9)");
+    sun.addColorStop(1, "rgba(255,252,229,0)");
+    c.fillStyle = sun;
+    c.fillRect(0, 0, w, h);
+    c.save();
+    c.globalAlpha = 0.15;
+    for (let i = 0; i < 7; i++) {
+      const right = i % 2 === 0, x = right ? w + 12 : -12, y = h * (0.18 + i * 0.12);
+      ellipse(c, x, y, 60, 23, "#A2BA94", right ? -1 : 1);
+    }
+    c.restore();
+  }
+  function drawSunnyHero(c, x, y, w, h) {
+    c.save();
+    c.translate(x, y);
+    c.scale(w / 700, h / 475);
+    const glow = c.createRadialGradient(350, 210, 0, 350, 210, 300);
+    glow.addColorStop(0, "#FFFBE7");
+    glow.addColorStop(1, "rgba(241,246,226,0)");
+    c.fillStyle = glow;
+    c.fillRect(0, 0, 700, 475);
+    ellipse(c, 110, 232, 78, 92, "#DCE8CD");
+    ellipse(c, 589, 197, 90, 98, "#DAE7CC");
+    c.strokeStyle = "#8BAE8D";
+    c.lineWidth = 3;
+    c.beginPath();
+    c.moveTo(570, 360);
+    c.bezierCurveTo(610, 275, 575, 190, 610, 90);
+    c.moveTo(80, 346);
+    c.quadraticCurveTo(97, 260, 60, 218);
+    c.stroke();
+    for (const [lx, ly, a] of [[604, 141, -1.6], [625, 180, -0.4], [577, 218, 0.6], [615, 255, -0.5], [88, 280, -0.4], [60, 246, 1]]) ellipse(c, lx, ly, 34, 12, "#95B896", a);
+    flower(c, 571, 171, 24);
+    flower(c, 66, 230, 24);
+    ellipse(c, 347, 416, 268, 36, "rgba(65,112,92,.13)");
+    const diamond = (cy, col) => {
+      c.beginPath();
+      c.moveTo(95, cy);
+      c.lineTo(350, cy - 88);
+      c.lineTo(615, cy);
+      c.lineTo(350, cy + 90);
+      c.closePath();
+      c.fillStyle = col;
+      c.fill();
+    };
+    diamond(347, "#C3D5B9");
+    diamond(330, "#F6F8E8");
+    diamond(313, "#6F9D81");
+    diamond(298, "#C1D6AE");
+    diamond(298, "#B3CAA6");
+    c.beginPath();
+    c.moveTo(123, 298);
+    c.lineTo(350, 225);
+    c.lineTo(584, 298);
+    c.lineTo(350, 374);
+    c.closePath();
+    c.fillStyle = linear(c, 0, 230, 0, 380, [[0, "#8DB18D"], [1, "#467B60"]]);
+    c.fill();
+    c.strokeStyle = "#E7F0D2";
+    c.lineWidth = 3;
+    c.stroke();
+    const tile = (f, cx, cy, a) => {
+      c.save();
+      c.translate(cx, cy);
+      c.rotate(a);
+      drawTile(c, f, -72, -99, { w: 144, h: 180, lift: 12 });
+      c.restore();
+    };
+    tile("4s", 222, 287, -0.27);
+    tile("6s", 476, 284, 0.22);
+    tile("z6", 350, 263, -0.045);
+    c.fillStyle = linear(c, 570, 320, 619, 385, [[0, "#FFFDF1"], [1, "#CFA98F"]]);
+    c.beginPath();
+    c.moveTo(556, 324);
+    c.lineTo(624, 324);
+    c.lineTo(615, 378);
+    c.quadraticCurveTo(590, 393, 566, 378);
+    c.closePath();
+    c.fill();
+    ellipse(c, 590, 324, 34, 10, "#FFFDF2");
+    ellipse(c, 590, 326, 24, 5, "#8B9D75");
+    c.strokeStyle = "#789D75";
+    c.lineWidth = 3;
+    c.beginPath();
+    c.moveTo(590, 325);
+    c.lineTo(593, 270);
+    c.stroke();
+    flower(c, 593, 270, 25);
+    c.save();
+    c.translate(130, 400);
+    c.rotate(-0.09);
+    drawSunnySurface(c, -95, -25, 190, 58);
+    c.font = "22px serif";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillStyle = SUNNY.ink;
+    c.fillText("\u4E00\u684C\u597D\u5FC3\u60C5", 3, 0);
+    c.restore();
+    ellipse(c, 238, 123, 8, 4, "#EAB799", -0.5);
+    flower(c, 523, 345, 12);
+    c.restore();
+  }
+  function drawSunnyIcon(c, name, x, y, size, col) {
+    c.save();
+    c.translate(x, y);
+    c.scale(size / 24, size / 24);
+    c.strokeStyle = col;
+    c.fillStyle = col;
+    c.lineWidth = 1.7;
+    c.lineCap = "round";
+    c.lineJoin = "round";
+    c.beginPath();
+    const line = (pts) => {
+      c.moveTo(pts[0], pts[1]);
+      for (let i = 2; i < pts.length; i += 2) c.lineTo(pts[i], pts[i + 1]);
+    };
+    if (name === "home") {
+      line([3, 11, 12, 3, 21, 11]);
+      line([5, 10, 5, 21, 19, 21, 19, 10]);
+      line([9, 21, 9, 14, 15, 14, 15, 21]);
+    } else if (name === "map") {
+      line([3, 5, 9, 3, 15, 6, 21, 4, 21, 20, 15, 22, 9, 19, 3, 21, 3, 5]);
+      line([9, 3, 9, 19]);
+      line([15, 6, 15, 22]);
+    } else if (name === "flower") {
+      for (let i = 0; i < 5; i++) {
+        const a = i * Math.PI * 2 / 5;
+        c.moveTo(16 + Math.cos(a) * 4, 10 + Math.sin(a) * 4);
+        c.arc(12 + Math.cos(a) * 4, 10 + Math.sin(a) * 4, 4, 0, Math.PI * 2);
+      }
+      line([12, 14, 12, 22]);
+    } else if (name === "workshop") {
+      line([4, 3, 9, 8, 6, 11, 2, 7, 3, 12, 10, 18, 15, 13, 20, 21, 23, 18, 15, 11, 20, 4, 15, 5, 12, 9, 7, 2, 4, 3]);
+    } else if (name === "book") {
+      line([12, 6, 7, 3, 2, 4, 2, 20, 7, 19, 12, 22, 17, 19, 22, 20, 22, 4, 17, 3, 12, 6, 12, 22]);
+    } else if (name === "gear") {
+      c.arc(12, 12, 6, 0, Math.PI * 2);
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4;
+        line([12 + Math.cos(a) * 7, 12 + Math.sin(a) * 7, 12 + Math.cos(a) * 9, 12 + Math.sin(a) * 9]);
+      }
+      c.moveTo(14.5, 12);
+      c.arc(12, 12, 2.5, 0, Math.PI * 2);
+    } else if (name === "pause") {
+      line([8, 5, 8, 19]);
+      line([16, 5, 16, 19]);
+      c.lineWidth = 3;
+    } else if (name === "hint") {
+      c.moveTo(8, 17);
+      c.bezierCurveTo(8, 13, 4, 13, 4, 9);
+      c.arc(12, 9, 8, Math.PI, 0);
+      c.bezierCurveTo(20, 13, 16, 13, 16, 17);
+      line([8, 18, 16, 18]);
+      line([9, 22, 15, 22]);
+    } else if (name === "undo") {
+      line([8, 3, 3, 8, 8, 13]);
+      c.moveTo(3, 8);
+      c.lineTo(13, 8);
+      c.bezierCurveTo(23, 8, 23, 22, 13, 22);
+    } else if (name === "restart") {
+      c.arc(12, 12, 8, 0.2, Math.PI * 1.8);
+      line([20, 4, 20, 11, 13, 11]);
+    } else if (name === "back") {
+      line([15, 4, 7, 12, 15, 20]);
+    } else if (name === "next") {
+      line([9, 4, 17, 12, 9, 20]);
+    } else if (name === "spark") {
+      line([14, 2, 4, 14, 11, 14, 10, 22, 21, 9, 13, 9, 14, 2]);
+    } else if (name === "close") {
+      line([5, 5, 19, 19]);
+      line([19, 5, 5, 19]);
+    } else if (name === "play") {
+      line([7, 4, 20, 12, 7, 20, 7, 4]);
+      c.fill();
+    } else if (name === "ice") {
+      for (let i = 0; i < 3; i++) {
+        const a = i * Math.PI / 3;
+        line([12 - Math.cos(a) * 10, 12 - Math.sin(a) * 10, 12 + Math.cos(a) * 10, 12 + Math.sin(a) * 10]);
+      }
+    } else {
+      line([5, 3, 19, 3, 19, 21, 5, 21, 5, 3]);
+      line([9, 8, 15, 8]);
+      line([9, 13, 15, 13]);
+    }
+    c.stroke();
+    c.restore();
+  }
+
+  // cocos/assets/scripts/view/sunnyLayout.ts
+  var WORKSHOP = [
+    { name: "\u8F7B\u63A8\u78B0\u5BF9", icon: "tiles", note: "\u540C\u724C\u76F8\u90BB\uFF0C\u5C31\u80FD\u914D\u5BF9", level: 0 },
+    { name: "\u53E0\u5F71\u4E0E\u51B0", icon: "ice", note: "\u5148\u7834\u51B0\uFF0C\u518D\u6536\u8D70", level: 40 },
+    { name: "\u82B1\u5703\u5F00\u82B1", icon: "flower", note: "\u628A\u5BF9\u5B50\u9001\u5230\u82B1\u5703", level: 60 },
+    { name: "\u5FC3\u613F\u6E05\u5355", icon: "book", note: "\u6536\u9F50\u753B\u51FA\u6765\u7684\u724C", level: 80 },
+    { name: "\u7075\u611F\u5145\u80FD", icon: "spark", note: "\u6D88\u56DB\u5BF9\uFF0C\u6362\u4E00\u6B21\u63D0\u793A", level: 100 },
+    { name: "\u9732\u73E0\u4E0E\u82B1\u82DE", icon: "flower", note: "\u90BB\u683C\u6D47\u6C34\uFF0C\u5206\u6B21\u5F00\u82B1", level: 220 },
+    { name: "\u94A5\u5319\u5F00\u8DEF", icon: "workshop", note: "\u6536\u94A5\u5319\uFF0C\u6253\u5F00\u9501\u8F68", level: 180 },
+    { name: "\u673A\u5173\u5408\u594F", icon: "map", note: "\u82B1\u5703\u3001\u94A5\u5319\u4E0E\u53E0\u724C", level: 479 }
+  ];
+  function totalStars(s) {
+    return Object.values(s.stars).reduce((a, b) => a + b, 0);
+  }
+  function kit(a) {
+    const out = [];
+    const box = (kind, x, y, w, h, id, enabled = true) => {
+      out.push({ kind, x, y, w, h, id, enabled });
+    };
+    const txt = (text2, x, y, size = 25, color = SUNNY.ink, align = "left", bold = false, serif = false) => out.push({ kind: "text", x, y, w: 0, h: 0, text: text2, size, color, align, bold, serif });
+    const ico = (name, x, y, size = 34, color = SUNNY.ink) => out.push({ kind: "icon", name, x, y, w: size, h: size, color });
+    const button2 = (text2, id, x, y, w, h = 88, kind = "paper", enabled = true) => {
+      box(enabled ? kind : "off", x, y, w, h, id, enabled);
+      txt(text2, x + w / 2, y + (h - 32) / 2 - 2, 30, enabled ? kind === "peach" || kind === "jade" ? "#FFFEF4" : SUNNY.ink : "#8EA085", "center", true);
+    };
+    const circle = (icon2, id, x, y) => {
+      box("circle", x, y, 82, 82, id);
+      ico(icon2, x + 24, y + 24, 34);
+    };
+    const tile = (name, x, y, w) => out.push({ kind: "tile", name, x, y, w, h: w * 1.24 });
+    const top2 = () => {
+      tile("z6", 35, a.safe + 43, 72);
+      txt("\u4ECA\u5929\u4E5F\u5F00\u5FC3", 120, a.safe + 51, 26, SUNNY.ink, "left", true);
+      txt("\u7ED9\u81EA\u5DF1\u4E00\u70B9\u653E\u677E\u65F6\u95F4", 120, a.safe + 88, 20, SUNNY.soft);
+      box("paper", a.w - 234, a.safe + 51, 116, 64);
+      txt("\u2605 " + totalStars(a.s), a.w - 176, a.safe + 64, 27, SUNNY.ink, "center", true);
+      circle("gear", "settings", a.w - 105, a.safe + 40);
+    };
+    const nav = (active) => {
+      box("line", 0, a.h - 112, a.w, 112);
+      out[out.length - 1].color = "#FFFDF5";
+      const tabs = [["home", "home", "\u82B1\u56ED"], ["levels", "map", "\u6E38\u56ED"], ["workshop", "workshop", "\u673A\u5173"], ["album", "book", "\u6536\u85CF"]];
+      tabs.forEach(([id, icon2, label], i) => {
+        const x = i * a.w / 4;
+        box("line", x, a.h - 112, a.w / 4, 106, id);
+        out[out.length - 1].color = "#FFFDF5";
+        if (id === active) {
+          box("line", x + a.w / 8 - 24, a.h - 112, 48, 4);
+          out[out.length - 1].color = SUNNY.jade;
+        }
+        ico(icon2, x + a.w / 8 - 20, a.h - 89, 40, id === active ? SUNNY.ink : "#9AA086");
+        txt(label, x + a.w / 8, a.h - 37, 19, id === active ? SUNNY.ink : "#9AA086", "center", id === active);
+      });
+    };
+    return { out, box, txt, ico, button: button2, circle, tile, top: top2, nav };
+  }
+  function sunnyHome(a) {
+    const { out, box, txt, button: button2, ico, top: top2, nav } = kit(a);
+    top2();
+    const sy = a.safe, free = a.h - sy, short = free < 1420;
+    txt("\u9633\u5149\u6B63\u597D \xB7 \u78B0\u4E2A\u5F00\u5FC3", a.w / 2, sy + 179, 20, SUNNY.soft, "center");
+    const logoX = (a.w - 433) / 2;
+    for (const [dy, col] of [[5, "#C9DAC0"], [2, "#FFFEF4"], [0, "#315F49"]]) {
+      txt("\u5FEB\u4E50\u63A8\u9EBB", logoX, sy + 221 + dy, 68, col, "left", true);
+      txt("\u5BF9\u5BF9\u6D88", logoX + 280, sy + 241 + dy, 51, dy ? col : "#4D7959", "left", true);
+    }
+    txt("\u63A8\u4E00\u63A8\uFF0C\u540C\u724C\u78B0\u5934\u5C31\u6D88", a.w / 2, sy + 317, 23, SUNNY.soft, "center");
+    const cardY = a.h - 558, heroY = sy + (short ? 334 : 360), heroH = Math.max(140, Math.min(480, cardY - heroY - 18)), heroW = Math.min(a.w - 50, heroH * 700 / 475);
+    box("hero", (a.w - heroW) / 2, heroY, heroW, heroH);
+    box("paper", 44, cardY, a.w - 88, 248);
+    const chapter = CHAPTERS[Math.floor(a.s.levelIndex / CHAPTER_LENGTH)];
+    txt("\u6674\u65E5\u82B1\u56ED / \u4E0B\u4E00\u5904\u597D\u98CE\u666F", 76, cardY + 28, 20, "#A49878");
+    txt(chapter[0], 76, cardY + 68, 38, SUNNY.ink, "left", true, true);
+    txt(String(a.s.levelIndex + 1).padStart(2, "0"), a.w - 97, cardY + 46, 42, SUNNY.jade, "center", true, true);
+    button2(a.s.moves ? "\u7EE7\u7EED\u8FD9\u4E00\u684C" : "\u5F00\u684C\u6D88\u4E00\u5C40", "start", 76, cardY + 133, a.w - 152, 92, "peach");
+    const cy = cardY + 275, cw = (a.w - 114) / 2;
+    box("paper", 44, cy, cw, 111, "workshop");
+    ico("workshop", 64, cy + 33, 40, "#BD8D48");
+    txt("\u673A\u5173\u5DE5\u574A", 119, cy + 23, 27, SUNNY.ink, "left", true);
+    txt("\u65B0\u673A\u5173\uFF0C\u968F\u5FC3\u8BD5", 119, cy + 66, 19, SUNNY.soft);
+    box("paper", 70 + cw, cy, cw, 111, "album");
+    ico("flower", 90 + cw, cy + 33, 40, "#7A9B6C");
+    txt("\u6211\u7684\u6536\u85CF", 145 + cw, cy + 23, 27, SUNNY.ink, "left", true);
+    txt("\u6362\u5F20\u684C\u5E03\uFF0C\u6362\u4E2A\u5FC3\u60C5", 145 + cw, cy + 66, 18, SUNNY.soft);
+    if (a.h - (cy + 111) > 154) txt("\u540C\u724C\u6D88\u9664 \xB7 \u8F7B\u677E\u52A8\u52A8\u8111", a.w / 2, cy + 138, 20, SUNNY.soft, "center");
+    nav("home");
+    return out;
+  }
+  function sunnyMap(a) {
+    const { out, box, txt, ico, button: button2, circle, top: top2, nav } = kit(a);
+    top2();
+    const ci = a.page;
+    txt("\u4E0B\u4E00\u7AD9\uFF0C\u597D\u98CE\u666F", 44, a.safe + 168, 46, SUNNY.ink, "left", true, true);
+    txt(`\u7B2C ${ci + 1} \u7AE0 \xB7 ${CHAPTERS[ci][0]}`, 44, a.safe + 241, 29, SUNNY.ink, "left", true);
+    txt(`${ci + 1} / 26`, a.w - 44, a.safe + 245, 23, SUNNY.soft, "right");
+    txt(CHAPTERS[ci][2], 44, a.safe + 290, 21, SUNNY.soft);
+    const y0 = a.safe + 388, y1 = a.h - 385, stepY = (y1 - y0) / 4, stepX = (a.w - 220) / 3, d = Math.min(96, stepY * 0.62);
+    const points = Array.from({ length: 20 }, (_, j) => {
+      const row = Math.floor(j / 4), col = row % 2 ? 3 - j % 4 : j % 4;
+      return { x: 110 + col * stepX, y: y0 + row * stepY };
+    });
+    points.forEach((p, j) => {
+      if (j < 19) {
+        const q = points[j + 1], dx = q.x - p.x, dy = q.y - p.y;
+        out.push({ kind: "line", x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, w: Math.hypot(dx, dy), h: 14, color: "#D4DFC1", angle: Math.atan2(dy, dx) });
+      }
+    });
+    points.forEach((p, j) => {
+      const idx = ci * 20 + j, st = a.s.stars[idx] || 0, open = a.s.canEnter(idx), current = idx === a.s.levelIndex;
+      box("circle", p.x - d / 2, p.y - d / 2, d, d, "level:" + idx, open);
+      out[out.length - 1].color = current ? "#DEA080" : st ? "#8FB38E" : open ? "#FFFDF4" : "#E2E9D5";
+      txt(String(idx + 1), p.x, p.y - 21, 31, open ? SUNNY.ink : "#9AA68D", "center", true, true);
+      if (st) txt("\u2605".repeat(st), p.x, p.y + d / 2 + 8, 20, "#B58D46", "center");
+      else if (!open) txt("\u5F85\u5F00\u542F", p.x, p.y + d / 2 + 8, 17, "#97A089", "center");
+    });
+    box("paper", 44, a.h - 305, a.w - 88, 82);
+    txt(`\u5DF2\u8D70\u8FC7 ${Object.keys(a.s.stars).length} \u5904\u5C0F\u666F`, 74, a.h - 282, 25, SUNNY.ink, "left", true);
+    txt("\u901A\u5173\u524D\u4E00\u5173\u5373\u53EF\u7EE7\u7EED", a.w - 73, a.h - 278, 20, SUNNY.soft, "right");
+    button2("\u4E0A\u4E00\u7AE0", "page-prev", 44, a.h - 206, 220, 74, "paper", ci > 0);
+    button2("\u4E0B\u4E00\u7AE0", "page-next", a.w - 264, a.h - 206, 220, 74, "paper", ci < 25);
+    nav("levels");
+    return out;
+  }
+  function sunnyWorkshop(a) {
+    const { out, box, txt, ico, button: button2, top: top2, nav } = kit(a);
+    top2();
+    txt("\u673A\u5173\u5DE5\u574A", 44, a.safe + 172, 46, SUNNY.ink, "left", true, true);
+    txt("\u5148\u73A9\u4E00\u5C0F\u684C\uFF0C\u518D\u53BB\u95EF\u5173", 44, a.safe + 244, 24, SUNNY.soft);
+    const start = a.safe + 307, end = a.h - 269, rowH = Math.min(197, (end - start) / 4), cw = (a.w - 108) / 2;
+    WORKSHOP.forEach((m, i) => {
+      const x = 44 + i % 2 * (cw + 20), y = start + Math.floor(i / 2) * rowH;
+      box("paper", x, y, cw, rowH - 17, "practice:" + i);
+      ico(m.icon, x + 23, y + 23, 39, i % 2 ? "#BA9460" : "#6C966F");
+      txt(m.name, x + 79, y + 24, 27, SUNNY.ink, "left", true);
+      txt(m.note, x + 23, y + 79, 21, SUNNY.soft);
+      txt("\u8BD5\u4E00\u684C  \u203A", x + 23, y + rowH - 57, 23, SUNNY.jade, "left", true);
+    });
+    button2("\u72EC\u7ACB\u6311\u6218", "challenge", 44, a.h - 231, a.w - 88, 83, "jade");
+    nav("workshop");
+    return out;
+  }
+  function sunnyAlbum(a) {
+    const { out, box, txt, ico, button: button2, top: top2, nav } = kit(a);
+    top2();
+    const stars2 = totalStars(a.s);
+    txt("\u628A\u597D\u5FC3\u60C5\u6536\u8D77\u6765", 44, a.safe + 170, 44, SUNNY.ink, "left", true, true);
+    txt("\u901A\u5173\u7559\u82B1\u7B3A\uFF0C\u661F\u661F\u6362\u684C\u5E03", 44, a.safe + 245, 23, SUNNY.soft);
+    const start = a.safe + 311, rh = Math.min(165, (a.h - a.safe - 750) / 3);
+    TABLE_THEMES.forEach((t, i) => {
+      const y = start + i * rh, open = stars2 >= t.stars;
+      box("paper", 44, y, a.w - 88, rh - 17, "theme:" + t.id, open);
+      box("circle", 64, y + 20, 76, 76);
+      out[out.length - 1].color = t.felt;
+      ico("flower", 84, y + 40, 36, "#FFFDEE");
+      txt(t.name, 163, y + 24, 30, SUNNY.ink, "left", true);
+      txt(open ? "\u5DF2\u7ECF\u6536\u85CF" : `\u6536\u96C6 ${t.stars} \u9897\u661F\u89E3\u9501`, 163, y + 72, 21, SUNNY.soft);
+      txt(a.theme === t.id ? "\u4F7F\u7528\u4E2D" : open ? "\u6362\u4E0A" : "\u672A\u89E3\u9501", a.w - 82, y + 42, 25, open ? SUNNY.jade : "#A3AA95", "right", true);
+    });
+    const fy = start + 3 * rh + 27;
+    txt("\u65C5\u9014\u82B1\u7B3A", 44, fy, 29, SUNNY.ink, "left", true, true);
+    const completed = CHAPTERS.map((c, ci) => ({ name: c[0], ci })).filter((c) => Array.from({ length: 20 }, (_, j) => a.s.stars[c.ci * 20 + j] || 0).some(Boolean));
+    if (!completed.length) {
+      box("paper", 44, fy + 57, a.w - 88, 174);
+      ico("flower", a.w / 2 - 24, fy + 78, 48, "#92AA80");
+      txt("\u7B2C\u4E00\u684C\u901A\u5173\uFF0C\u7559\u4E0B\u4E00\u679A\u82B1\u7B3A", a.w / 2, fy + 155, 24, SUNNY.soft, "center");
+    } else completed.slice(-6).forEach((c, i) => {
+      const x = 44 + i % 3 * (a.w - 88) / 3, y = fy + 57 + Math.floor(i / 3) * 91;
+      box("paper", x, y, (a.w - 112) / 3, 78);
+      txt(c.name, x + (a.w - 112) / 6, y + 25, 22, SUNNY.ink, "center", true);
+    });
+    nav("album");
+    return out;
+  }
+  function sunnyBoard(a, message) {
+    const { out, box, txt, ico, circle, tile } = kit(a), S = a.s, W = a.w, H = a.h, safe = a.safe, dense = H - safe < 1450 && S.grid.length >= 8;
+    circle("pause", "pause", 35, safe + 29);
+    circle("gear", "settings", W - 117, safe + 29);
+    txt(a.practice ? "\u673A\u5173\u8BD5\u73A9" : dense ? `\u7B2C ${S.levelIndex + 1} \u5173 \xB7 ${CHAPTERS[Math.floor(S.levelIndex / 20)][0]}` : CHAPTERS[Math.floor(S.levelIndex / 20)][0], W / 2, safe + 35, dense ? 30 : 37, SUNNY.ink, "center", true, true);
+    txt(dense ? message.slice(0, 23) : a.practice ? "\u4E0D\u8BA1\u4E3B\u7EBF\u8FDB\u5EA6" : `\u7B2C ${S.levelIndex + 1} \u5173 \xB7 ${S.grid[0].length} \xD7 ${S.grid.length}`, W / 2, safe + 89, dense ? 18 : 21, SUNNY.soft, "center");
+    if (dense) out[out.length - 1].name = "board-message";
+    const cy = safe + 148;
+    box("paper", 36, cy, W - 72, dense ? 106 : 130);
+    const goal = S.goal, target = goal?.kind === "collect" ? goal.faces || [] : goal?.kind === "face" ? [goal.face] : [];
+    ico(goal?.kind === "garden" ? "flower" : target.length ? "book" : "tiles", 62, cy + 44, 43, "#BB9552");
+    txt(target.length ? "\u5FC3\u613F\u6E05\u5355 \xB7 \u6BCF\u79CD\u4E00\u5BF9" : goal ? S.def.floors?.[0]?.kind === "dew" ? "\u5728\u9732\u73E0\u65C1\u6D88\u724C" : S.def.floors?.[0]?.kind === "bud" ? "\u5206\u4E24\u6B21\u5524\u9192\u82B1\u82DE" : "\u8BA9\u82B1\u5703\u5168\u90E8\u5F00\u82B1" : "\u6536\u8D70\u8FD9\u4E00\u684C\u9EBB\u5C06", 122, cy + 24, 22, "#92937C");
+    if (target.length) target.slice(0, 4).forEach((f, i) => {
+      tile(f, 119 + i * 73, cy + 51, 40);
+      txt((S.mechanics.collected[f.replace(/[~*]+$/, "")] || 0) >= 2 ? "\u2713" : "2", 166 + i * 73, cy + 66, 23, SUNNY.ink);
+    });
+    else txt(goal ? S.objectiveText : `${S.remaining} \u5F20\u5F85\u6536`, 122, cy + 65, dense ? 28 : 32, SUNNY.ink, "left", true);
+    box("line", W - 169, cy + 23, 2, 79);
+    out[out.length - 1].color = "#D9DCC2";
+    txt(S.moveLimit ? "\u5269\u4F59\u6B65\u6570" : "\u5DF2\u7528\u6B65\u6570", W - 107, cy + 23, 20, SUNNY.soft, "center");
+    txt(String(S.moveLimit ? S.movesLeft : S.moves), W - 106, cy + 58, dense ? 35 : 45, S.moveLimit && S.movesLeft < 4 ? "#BF755E" : SUNNY.jade, "center", true, true);
+    if (S.def.energy && !dense) {
+      ico("spark", 45, safe + 304, 29, "#BA934D");
+      txt("\u7075\u611F", 88, safe + 304, 22, SUNNY.soft);
+      for (let i = 0; i < 4; i++) {
+        box("paper", 154 + i * 83, safe + 303, 75, 18);
+        if (i < S.mechanics.charge) {
+          box("line", 158 + i * 83, safe + 307, 67, 8);
+          out[out.length - 1].color = "#92B48A";
+        }
+      }
+      box("paper", W - 219, safe + 293, 181, 46, "energy-hint");
+      txt(S.mechanics.charge >= 4 ? "\u7528\u4E00\u6B21\u63D0\u793A" : "\u6D88\u5BF9\u5145\u80FD", W - 129, safe + 303, 20, S.mechanics.charge >= 4 ? SUNNY.jade : "#A4AC91", "center");
+    }
+    const top2 = safe + (dense ? 288 : S.def.energy ? 376 : 328), bottom = H - (dense ? 175 : 233), avail = bottom - top2, rows = S.grid.length, cols = S.grid[0].length;
+    const cellW = Math.min((W - 94) / cols, avail / (rows + 0.65) / 1.24, 156), cellH = cellW * 1.24, x = (W - cols * cellW) / 2, y = top2 + (avail - rows * cellH) / 2;
+    if (!dense) {
+      txt(message.slice(0, 29), W / 2, H - 192, 23, SUNNY.soft, "center");
+      out[out.length - 1].name = "board-message";
+    }
+    const toolH = Math.max(88, Math.min(104, 44 / (a.cssScale || 0.52))), toolY = H - 43 - toolH;
+    const tw = (W - 102) / 3;
+    ["\u63D0\u793A", "\u64A4\u9500", "\u91CD\u5F00"].forEach((text2, i) => {
+      const id = ["hint", "undo", "restart"][i], bx = 36 + i * (tw + 15);
+      box("paper", bx, toolY, tw, toolH, id);
+      ico(id, bx + tw / 2 - 51, toolY + toolH / 2 - 17, 30, SUNNY.jade);
+      txt(dense && id === "hint" && S.def.energy ? `\u63D0\u793A ${S.mechanics.charge}/4` : text2, bx + tw / 2 + 16, toolY + toolH / 2 - 17, dense && id === "hint" && S.def.energy ? 20 : 25, SUNNY.ink, "center");
+    });
+    return { items: out, x, y, cellW, cellH };
+  }
+  function sunnyWin(a) {
+    const { out, box, txt, ico, button: button2 } = kit(a), S = a.s, h = 666, y = (a.h + a.safe - h) / 2;
+    box("paper", 67, y, a.w - 134, h);
+    txt("\u4ECA\u65E5\u53C8\u6DFB\u4E00\u4EFD\u597D\u624B\u6C14", a.w / 2, y + 43, 21, SUNNY.soft, "center");
+    ico("flower", a.w / 2 - 38, y + 95, 76, "#B59052");
+    txt("\u8FD9\u4E00\u684C\uFF0C\u6536\u5F97\u6F02\u4EAE\uFF01", a.w / 2, y + 206, 39, SUNNY.ink, "center", true, true);
+    txt("\u2605".repeat(S.rating) + "\u2606".repeat(3 - S.rating), a.w / 2, y + 277, 52, "#C4A05D", "center");
+    txt(`${a.practice ? "\u673A\u5173\u8BD5\u73A9" : `\u7B2C ${S.levelIndex + 1} \u5173`} \xB7 ${S.moves} \u6B65`, a.w / 2, y + 357, 27, SUNNY.ink, "center");
+    txt(a.practice ? "\u5DF2\u7ECF\u638C\u63E1\uFF0C\u53BB\u4E3B\u7EBF\u8BD5\u8BD5\u5427" : "\u4E00\u679A\u65B0\u7684\u65C5\u9014\u82B1\u7B3A\uFF0C\u5DF2\u653E\u8FDB\u6536\u85CF", a.w / 2, y + 405, 22, SUNNY.soft, "center");
+    const last = S.levelIndex === 519;
+    button2(a.practice ? "\u56DE\u5230\u673A\u5173\u5DE5\u574A" : last ? "\u518D\u901B\u4E00\u6B21" : "\u53BB\u4E0B\u4E00\u5904\u5C0F\u666F", a.practice ? "workshop" : last ? "replay" : "next", 108, y + 474, a.w - 216, 90, "peach");
+    button2("\u8FD4\u56DE\u82B1\u56ED", "home", 108, y + 580, a.w - 216, 58);
+    return out;
+  }
+  function sunnySettings(a, music, sound, version) {
+    const { out, box, txt, ico, button: button2 } = kit(a), h = 654, y = (a.h + a.safe - h) / 2, x = 65, w = a.w - 130;
+    box("paper", x, y, w, h);
+    txt("\u6E38\u620F\u8BBE\u7F6E", a.w / 2, y + 37, 40, SUNNY.ink, "center", true, true);
+    [["\u80CC\u666F\u97F3\u4E50", "toggle-music", music], ["\u97F3\u6548", "toggle-sound", sound], ["\u8F7B\u89E6\u9707\u52A8", "toggle-vibration", a.s.vibration]].forEach(([label, id, on], i) => {
+      const yy = y + 128 + i * 98;
+      txt(String(label), x + 40, yy + 13, 28, SUNNY.ink);
+      box(on ? "jade" : "off", x + w - 151, yy, 112, 57, String(id));
+      txt(on ? "\u5F00" : "\u5173", x + w - 95, yy + 12, 25, on ? "#FFFDF4" : SUNNY.soft, "center", true);
+    });
+    button2("\u73A9\u6CD5\u8BF4\u660E", "about", x + 36, y + 435, w - 72, 66);
+    button2("\u5B8C\u6210", "__back", x + 36, y + 524, w - 72, 78, "jade");
+    txt("\u7248\u672C " + version, a.w / 2, y + 620, 19, SUNNY.soft, "center");
+    return out;
+  }
+  function sunnyPause(a) {
+    const { out, box, txt, button: button2 } = kit(a), hasShuffle = !a.s.shuffleBlocked, h = hasShuffle ? 694 : 602, y = (a.h + a.safe - h) / 2;
+    box("paper", 70, y, a.w - 140, h);
+    txt("\u8FD9\u684C\u7B49\u4F60\u56DE\u6765", a.w / 2, y + 39, 40, SUNNY.ink, "center", true, true);
+    txt("\u6162\u6162\u60F3\uFF0C\u4E0D\u7740\u6025", a.w / 2, y + 102, 23, SUNNY.soft, "center");
+    const rows = [["\u7EE7\u7EED\u8FD9\u4E00\u684C", "resume"], ["\u91CD\u65B0\u5F00\u684C", "restart"], ...hasShuffle ? [[`\u6D17\u724C \xB7 ${a.s.shufflesLeft}`, "shuffle"]] : [], [a.practice ? "\u56DE\u673A\u5173\u5DE5\u574A" : "\u6E38\u56ED\u9009\u5173", a.practice ? "workshop" : "levels"], ["\u56DE\u5230\u9996\u9875", "home"]];
+    rows.forEach(([label, id], i) => button2(label, id, 108, y + 165 + i * 93, a.w - 216, 77, i === 0 ? "jade" : "paper"));
+    return out;
+  }
+  function sunnyLose(a) {
+    const { out, box, txt, ico, button: button2 } = kit(a), S = a.s, h = 602, y = (a.h + a.safe - h) / 2, dead = S.failReason === "dead";
+    box("paper", 70, y, a.w - 140, h);
+    ico("flower", a.w / 2 - 34, y + 38, 68, "#AEAA7C");
+    txt("\u6362\u4E2A\u601D\u8DEF\u8BD5\u8BD5", a.w / 2, y + 151, 41, SUNNY.ink, "center", true, true);
+    txt(dead ? "\u518D\u6574\u7406\u4E00\u4E0B\uFF0C\u7ED9\u5BF9\u5B50\u8BA9\u6761\u8DEF" : S.failReason === "time" ? "\u4F11\u606F\u4E00\u4F1A\uFF0C\u518D\u5F00\u4E00\u684C" : "\u5C31\u5DEE\u4E00\u70B9\uFF0C\u7EE7\u7EED\u60F3\u4E00\u60F3", a.w / 2, y + 228, 24, SUNNY.soft, "center");
+    const primary = dead ? S.shuffleBlocked ? { label: S.canUndo ? "\u64A4\u9500\u4E00\u6B65" : "\u91CD\u65B0\u5F00\u684C", id: S.canUndo ? "undo" : "restart-lose", on: true } : { label: "\u91CD\u65B0\u6574\u7406\u724C\u684C", id: "rescue", on: true } : { label: S.canRevive ? S.failReason === "time" ? "\u8865 30 \u79D2" : `\u8865 ${S.reviveBonus} \u6B65` : "\u672C\u5C40\u7EED\u73A9\u5DF2\u7528\u5B8C", id: "revive", on: S.canRevive };
+    button2(primary.label, primary.id, 108, y + 299, a.w - 216, 88, "jade", primary.on);
+    button2("\u91CD\u65B0\u5F00\u684C", "restart-lose", 108, y + 405, a.w - 216, 77);
+    button2("\u56DE\u5230\u9996\u9875", "home", 108, y + 502, a.w - 216, 59);
+    return out;
+  }
+  function sunnyIntro(a) {
+    const { out, box, txt, ico, button: button2 } = kit(a), c = CHAPTERS[Math.floor(a.s.levelIndex / 20)], h = 526, y = (a.h + a.safe - h) / 2;
+    box("paper", 60, y, a.w - 120, h);
+    ico("flower", a.w / 2 - 27, y + 37, 54, "#A39562");
+    txt(c[0], a.w / 2, y + 126, 41, SUNNY.ink, "center", true, true);
+    txt(c[2], a.w / 2, y + 217, 25, SUNNY.ink, "center");
+    txt(c[3], a.w / 2, y + 266, 24, SUNNY.soft, "center");
+    button2("\u77E5\u9053\u4E86\uFF0C\u5F00\u4E00\u684C", "tip-ok", 100, y + 382, a.w - 200, 88, "peach");
+    return out;
+  }
+  function sunnyRestart(a) {
+    const { out, box, txt, button: button2 } = kit(a), h = 431, y = (a.h + a.safe - h) / 2;
+    box("paper", 70, y, a.w - 140, h);
+    txt("\u91CD\u65B0\u5F00\u8FD9\u4E00\u684C\uFF1F", a.w / 2, y + 49, 39, SUNNY.ink, "center", true, true);
+    txt("\u724C\u9762\u4F1A\u56DE\u5230\u5F00\u5C40\uFF0C\u63D0\u793A\u6B21\u6570\u6062\u590D", a.w / 2, y + 133, 24, SUNNY.soft, "center");
+    button2("\u91CD\u65B0\u5F00\u684C", "confirm-restart", 110, y + 214, a.w - 220, 84, "jade");
+    button2("\u518D\u60F3\u4E00\u60F3", "resume", 110, y + 325, a.w - 220, 64);
+    return out;
+  }
+
+  // demo/h5/src/theme.ts
+  var T = {
+    sky1: "#DAEEE7",
+    sky2: "#F1F4E6",
+    sky3: "#E5EDCD",
+    garden: "#ACCAA0",
+    gardenDeep: "#86AA78",
+    gardenDark: "#72916C",
+    leaf: "#99BC7E",
+    leafDark: "#77975F",
+    leafLight: "#C3D9A6",
+    cream: "#FFF9ED",
+    creamDeep: "#F3E6C6",
+    creamEdge: "#E4D2A6",
+    gold: "#D8A94E",
+    goldDeep: "#A87C2C",
+    goldLight: "#F3DC9B",
+    jade: "#2E7D4F",
+    jadeDeep: "#1C5B37",
+    jadeLight: "#4FA46A",
+    jadeBright: "#43A860",
+    ink: "#2B3A28",
+    inkSoft: "#5D6B52",
+    inkFaint: "#8A957E",
+    wood: "#C8AF7F",
+    woodDeep: "#A18F6C",
+    woodLight: "#E4D1A9",
+    woodInner: "#A7C8AA",
+    felt: "#3F6B3A",
+    feltDeep: "#2E5230",
+    tile: "#FDF8E4",
+    tileEdge: "#E8DCBC",
+    white: "#FFFFFF"
+  };
+  var FONT_SANS = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif';
+  var FONT_SERIF = '"STKaiti","KaiTi","Kaiti SC","Songti SC","Noto Serif CJK SC",serif';
+
+  // demo/h5/src/sunny.ts
+  function renderSunny(ctx, items, hits) {
+    for (const it of items) {
+      if (it.id && it.enabled !== false) hits.push({ id: it.id, x: it.x, y: it.y, w: it.w, h: it.h, enabled: true });
+      ctx.save();
+      if (it.kind === "text") {
+        ctx.font = `${it.bold ? "700 " : ""}${it.size}px ${it.serif ? FONT_SERIF : FONT_SANS}`;
+        ctx.textAlign = it.align || "left";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = it.color || SUNNY.ink;
+        ctx.fillText(it.text || "", it.x, it.y);
+      } else if (it.kind === "tile") drawTile(ctx, it.name, it.x + it.w * 0.08, it.y + it.h * 0.05, { w: it.w * 0.84, h: it.h * 0.84, lift: it.h * 0.07 });
+      else if (it.kind === "hero") drawSunnyHero(ctx, it.x, it.y, it.w, it.h);
+      else if (it.kind === "icon") drawSunnyIcon(ctx, it.name, it.x, it.y, it.w, it.color || SUNNY.ink);
+      else if (it.kind === "line") {
+        ctx.fillStyle = it.color || "#D4DFC1";
+        if (it.angle !== void 0) {
+          ctx.translate(it.x, it.y);
+          ctx.rotate(it.angle);
+          ctx.fillRect(-it.w / 2, -it.h / 2, it.w, it.h);
+        } else ctx.fillRect(it.x, it.y, it.w, it.h);
+      } else if (it.kind === "circle") {
+        const cx = it.x + it.w / 2, cy = it.y + it.h / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy + 4, it.w / 2 - 2, 0, Math.PI * 2);
+        ctx.fillStyle = "#C5D3B7";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy - 1, it.w / 2 - 3, 0, Math.PI * 2);
+        ctx.fillStyle = it.color || SUNNY.paper;
+        ctx.fill();
+        ctx.strokeStyle = "#CEDABD";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else drawSunnySurface(ctx, it.x, it.y, it.w, it.h, it.kind);
+      ctx.restore();
+    }
+  }
+
   // cocos/assets/scripts/core/Rules.ts
   var key = (p) => p.r + "," + p.c;
   var equal = (a, b) => !!a && !!b && a.r === b.r && a.c === b.c;
@@ -38,7 +1079,7 @@
   };
   var signature = (g) => JSON.stringify(g);
   var hasIce = (face) => face.endsWith("~");
-  var iceLayers = (face) => {
+  var iceLayers2 = (face) => {
     let n = 0;
     while (face.endsWith("~")) {
       face = face.slice(0, -1);
@@ -293,38 +1334,6 @@
     }
     return { status: limited ? "unknown" : "dead", actions: [], visited };
   }
-
-  // cocos/assets/scripts/core/Campaign.ts
-  var CAMPAIGN_VERSION = "garden-520-v1";
-  var CHAPTER_LENGTH = 20;
-  var CHAPTERS = [
-    ["\u6674\u65E5\u521D\u89C1", "classic", "\u540C\u724C\u76F8\u90BB\uFF0C\u8F7B\u70B9\u6D88\u9664\u3002", "\u62D6\u52A8\u6574\u884C\u6216\u6574\u5217\uFF0C\u677E\u624B\u81EA\u52A8\u8FDE\u6D88\u3002"],
-    ["\u53E0\u5F71\u5C0F\u5F84", "stack", "\u6536\u8D70\u4E0A\u5C42\uFF0C\u9732\u51FA\u4E0B\u5C42\u3002", "\u5148\u63ED\u54EA\u4E00\u53E0\uFF0C\u4F1A\u6539\u53D8\u540E\u9762\u7684\u8DEF\u7EBF\u3002"],
-    ["\u51B0\u6676\u82B1\u56ED", "ice", "\u540C\u6B3E\u724C\u5148\u914D\u5BF9\u7834\u51B0\uFF0C\u518D\u6536\u8D70\u3002", "\u51B0\u5C42\u4E0D\u540C\u4E5F\u80FD\u914D\uFF0C\u7834\u51B0\u65F6\u4E24\u5F20\u90FD\u7559\u4E0B\u3002"],
-    ["\u82B1\u5703\u521D\u5F00", "flower", "\u5728\u82B1\u5703\u683C\u4E0A\u6D88\u724C\uFF0C\u8FD9\u4E00\u683C\u5C31\u5F00\u82B1\u3002", "\u82B1\u5703\u56FA\u5B9A\u4E0D\u52A8\uFF0C\u5168\u90E8\u5F00\u82B1\u5C31\u8FC7\u5173\u3002"],
-    ["\u5FC3\u613F\u6E05\u5355", "collect", "\u6536\u9F50\u4E0A\u65B9\u5217\u51FA\u7684\u724C\u3002", "\u5176\u4ED6\u540C\u724C\u4E5F\u80FD\u6B63\u5E38\u6D88\u9664\u3002"],
-    ["\u7075\u611F\u65F6\u523B", "energy", "\u6D88\u56DB\u5BF9\uFF0C\u6512\u4E00\u6B21\u514D\u8D39\u63D0\u793A\u3002", "\u6162\u6162\u60F3\u4E5F\u4E0D\u4F1A\u6389\u80FD\u91CF\uFF0C\u6EE1\u683C\u540E\u70B9\u63D0\u793A\u3002"],
-    ["\u6728\u6865\u7ED5\u884C", "block", "\u6728\u5757\u548C\u7F3A\u53E3\u4F1A\u5206\u5F00\u6ED1\u52A8\u8DEF\u7EBF\u3002", "\u6362\u4E00\u6761\u884C\u6216\u5217\uFF0C\u628A\u540C\u724C\u9001\u5230\u4E00\u8D77\u3002"],
-    ["\u987A\u98CE\u957F\u5ECA", "oneWay", "\u5E26\u7BAD\u5934\u7684\u8F68\u9053\u53EA\u80FD\u987A\u7740\u63A8\u3002", "\u6362\u53E6\u4E00\u6761\u8DEF\u7EBF\uFF0C\u7167\u6837\u53EF\u4EE5\u914D\u5BF9\u3002"],
-    ["\u9732\u73E0\u82B1\u56ED", "dew", "\u5728\u6C34\u6EF4\u683C\u7684\u4E0A\u4E0B\u5DE6\u53F3\u6D88\u724C\uFF0C\u7ED9\u5B83\u6D47\u6C34\u3002", "\u6D47\u6EE1\u6240\u6709\u6C34\u6EF4\u5C31\u8FC7\u5173\uFF0C\u659C\u89D2\u4E0D\u7B97\u3002"],
-    ["\u94A5\u5319\u5C0F\u5F84", "key", "\u6536\u8D70\u94A5\u5319\u6807\u8BB0\u7684\u724C\uFF0C\u6253\u5F00\u5BF9\u5E94\u9501\u8F68\u3002", "\u94A5\u5319\u724C\u7167\u5E38\u914D\u5BF9\uFF0C\u9501\u65C1\u663E\u793A\u8FD8\u5DEE\u51E0\u5F20\u3002"],
-    ["\u5C42\u5C42\u82B1\u53F0", "flower-stack", "\u82B1\u5703\u9047\u4E0A\u53E0\u724C\uFF1A\u9009\u62E9\u6D88\u9664\u7684\u4F4D\u7F6E\u3002", "\u53EA\u6536\u8D70\u4E0A\u5C42\u4E5F\u80FD\u8BA9\u811A\u4E0B\u82B1\u5703\u5F00\u82B1\u3002"],
-    ["\u82B1\u82DE\u82CF\u9192", "bud", "\u82B1\u82DE\u683C\u9700\u8981\u4E24\u6B21\u6D88\u724C\u624D\u5F00\u653E\u3002", "\u8FDB\u5EA6\u56FA\u5B9A\u5728\u683C\u5B50\u4E0A\uFF0C\u63A8\u724C\u9001\u6765\u4E0B\u4E00\u5BF9\u3002"],
-    ["\u51B0\u82B1\u76F8\u6620", "flower-ice", "\u5148\u7834\u51B0\uFF0C\u518D\u5728\u82B1\u5703\u4E0A\u6536\u724C\u3002", "\u53EA\u788E\u51B0\u4E0D\u4F1A\u8BA9\u82B1\u5703\u5F00\u82B1\u3002"],
-    ["\u9759\u8F68\u5EAD\u9662", "lock", "\u5E26\u9501\u7684\u884C\u6216\u5217\u4E0D\u80FD\u6CBF\u81EA\u8EAB\u65B9\u5411\u63A8\u3002", "\u5782\u76F4\u65B9\u5411\u548C\u76F8\u90BB\u914D\u5BF9\u4ECD\u53EF\u7528\u3002"],
-    ["\u767E\u642D\u6765\u5BA2", "wild", "\u5E26\u661F\u53F7\u7684\u82B1\u724C\u80FD\u914D\u4EFB\u610F\u724C\u3002", "\u666E\u901A\u9EBB\u5C06\u4ECD\u7136\u8981\u627E\u76F8\u540C\u56FE\u6848\u3002"],
-    ["\u6E05\u8106\u7206\u7AF9", "bomb", "\u7206\u7AF9\u914D\u5BF9\u4F1A\u9707\u788E\u76F8\u90BB\u51B0\u724C\uFF0C", "\u5E76\u5E26\u52A8\u5168\u684C\u540C\u6B3E\u51B0\u724C\u788E\u4E00\u5C42\u3002"],
-    ["\u96EA\u4E2D\u5FC3\u613F", "collect-ice", "\u7834\u51B0\u540E\uFF0C\u771F\u6B63\u6536\u8D70\u76EE\u6807\u724C\u624D\u8BA1\u6570\u3002", "\u6E05\u5355\u8FBE\u6210\u5373\u53EF\u8FC7\u5173\u3002"],
-    ["\u85E4\u95E8\u6DF1\u5904", "key-stack", "\u94A5\u5319\u85CF\u5728\u53E0\u724C\u91CC\uFF0C\u5148\u627E\u51FA\u5B83\u3002", "\u5F00\u95E8\u540E\uFF0C\u65B0\u7684\u6ED1\u52A8\u8DEF\u7EBF\u5C31\u80FD\u7528\u4E86\u3002"],
-    ["\u96E8\u540E\u56DE\u5ECA", "dew-block", "\u7ED5\u8FC7\u6728\u5757\uFF0C\u5728\u6C34\u6EF4\u65C1\u6D88\u724C\u3002", "\u4E00\u5BF9\u724C\u53EF\u4EE5\u540C\u65F6\u6D47\u5230\u591A\u5904\u82B1\u5703\u3002"],
-    ["\u53CC\u751F\u82B1\u82DE", "bud-way", "\u987A\u7740\u7BAD\u5934\uFF0C\u628A\u5BF9\u5B50\u9001\u5230\u82B1\u82DE\u683C\u3002", "\u5728\u540C\u4E00\u683C\u6D88\u4E24\u6B21\uFF0C\u82B1\u82DE\u624D\u4F1A\u5F00\u653E\u3002"],
-    ["\u5348\u540E\u5C0F\u61A9", "classic", "\u56DE\u5230\u719F\u6089\u7684\u63A8\u79FB\u4E0E\u914D\u5BF9\u3002", "\u591A\u89C2\u5BDF\u4E00\u6B65\uFF0C\u8BD5\u8BD5\u4E00\u6B21\u8FDE\u6D88\u591A\u5BF9\u3002"],
-    ["\u4E09\u91CD\u82B1\u5F71", "stack3", "\u4E09\u5C42\u724C\u9010\u5C42\u9732\u51FA\uFF0C\u4FA7\u8FB9\u663E\u793A\u5C42\u6570\u3002", "\u6574\u7406\u597D\u8DEF\u7EBF\uFF0C\u518D\u8FDE\u7EED\u6536\u8D70\u3002"],
-    ["\u8FDE\u9501\u5ECA\u6865", "unlock", "\u6BCF\u6536\u8D70\u4E00\u5BF9\uFF0C\u9501\u4E0A\u7684\u8BA1\u6570\u51CF\u5C11\u3002", "\u8BA1\u6570\u5230\u96F6\uFF0C\u8F68\u9053\u81EA\u52A8\u6253\u5F00\u3002"],
-    ["\u82B1\u56ED\u8FF7\u5F84", "flower-key", "\u6536\u94A5\u5319\u5F00\u8DEF\uFF0C\u518D\u628A\u5BF9\u5B50\u9001\u5230\u82B1\u5703\u3002", "\u76EE\u6807\u662F\u5F00\u82B1\uFF0C\u5176\u4ED6\u724C\u6309\u9700\u8981\u6D88\u3002"],
-    ["\u955C\u6E56\u5FC3\u613F", "collect-way", "\u987A\u7740\u8F68\u9053\u6536\u9F50\u76EE\u6807\u724C\u3002", "\u6CA1\u6709\u82B1\u8272\u7981\u6D88\u9650\u5236\uFF0C\u53EA\u770B\u76EE\u6807\u6E05\u5355\u3002"],
-    ["\u6674\u65E5\u5DE1\u6E38", "final", "\u719F\u6089\u7684\u673A\u5173\u8F6E\u6D41\u7EC4\u5408\u767B\u573A\u3002", "\u770B\u6E05\u672C\u5173\u76EE\u6807\uFF0C\u4E00\u6B65\u6B65\u5B8C\u6210\u82B1\u56ED\u5DE1\u6E38\u3002"]
-  ];
 
   // cocos/assets/scripts/core/levels.ts
   var LEVELS = [
@@ -1380,8 +2389,8 @@
   for (let i = 1; i <= 7; i++) BASE_FACES.push("z" + i);
   var FLOWER_FACES = [];
   for (let i = 1; i <= 8; i++) FLOWER_FACES.push("f" + i);
-  var BOMB_FACE = "b1";
-  var FACES = BASE_FACES.concat(FLOWER_FACES).concat([BOMB_FACE]);
+  var BOMB_FACE2 = "b1";
+  var FACES = BASE_FACES.concat(FLOWER_FACES).concat([BOMB_FACE2]);
   var isFace = (f) => {
     let base = f;
     while (base.endsWith("~")) base = base.slice(0, -1);
@@ -1421,7 +2430,7 @@
     } else {
       grid.flat().forEach((cell) => {
         if (Array.isArray(cell)) cell.forEach((f) => {
-          avail += iceLayers(f);
+          avail += iceLayers2(f);
         });
       });
     }
@@ -1533,7 +2542,7 @@
     const d = def.dialect;
     const source = def.flowers ? FACES : BASE_FACES;
     const goalBase = def.goal && def.goal.kind === "face" ? unwild(def.goal.face) : null;
-    const kinds = source.filter((f) => f !== BOMB_FACE);
+    const kinds = source.filter((f) => f !== BOMB_FACE2);
     const liveKinds = kinds.filter((f) => pairable(f, d));
     const dudKinds = kinds.filter((f) => !pairable(f, d));
     const pool = shuffled(liveKinds, random).slice(0, Math.max(1, def.faces));
@@ -1563,7 +2572,7 @@
     if (!tokens && def.wild) faces = faces.map((f) => typeof f === "string" && f[0] === "f" && !f.endsWith("*") && !f.endsWith("~") ? f + "*" : f);
     if (faces.length > places.length) return null;
     const bombCount = tokens || d ? 0 : Math.min(Math.max(0, def.bombs || 0), faces.length);
-    for (let i = 0; i < bombCount; i++) faces[i] = BOMB_FACE;
+    for (let i = 0; i < bombCount; i++) faces[i] = BOMB_FACE2;
     const iceCount = tokens ? 0 : Math.min(Math.max(0, def.ice || 0), faces.length);
     if (iceCount > 0) {
       const ice2 = Math.min(Math.max(0, def.ice2 || 0), iceCount);
@@ -3295,521 +4304,9 @@
     }
   };
 
-  // cocos/assets/scripts/view/theme.ts
-  var palette = {
-    /** 天空 / 庭院背景 */
-    sky1: "#DAEEE7",
-    sky2: "#F1F4E6",
-    sky3: "#E5EDCD",
-    garden: "#ACCAA0",
-    gardenDeep: "#86AA78",
-    gardenDark: "#72916C",
-    leaf: "#99BC7E",
-    leafDark: "#77975F",
-    leafLight: "#C3D9A6",
-    /** 纸面 / 卡片 */
-    cream: "#FFF9ED",
-    creamDeep: "#F3E6C6",
-    creamEdge: "#E4D2A6",
-    gold: "#D8A94E",
-    goldDeep: "#A87C2C",
-    goldLight: "#F3DC9B",
-    jade: "#2E7D4F",
-    jadeDeep: "#1C5B37",
-    jadeLight: "#4FA46A",
-    jadeBright: "#43A860",
-    /** 文字 */
-    ink: "#2B3A28",
-    inkSoft: "#5D6B52",
-    inkFaint: "#8A957E",
-    /** 木框 */
-    wood: "#C8AF7F",
-    woodDeep: "#A18F6C",
-    woodLight: "#E4D1A9",
-    woodInner: "#A7C8AA",
-    /** 牌面 */
-    tile: "#FDF8E4",
-    tileEdge: "#E8DCBC",
-    red: "#C0392B",
-    navy: "#2B4A7A",
-    blue: "#2E7FB8",
-    white: "#FFFFFF",
-    clear: "#00000000"
-  };
-
-  // cocos/assets/scripts/view/art.ts
-  var SANS = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
-  var SERIF = '"STKaiti","KaiTi","Kaiti SC","Songti SC","Noto Serif CJK SC",serif';
-  function rr(ctx, x, y, w, h, r) {
-    const rad = Math.max(0, Math.min(r, w / 2, h / 2));
-    ctx.beginPath();
-    ctx.moveTo(x + rad, y);
-    ctx.arcTo(x + w, y, x + w, y + h, rad);
-    ctx.arcTo(x + w, y + h, x, y + h, rad);
-    ctx.arcTo(x, y + h, x, y, rad);
-    ctx.arcTo(x, y, x + w, y, rad);
-    ctx.closePath();
-  }
-  function fillRR(ctx, x, y, w, h, r, color) {
-    rr(ctx, x, y, w, h, r);
-    ctx.fillStyle = color;
-    ctx.fill();
-  }
-  function strokeRR(ctx, x, y, w, h, r, color, lw) {
-    rr(ctx, x, y, w, h, r);
-    ctx.lineWidth = lw;
-    ctx.strokeStyle = color;
-    ctx.stroke();
-  }
-  function linear(ctx, x0, y0, x1, y1, stops) {
-    const g = ctx.createLinearGradient(x0, y0, x1, y1);
-    for (const [at, color] of stops) g.addColorStop(at, color);
-    return g;
-  }
-  var DOTS = {
-    1: [[0.5, 0.5, 0.3]],
-    2: [[0.5, 0.28, 0.18], [0.5, 0.72, 0.18]],
-    3: [[0.26, 0.24, 0.16], [0.5, 0.5, 0.16], [0.74, 0.76, 0.16]],
-    4: [[0.3, 0.29, 0.16], [0.7, 0.29, 0.16], [0.3, 0.71, 0.16], [0.7, 0.71, 0.16]],
-    5: [[0.28, 0.26, 0.15], [0.72, 0.26, 0.15], [0.5, 0.5, 0.15], [0.28, 0.74, 0.15], [0.72, 0.74, 0.15]],
-    6: [[0.3, 0.22, 0.14], [0.7, 0.22, 0.14], [0.3, 0.5, 0.14], [0.7, 0.5, 0.14], [0.3, 0.78, 0.14], [0.7, 0.78, 0.14]],
-    7: [[0.26, 0.17, 0.12], [0.5, 0.27, 0.12], [0.74, 0.37, 0.12], [0.3, 0.63, 0.12], [0.7, 0.63, 0.12], [0.3, 0.85, 0.12], [0.7, 0.85, 0.12]],
-    8: [[0.3, 0.15, 0.12], [0.7, 0.15, 0.12], [0.3, 0.38, 0.12], [0.7, 0.38, 0.12], [0.3, 0.62, 0.12], [0.7, 0.62, 0.12], [0.3, 0.85, 0.12], [0.7, 0.85, 0.12]],
-    9: [[0.24, 0.18, 0.115], [0.5, 0.18, 0.115], [0.76, 0.18, 0.115], [0.24, 0.5, 0.115], [0.5, 0.5, 0.115], [0.76, 0.5, 0.115], [0.24, 0.82, 0.115], [0.5, 0.82, 0.115], [0.76, 0.82, 0.115]]
-  };
-  var NUMERALS = "\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D";
-  var HONORS = ["\u6771", "\u5357", "\u897F", "\u5317", "\u4E2D", "\u767C", "\u767D"];
-  var FLOWERS = ["\u6625", "\u590F", "\u79CB", "\u51AC", "\u6885", "\u5170", "\u7AF9", "\u83CA"];
-  var DECO = { x1: ["\u842C", "#C0392B"], x2: ["\u4E50", "#2E8B57"], x3: ["\u7B52", "#2E7FB8"] };
-  var BOMB_FACE2 = "b1";
-  var PIP_RED = "#C0392B";
-  var PIP_GREEN = "#2E8B57";
-  var PIP_BLUE = "#2E7FB8";
-  var PIP_PLAN = {
-    2: [PIP_BLUE, PIP_RED],
-    3: [PIP_RED, PIP_BLUE, PIP_RED],
-    4: [PIP_BLUE, PIP_RED, PIP_RED, PIP_BLUE],
-    5: [PIP_GREEN, PIP_GREEN, PIP_RED, PIP_GREEN, PIP_GREEN],
-    6: [PIP_RED, PIP_RED, PIP_GREEN, PIP_GREEN, PIP_BLUE, PIP_BLUE],
-    7: [PIP_RED, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN],
-    8: [PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_RED, PIP_RED, PIP_RED, PIP_RED],
-    9: [PIP_RED, PIP_RED, PIP_RED, PIP_GREEN, PIP_GREEN, PIP_GREEN, PIP_BLUE, PIP_BLUE, PIP_BLUE]
-  };
-  var STICKS = {
-    2: [{ x: 0.32, y: 0.5, len: 0.6 }, { x: 0.68, y: 0.5, len: 0.6 }],
-    3: [{ x: 0.5, y: 0.23, len: 0.28 }, { x: 0.29, y: 0.72, len: 0.3 }, { x: 0.71, y: 0.72, len: 0.3 }],
-    4: [{ x: 0.27, y: 0.24, len: 0.32 }, { x: 0.73, y: 0.24, len: 0.32 }, { x: 0.27, y: 0.76, len: 0.32 }, { x: 0.73, y: 0.76, len: 0.32 }],
-    5: [{ x: 0.24, y: 0.24, len: 0.26 }, { x: 0.76, y: 0.24, len: 0.26 }, { x: 0.5, y: 0.5, len: 0.26, red: true }, { x: 0.24, y: 0.76, len: 0.26 }, { x: 0.76, y: 0.76, len: 0.26 }],
-    6: [{ x: 0.2, y: 0.24, len: 0.3 }, { x: 0.5, y: 0.24, len: 0.3 }, { x: 0.8, y: 0.24, len: 0.3 }, { x: 0.2, y: 0.76, len: 0.3 }, { x: 0.5, y: 0.76, len: 0.3 }, { x: 0.8, y: 0.76, len: 0.3 }],
-    7: [{ x: 0.5, y: 0.14, len: 0.16, red: true }, { x: 0.25, y: 0.44, len: 0.18 }, { x: 0.5, y: 0.44, len: 0.18 }, { x: 0.75, y: 0.44, len: 0.18 }, { x: 0.25, y: 0.78, len: 0.18 }, { x: 0.5, y: 0.78, len: 0.18 }, { x: 0.75, y: 0.78, len: 0.18 }],
-    8: [{ x: 0.28, y: 0.14, len: 0.14 }, { x: 0.72, y: 0.14, len: 0.14 }, { x: 0.28, y: 0.38, len: 0.14 }, { x: 0.72, y: 0.38, len: 0.14 }, { x: 0.28, y: 0.62, len: 0.14 }, { x: 0.72, y: 0.62, len: 0.14 }, { x: 0.28, y: 0.86, len: 0.14 }, { x: 0.72, y: 0.86, len: 0.14 }],
-    9: [{ x: 0.2, y: 0.17, len: 0.21 }, { x: 0.5, y: 0.17, len: 0.21, red: true }, { x: 0.8, y: 0.17, len: 0.21 }, { x: 0.2, y: 0.5, len: 0.21 }, { x: 0.5, y: 0.5, len: 0.21, red: true }, { x: 0.8, y: 0.5, len: 0.21 }, { x: 0.2, y: 0.83, len: 0.21 }, { x: 0.5, y: 0.83, len: 0.21, red: true }, { x: 0.8, y: 0.83, len: 0.21 }]
-  };
-  function parseFace(face) {
-    const f = face.replace(/[~*]+$/, "");
-    const lead = /[a-z]/i.test(f[0] || "");
-    return { suit: lead ? f[0] : f[1] || "", n: Number(lead ? f.slice(1) : f[0]) };
-  }
-  function pip(ctx, x, y, r, color) {
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, r * 0.62, 0, Math.PI * 2);
-    ctx.fillStyle = palette.tile;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, r * 0.32, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-  }
-  function stick(ctx, x, y, len, w, color) {
-    const top2 = y - len / 2, bottom = y + len / 2;
-    const dark = color === PIP_RED ? "#8D2B2A" : "#12553B";
-    const light = color === PIP_RED ? "#C6453A" : "#287C54";
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(x - w * 0.32, top2);
-    ctx.quadraticCurveTo(x - w * 0.58, top2 + len * 0.1, x - w * 0.34, y - len * 0.08);
-    ctx.lineTo(x - w * 0.46, y);
-    ctx.lineTo(x - w * 0.34, y + len * 0.08);
-    ctx.quadraticCurveTo(x - w * 0.56, bottom - len * 0.08, x - w * 0.28, bottom);
-    ctx.lineTo(x + w * 0.28, bottom);
-    ctx.quadraticCurveTo(x + w * 0.56, bottom - len * 0.08, x + w * 0.34, y + len * 0.08);
-    ctx.lineTo(x + w * 0.46, y);
-    ctx.lineTo(x + w * 0.34, y - len * 0.08);
-    ctx.quadraticCurveTo(x + w * 0.58, top2 + len * 0.1, x + w * 0.32, top2);
-    ctx.closePath();
-    ctx.fillStyle = linear(ctx, x - w / 2, y, x + w / 2, y, [[0, dark], [0.44, light], [1, dark]]);
-    ctx.fill();
-    ctx.strokeStyle = dark;
-    ctx.lineCap = "round";
-    ctx.lineWidth = Math.max(0.65, w * 0.17);
-    for (const t of [-0.38, 0, 0.38]) {
-      ctx.beginPath();
-      ctx.moveTo(x - w * 0.46, y + len * t);
-      ctx.lineTo(x + w * 0.46, y + len * t);
-      ctx.stroke();
-    }
-    ctx.strokeStyle = "rgba(240,249,222,.55)";
-    ctx.lineWidth = Math.max(0.45, w * 0.09);
-    ctx.beginPath();
-    ctx.moveTo(x - w * 0.17, top2 + len * 0.18);
-    ctx.lineTo(x - w * 0.12, y - len * 0.13);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x - w * 0.12, y + len * 0.13);
-    ctx.lineTo(x - w * 0.17, bottom - len * 0.18);
-    ctx.stroke();
-    ctx.restore();
-  }
-  function bird(ctx, x, y, w, h) {
-    const cx = x + w * 0.5, cy = y + h * 0.55;
-    const dot = (ax, ay, r, col) => {
-      ctx.beginPath();
-      ctx.arc(ax, ay, r, 0, Math.PI * 2);
-      ctx.fillStyle = col;
-      ctx.fill();
-    };
-    const line = (pts, col, lw) => {
-      ctx.beginPath();
-      ctx.moveTo(pts[0][0], pts[0][1]);
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-      ctx.lineWidth = lw;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.strokeStyle = col;
-      ctx.stroke();
-    };
-    dot(cx - w * 0.04, cy + h * 0.06, w * 0.2, "#2E8B57");
-    dot(cx + w * 0.14, cy - h * 0.16, w * 0.12, "#2E8B57");
-    dot(cx + w * 0.17, cy - h * 0.18, w * 0.03, palette.ink);
-    line([[cx + w * 0.25, cy - h * 0.2], [cx + w * 0.38, cy - h * 0.14], [cx + w * 0.25, cy - h * 0.1]], palette.red, Math.max(1, w * 0.05));
-    line([[cx - w * 0.2, cy + h * 0.14], [cx - w * 0.38, cy + h * 0.34], [cx - w * 0.08, cy + h * 0.26]], palette.red, Math.max(1, w * 0.06));
-    line([[cx - w * 0.16, cy], [cx - w * 0.3, cy - h * 0.16], [cx - w * 0.04, cy - h * 0.1]], palette.blue, Math.max(1, w * 0.05));
-  }
-  function faceArt(ctx, face, x, y, w, h) {
-    const { suit: suit2, n } = parseFace(face);
-    if (suit2 === "p" && DOTS[n]) {
-      if (n === 1) {
-        const cx = x + w / 2, cy = y + h / 2, r = w * 0.37;
-        const ring = (rr22, col) => {
-          ctx.beginPath();
-          ctx.arc(cx, cy, rr22, 0, Math.PI * 2);
-          ctx.fillStyle = col;
-          ctx.fill();
-        };
-        ring(r, "#2E8B57");
-        ring(r * 0.78, palette.tile);
-        ring(r * 0.6, palette.red);
-        ring(r * 0.36, palette.tile);
-        ring(r * 0.2, palette.blue);
-        return;
-      }
-      const plan = PIP_PLAN[n] || PIP_PLAN[2];
-      DOTS[n].forEach(([px, py, pr], i) => pip(ctx, x + px * w, y + py * h, pr * w, plan[i % plan.length]));
-      return;
-    }
-    if (suit2 === "s") {
-      if (n === 1) {
-        bird(ctx, x, y, w, h);
-        return;
-      }
-      if (STICKS[n]) {
-        const sw = w * (n <= 4 ? 0.19 : n === 9 ? 0.135 : 0.145);
-        for (const { x: px, y: py, len, red } of STICKS[n]) {
-          const cx = x + px * w, cy = y + py * h, cl = len * h;
-          const cwd = cl > h * 0.34 ? sw * 1.16 : sw;
-          stick(ctx, cx, cy, cl, cwd, red ? PIP_RED : PIP_GREEN);
-        }
-        return;
-      }
-    }
-    if (suit2 === "m" && n >= 1 && n <= 9) {
-      const a = Math.min(h * 0.34, w * 0.74), b = Math.min(h * 0.38, w * 0.78);
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.font = `700 ${a}px ${SERIF}`;
-      ctx.fillStyle = palette.navy;
-      ctx.fillText(NUMERALS[n - 1], x + w / 2, y + h * 0.06);
-      ctx.font = `700 ${b}px ${SERIF}`;
-      ctx.fillStyle = palette.red;
-      ctx.fillText("\u842C", x + w / 2, y + h * 0.48);
-      return;
-    }
-    if (suit2 === "z" && n >= 1 && n <= 7) {
-      if (n === 7) {
-        rr(ctx, x + w * 0.16, y + h * 0.18, w * 0.68, h * 0.64, w * 0.09);
-        ctx.lineWidth = Math.max(2, w * 0.07);
-        ctx.strokeStyle = "#4F8FB0";
-        ctx.stroke();
-        return;
-      }
-      const size2 = Math.min(h * 0.5, w * 0.84);
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.font = `700 ${size2}px ${SERIF}`;
-      ctx.fillStyle = n === 5 ? palette.red : n === 6 ? "#2E8B57" : palette.navy;
-      ctx.fillText(HONORS[n - 1], x + w / 2, y + (h - size2) / 2);
-      return;
-    }
-    if (suit2 === "f" && n >= 1 && n <= 8) {
-      const size2 = Math.min(h * 0.5, w * 0.8);
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.font = `700 ${size2}px ${SERIF}`;
-      ctx.fillStyle = palette.jadeDeep;
-      ctx.fillText(FLOWERS[n - 1], x + w / 2, y + h * 0.04);
-      const fx = x + w / 2, fy = y + h * 0.84, fr = w * 0.09;
-      for (let i = 0; i < 5; i++) {
-        const a = -Math.PI / 2 + i * Math.PI * 2 / 5;
-        ctx.beginPath();
-        ctx.arc(fx + Math.cos(a) * fr, fy + Math.sin(a) * fr, fr * 0.62, 0, Math.PI * 2);
-        ctx.fillStyle = PIP_RED;
-        ctx.fill();
-      }
-      ctx.beginPath();
-      ctx.arc(fx, fy, fr * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#F6D46B";
-      ctx.fill();
-      return;
-    }
-    if (DECO[face]) {
-      const [ch, col] = DECO[face];
-      const size2 = Math.min(h * 0.56, w * 0.86);
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.font = `700 ${size2}px ${SERIF}`;
-      ctx.fillStyle = col;
-      ctx.fillText(ch, x + w / 2, y + (h - size2) / 2);
-      return;
-    }
-    if (suit2 === "b" && face === BOMB_FACE2) {
-      const cx = x + w / 2, bw = w * 0.3, bh = h * 0.46, top2 = y + h * 0.5 - bh / 2 + h * 0.06;
-      ctx.beginPath();
-      ctx.moveTo(cx, top2);
-      ctx.quadraticCurveTo(cx + bw * 0.8, top2 - bh * 0.5, cx + bw * 1.5, top2 - bh * 0.3);
-      ctx.lineWidth = Math.max(2, w * 0.045);
-      ctx.strokeStyle = "#8A6A33";
-      ctx.lineCap = "round";
-      ctx.stroke();
-      ctx.strokeStyle = "#E8873B";
-      ctx.lineWidth = Math.max(2, w * 0.038);
-      for (const [dx, dy] of [[0.55, -0.62], [0.95, -0.34], [0.42, -0.9]]) {
-        ctx.beginPath();
-        ctx.moveTo(cx + dx * bw, top2 + dy * bh * 0.5);
-        ctx.lineTo(cx + dx * bw + w * 0.035, top2 + dy * bh * 0.5 - h * 0.05);
-        ctx.stroke();
-      }
-      rr(ctx, cx - bw / 2, top2, bw, bh, bw * 0.3);
-      ctx.fillStyle = "#C0392B";
-      ctx.fill();
-      ctx.lineWidth = Math.max(2, w * 0.04);
-      ctx.strokeStyle = "#8C2318";
-      ctx.stroke();
-      ctx.fillStyle = "#E8C56B";
-      rr(ctx, cx - bw / 2, top2 + bh * 0.3, bw, bh * 0.12, 2);
-      ctx.fill();
-      rr(ctx, cx - bw / 2, top2 + bh * 0.58, bw, bh * 0.1, 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,.42)";
-      rr(ctx, cx - bw * 0.34, top2 + bh * 0.1, bw * 0.16, bh * 0.52, bw * 0.08);
-      ctx.fill();
-      return;
-    }
-    const size = Math.min(h * 0.4, w * 0.6);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.font = `700 ${size}px ${SANS}`;
-    ctx.fillStyle = palette.inkFaint;
-    ctx.fillText("?", x + w / 2, y + (h - size) / 2);
-  }
-  function drawFrostFrame(ctx, x, y, w, h, layers) {
-    const rim = (inset, lw, col, fill) => {
-      rr(ctx, x + w * inset, y + h * inset, w * (1 - inset * 2), h * (1 - inset * 2), Math.min(w, h) * 0.14);
-      if (fill) {
-        ctx.fillStyle = fill;
-        ctx.fill();
-      }
-      ctx.lineWidth = lw;
-      ctx.strokeStyle = col;
-      ctx.stroke();
-    };
-    if (layers >= 2) rim(0.015, Math.max(2, w * 0.05), "rgba(120,190,240,.95)", null);
-    rim(layers >= 2 ? 0.075 : 0.04, Math.max(1.5, w * 0.05), "rgba(150,205,245,.95)", "rgba(205,235,255,.42)");
-    const crystal = (cx, cy, s) => {
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.strokeStyle = "rgba(235,248,255,.95)";
-      ctx.lineWidth = Math.max(1, s * 0.22);
-      ctx.lineCap = "round";
-      for (let i = 0; i < 4; i++) {
-        const a = i * Math.PI / 4;
-        ctx.beginPath();
-        ctx.moveTo(-Math.cos(a) * s, -Math.sin(a) * s);
-        ctx.lineTo(Math.cos(a) * s, Math.sin(a) * s);
-        ctx.stroke();
-      }
-      ctx.restore();
-    };
-    crystal(x + w * 0.78, y + h * 0.22, w * 0.07);
-    crystal(x + w * 0.22, y + h * 0.76, w * 0.06);
-  }
-  function drawFrost(ctx, x, y, w, h, layers = 1) {
-    drawFrostFrame(ctx, x, y, w, h, layers);
-  }
-  function iceLayers2(face) {
-    let n = 0;
-    while (face.endsWith("~")) {
-      face = face.slice(0, -1);
-      n++;
-    }
-    return n;
-  }
-  function drawTile(ctx, face, x, y, o) {
-    const { w, h } = o;
-    const lift = o.lift ?? Math.max(3, h * 0.085);
-    const r = Math.min(w, h) * 0.12;
-    const foot = "#347B60";
-    ctx.save();
-    ctx.globalAlpha = 0.18;
-    fillRR(ctx, x + w * 0.02, y + h * 0.05, w, h - lift, r, "#1E3A22");
-    ctx.restore();
-    fillRR(
-      ctx,
-      x,
-      y + lift,
-      w,
-      h - lift,
-      r,
-      linear(ctx, x, y, x, y + h, [[0, "#70A18A"], [0.7, foot], [1, "#235740"]])
-    );
-    fillRR(ctx, x, y + lift * 0.35, w, h - lift * 0.95, r, "#D4D5C4");
-    rr(ctx, x, y, w, h - lift, r);
-    ctx.fillStyle = linear(
-      ctx,
-      x,
-      y,
-      x,
-      y + h - lift,
-      [[0, "#FFFFFF"], [0.52, "#FFFFF6"], [1, "#ECECDC"]]
-    );
-    ctx.fill();
-    ctx.lineWidth = Math.max(0.7, w * 0.016);
-    ctx.strokeStyle = "#C6CBB9";
-    ctx.stroke();
-    strokeRR(ctx, x + w * 0.027, y + h * 0.018, w * 0.946, h - lift - h * 0.04, r * 0.82, "#FFFFFF", Math.max(0.7, w * 0.019));
-    fillRR(ctx, x + w * 0.08, y + h * 0.07, w * 0.84, (h - lift) * 0.16, r * 0.6, "rgba(255,255,255,.75)");
-    faceArt(ctx, face, x + w * 0.09, y + h * 0.07, w * 0.82, (h - lift) * 0.84);
-    const ice = iceLayers2(face);
-    if (ice > 0) drawFrost(ctx, x + w * 0.06, y + h * 0.06, w * 0.88, (h - lift) * 0.88, ice);
-  }
-
   // cocos/assets/scripts/view/garden.ts
-  function blob(ctx, x, y, rx, ry, col, rot = 0) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(rot);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fillStyle = col;
-    ctx.fill();
-    ctx.restore();
-  }
-  function leafCluster(ctx, x, y, s, rot, col, deep) {
-    for (let i = 0; i < 5; i++) {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(rot + i * 1.05);
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.quadraticCurveTo(s * 0.55, -s * 0.5, s * 1.25, 0);
-      ctx.quadraticCurveTo(s * 0.55, s * 0.5, 0, 0);
-      ctx.fillStyle = i % 2 ? col : deep;
-      ctx.fill();
-      ctx.restore();
-    }
-  }
-  function mountain(ctx, w, h, baseY, amp, col, seed) {
-    ctx.beginPath();
-    ctx.moveTo(0, h);
-    for (let x = 0; x <= w; x += w / 48) {
-      const t = x / w;
-      const y = baseY - Math.sin(t * 3.1 + seed) * amp - Math.sin(t * 8.3 + seed * 2.7) * amp * 0.32;
-      ctx.lineTo(x, y);
-    }
-    ctx.lineTo(w, h);
-    ctx.closePath();
-    ctx.fillStyle = col;
-    ctx.fill();
-  }
-  function blossom(ctx, x, y, r) {
-    for (let i = 0; i < 5; i++) {
-      const a = i * Math.PI * 2 / 5;
-      blob(ctx, x + Math.cos(a) * r * 0.6, y + Math.sin(a) * r * 0.6, r * 0.52, r * 0.52, "#FFFFFF");
-    }
-    blob(ctx, x, y, r * 0.42, r * 0.42, "#F6D46B");
-  }
   function drawGarden(ctx, w, h) {
-    ctx.fillStyle = linear(ctx, 0, 0, 0, h, [
-      [0, palette.sky1],
-      [0.34, palette.sky2],
-      [0.62, "#E7F2DE"],
-      [1, palette.sky3]
-    ]);
-    ctx.fillRect(0, 0, w, h);
-    const glow = ctx.createRadialGradient(w * 0.74, h * 0.12, 0, w * 0.74, h * 0.12, w * 0.6);
-    glow.addColorStop(0, "rgba(255,255,235,.85)");
-    glow.addColorStop(1, "rgba(255,255,235,0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, w, h);
-    mountain(ctx, w, h, h * 0.52, h * 0.1, "#D5E5D0", 0.4);
-    mountain(ctx, w, h, h * 0.6, h * 0.08, "#C6DBBC", 2.1);
-    mountain(ctx, w, h, h * 0.68, h * 0.06, "#B5D0A5", 4.3);
-    for (let i = 0; i < 8; i++) {
-      const x = i % 2 ? w * 0.95 : w * 0.05, y = h * (0.18 + i * 0.095);
-      ctx.save();
-      ctx.globalAlpha = 0.65;
-      blossom(ctx, x, y, w * (0.018 + i % 3 * 5e-3));
-      ctx.restore();
-    }
-    ctx.fillStyle = linear(ctx, 0, h * 0.82, 0, h, [
-      [0, "rgba(160,196,124,0)"],
-      [0.4, "rgba(143,182,95,.75)"],
-      [1, palette.gardenDark]
-    ]);
-    ctx.fillRect(0, h * 0.8, w, h * 0.2);
-    const edge = Math.min(w, h);
-    ctx.save();
-    for (let i = 0; i < 9; i++) {
-      const t = i / 8;
-      leafCluster(ctx, -edge * 0.04 + Math.sin(i * 1.7) * edge * 0.05, h * (0.06 + t * 0.95), edge * (0.07 + i % 3 * 0.015), t * 3 + i, palette.leaf, palette.leafDark);
-    }
-    for (let i = 0; i < 8; i++) {
-      const t = i / 7;
-      leafCluster(ctx, w + edge * 0.04 - Math.sin(i * 1.3) * edge * 0.05, h * (0.02 + t * 0.9), edge * (0.06 + i % 3 * 0.014), -t * 3 - i, palette.leaf, palette.leafDark);
-    }
-    for (let i = 0; i < 7; i++) {
-      const t = i / 6;
-      leafCluster(ctx, w * (0.05 + t * 0.95), h * 1.02, edge * (0.055 + i % 3 * 0.012), Math.PI * 0.5 + t * 2 + i, palette.leafDark, palette.gardenDark);
-    }
-    for (let i = 0; i < 6; i++) {
-      const t = i / 5;
-      leafCluster(ctx, w * (0.08 + t * 0.9), -edge * 0.02, edge * (0.05 + i % 2 * 0.013), -Math.PI * 0.5 + t * 2 + i, palette.leafLight, palette.leaf);
-    }
-    ctx.restore();
-    ctx.save();
-    ctx.globalAlpha = 0.92;
-    blossom(ctx, w * 0.9, h * 0.07, edge * 0.045);
-    blossom(ctx, w * 0.05, h * 0.3, edge * 0.035);
-    blossom(ctx, w * 0.95, h * 0.62, edge * 0.032);
-    ctx.restore();
-    const vig = ctx.createRadialGradient(w * 0.5, h * 0.48, Math.min(w, h) * 0.28, w * 0.5, h * 0.5, Math.max(w, h) * 0.78);
-    vig.addColorStop(0, "rgba(255,255,255,.28)");
-    vig.addColorStop(1, "rgba(30,60,40,.14)");
-    ctx.fillStyle = vig;
-    ctx.fillRect(0, 0, w, h);
+    drawSunnyBackdrop(ctx, w, h);
   }
 
   // demo/h5/src/bg.ts
@@ -4090,43 +4587,6 @@
     ctx.restore();
   }
 
-  // demo/h5/src/theme.ts
-  var T = {
-    sky1: "#DAEEE7",
-    sky2: "#F1F4E6",
-    sky3: "#E5EDCD",
-    garden: "#ACCAA0",
-    gardenDeep: "#86AA78",
-    gardenDark: "#72916C",
-    leaf: "#99BC7E",
-    leafDark: "#77975F",
-    leafLight: "#C3D9A6",
-    cream: "#FFF9ED",
-    creamDeep: "#F3E6C6",
-    creamEdge: "#E4D2A6",
-    gold: "#D8A94E",
-    goldDeep: "#A87C2C",
-    goldLight: "#F3DC9B",
-    jade: "#2E7D4F",
-    jadeDeep: "#1C5B37",
-    jadeLight: "#4FA46A",
-    jadeBright: "#43A860",
-    ink: "#2B3A28",
-    inkSoft: "#5D6B52",
-    inkFaint: "#8A957E",
-    wood: "#C8AF7F",
-    woodDeep: "#A18F6C",
-    woodLight: "#E4D1A9",
-    woodInner: "#A7C8AA",
-    felt: "#3F6B3A",
-    feltDeep: "#2E5230",
-    tile: "#FDF8E4",
-    tileEdge: "#E8DCBC",
-    white: "#FFFFFF"
-  };
-  var FONT_SANS = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif';
-  var FONT_SERIF = '"STKaiti","KaiTi","Kaiti SC","Songti SC","Noto Serif CJK SC",serif';
-
   // demo/h5/src/ui.ts
   function rr2(ctx, x, y, w, h, r) {
     const rad = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -4155,16 +4615,6 @@
     ctx.textBaseline = baseline;
     ctx.fillStyle = color;
     ctx.fillText(str, x, y);
-  }
-  function fit(ctx, str, size, maxW, bold = false, serif = false) {
-    ctx.font = `${bold ? "700 " : ""}${size}px ${serif ? FONT_SERIF : FONT_SANS}`;
-    if (ctx.measureText(str).width <= maxW) return str;
-    let out = "";
-    for (const ch of str) {
-      if (ctx.measureText(out + ch + "\u2026").width > maxW) break;
-      out += ch;
-    }
-    return out + "\u2026";
   }
   function panel(ctx, b, o = {}) {
     const r = o.r ?? Math.min(b.w, b.h) * 0.09;
@@ -4237,11 +4687,6 @@
     strokeRR2(ctx, { x: b.x + 1, y: b.y + 1, w: b.w - 2, h: b.h - 2 }, r, o.edge ?? T.gold, Math.max(1.5, b.h * 0.05));
     text(ctx, label, b.x + b.w / 2, b.y + b.h / 2, o.size ?? b.h * 0.46, o.ink ?? "#FBF3DE", "center", true, o.serif);
   }
-  function stars(ctx, cx, cy, r, got, total = 3, gap = 0) {
-    const step = r * 2.35 + gap;
-    const x0 = cx - step * (total - 1) / 2;
-    for (let i = 0; i < total; i++) star(ctx, x0 + i * step, cy, r, i < got);
-  }
   function star(ctx, cx, cy, r, filled) {
     ctx.beginPath();
     for (let i = 0; i < 10; i++) {
@@ -4263,27 +4708,6 @@
     ctx.lineWidth = Math.max(1, r * 0.1);
     ctx.strokeStyle = filled ? "#B8851A" : "#AFA489";
     ctx.stroke();
-  }
-  function toggle(ctx, x, y, w, on) {
-    const h = w * 0.58, b = { x, y: y - h / 2, w, h };
-    const r = h / 2;
-    const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + h);
-    if (on) {
-      g.addColorStop(0, "#4FA46A");
-      g.addColorStop(1, "#2E7D4F");
-    } else {
-      g.addColorStop(0, "#D9D2C0");
-      g.addColorStop(1, "#C3BAA4");
-    }
-    fillRR2(ctx, b, r, g);
-    ctx.beginPath();
-    ctx.arc(on ? b.x + w - r : b.x + r, y, r * 0.82, 0, Math.PI * 2);
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(0,0,0,.08)";
-    ctx.stroke();
-    return b;
   }
   function chevron(ctx, x, y, s, col, lw) {
     ctx.beginPath();
@@ -4310,29 +4734,16 @@
 
   // demo/h5/src/app.ts
   var DW = 750;
-  var APP_VERSION = "1.4.0";
-  var TIP_CONTENT = {
-    basic: { title: "\u600E\u4E48\u73A9", lines: ["\u6309\u4F4F\u4EFB\u610F\u4E00\u884C\u6216\u4E00\u5217\u62D6\u52A8\uFF0C\u6574\u6BB5\u724C\u4F1A\u5FAA\u73AF\u6ED1\u52A8\uFF1B", "\u677E\u624B\u65F6\uFF0C\u78B0\u5728\u4E00\u8D77\u7684\u540C\u724C\u81EA\u52A8\u6D88\u9664\u3002", "\u4E5F\u53EF\u4EE5\u76F4\u63A5\u70B9\u4E24\u5F20\u76F8\u90BB\u7684\u540C\u724C\uFF0C\u7ACB\u523B\u6D88\u9664\u3002", "\u628A\u724C\u5168\u90E8\u6D88\u5B8C\u5C31\u901A\u5173\uFF0C\u9047\u5230\u56F0\u96BE\u7528\u4E0B\u9762\u7684\u9053\u5177\u3002"] },
-    stack: { title: "\u53E0\u8D77\u6765\u7684\u724C", lines: ["\u4E00\u683C\u4E0A\u53E0\u7740\u4E24\u5F20\u724C\u65F6\uFF0C\u8981\u6D88\u4E24\u6B21\u624D\u80FD\u6E05\u7A7A\u8FD9\u4E00\u683C\u3002", "\u724C\u9762\u53F3\u4E0A\u89D2\u7684\u6570\u5B57\u5C31\u662F\u53E0\u4E86\u51E0\u5C42\u3002"] },
-    lockRow: { title: "\u9501\u4F4F\u7684\u884C", lines: ["\u5E26\u6728\u6761\u548C\u9501\u6807\u7684\u884C\u4E0D\u80FD\u5DE6\u53F3\u63A8\u3002", "\u53EA\u80FD\u7AD6\u7740\u63A8\uFF0C\u6216\u76F4\u63A5\u70B9\u6D88\u3002"] },
-    moveLimit: { title: "\u9650\u6B65\u5173", lines: ["\u672C\u5173\u6709\u6B65\u6570\u4E0A\u9650\uFF08\u53F3\u4E0A\u89D2\u5B9E\u65F6\u663E\u793A\uFF09\u3002", "\u6B65\u6570\u7528\u5C3D\u8FD8\u6CA1\u6E05\u53F0\uFF0C\u8FD9\u4E00\u5173\u5C31\u5931\u8D25\u4E86\u3002"] },
-    oneWay: { title: "\u5355\u5411\u8F68", lines: ["\u4E24\u7AEF\u5E26\u7BAD\u5934\u7684\u8F68\u53EA\u80FD\u671D\u7BAD\u5934\u65B9\u5411\u63A8\u3002", "\u53CD\u65B9\u5411\u662F\u63A8\u4E0D\u52A8\u7684\u3002"] },
-    lockCol: { title: "\u9501\u4F4F\u7684\u5217", lines: ["\u5E26\u6728\u6761\u548C\u9501\u6807\u7684\u5217\u4E0D\u80FD\u4E0A\u4E0B\u63A8\u3002", "\u53EA\u80FD\u6A2A\u7740\u63A8\uFF0C\u6216\u76F4\u63A5\u70B9\u6D88\u3002"] },
-    goal: { title: "\u76EE\u6807\u5173", lines: ["\u4E0D\u5FC5\u6E05\u7A7A\u68CB\u76D8\uFF1A\u5148\u8FBE\u6210\u5DE6\u4E0A\u89D2\u7684\u76EE\u6807\u5C31\u901A\u5173\u3002", "\u8FDB\u5EA6\u4F1A\u5B9E\u65F6\u663E\u793A\u5728\u5DE6\u4E0A\u89D2\u3002"] },
-    ice: { title: "\u51B0\u9762\u724C", lines: ["\u8986\u7740\u971C\u9762\u7684\u724C\u8981\u6D88\u4E24\u6B21\uFF1A", "\u7B2C\u4E00\u4E0B\u788E\u51B0\u9732\u51FA\u724C\u9762\uFF0C\u7B2C\u4E8C\u4E0B\u624D\u6536\u8D70\u3002"] },
-    flower: { title: "\u82B1\u724C", lines: ["\u6625\u590F\u79CB\u51AC\u3001\u6885\u5170\u7AF9\u83CA\u516B\u5F20\u82B1\u724C\u52A0\u5165\u724C\u6C60\u3002", "\u914D\u5BF9\u89C4\u5219\u4E0D\u53D8\uFF1A\u540C\u724C\u76F8\u90BB\uFF0C\u4E24\u4E24\u6D88\u3002"] },
-    wild: { title: "\u82B1\u724C\u767E\u642D", lines: ["\u8FD9\u4E00\u5173\u7684\u82B1\u724C\u662F\u767E\u642D\uFF1A\u53EF\u4EE5\u548C\u4EFB\u4F55\u724C\u914D\u5BF9\u3002", "\u5361\u4F4F\u7684\u65F6\u5019\uFF0C\u7528\u5B83\u4EEC\u89E3\u56F4\u3002"] },
-    stack3: { title: "\u4E09\u5C42\u724C", lines: ["\u4E00\u683C\u53E0\u4E09\u5C42\uFF1A\u8981\u8FDE\u6D88\u4E09\u6B21\u624D\u80FD\u6E05\u7A7A\u3002", "\u53F3\u4E0A\u89D2\u6570\u5B57\u5C31\u662F\u5C42\u6570\u3002"] },
-    ice2: { title: "\u539A\u51B0", lines: ["\u53CC\u5708\u539A\u971C\u7684\u724C\u8981\u788E\u4E24\u6B21\u51B0\u3001\u518D\u6D88\u4E00\u6B21\u3002", "\u4E00\u5171\u4E09\u6B65\u624D\u80FD\u6536\u8D70\u3002"] },
-    bomb: { title: "\u97AD\u70AE\u724C", lines: ["\u97AD\u70AE\u914D\u5BF9\u65F6\uFF0C\u4F1A\u628A\u5168\u573A\u540C\u6B3E\u51B0\u9762\u4E00\u6B21\u9707\u788E\u3002", "\u51B0\u9762\u5173\u91CC\u7684\u7834\u51B0\u597D\u5E2E\u624B\u3002"] },
-    unlock: { title: "\u8FDE\u9501\u89E3\u9501", lines: ["\u5E26\u6570\u5B57\u7684\u9501\u8F68\u662F\u6682\u65F6\u9501\u4F4F\u7684\uFF1A", "\u6BCF\u6D88\u4E00\u5BF9\u5C31\u8BA1\u6570\uFF0C\u51D1\u591F\u6570\u5B57\u81EA\u52A8\u89E3\u9501\u3002"] }
-  };
+  var APP_VERSION = "1.4.1";
   var App = class {
     constructor(canvas2) {
+      this.mainSession = null;
+      this.theme = "jade";
       this.audio = new SoundStudy();
       this.screen = "home";
       /** Screen the current overlay was opened from, so closing returns correctly. */
       this.returnScreen = "home";
+      this.dialogBase = "home";
       this.hits = [];
       this.pressed = null;
       this.page = 0;
@@ -4389,6 +4800,11 @@
         this.sound = p.sound !== false;
       } catch {
       }
+      try {
+        const t = localStorage.getItem("mj:sunny-theme");
+        if (TABLE_THEMES.some((x) => x.id === t)) this.theme = t;
+      } catch {
+      }
       this.audio.configure(this.music, this.sound);
       document.addEventListener("visibilitychange", () => this.audio.visibility(document.hidden));
       const q = new URLSearchParams(location.search);
@@ -4396,7 +4812,7 @@
       const lv = Number(q.get("level"));
       if (Number.isFinite(lv) && q.has("level")) this.session.reset(lv, false);
       const scr = q.get("screen");
-      const valid = ["home", "levels", "board", "settings", "progress", "win", "lose", "pause", "help"];
+      const valid = ["workshop", "album", "home", "levels", "board", "settings", "progress", "win", "lose", "pause", "help"];
       this.setScreen(scr && valid.includes(scr) ? scr : "home");
       this.bindEvents();
       this.resize();
@@ -4554,6 +4970,7 @@
     }
     /* ── actions ────────────────────────────────────────────── */
     go(scr) {
+      if (["home", "levels", "board", "workshop", "album"].includes(this.screen)) this.dialogBase = this.screen;
       this.returnScreen = this.screen;
       this.setScreen(scr);
       this.invalidate();
@@ -4564,7 +4981,7 @@
       this.audio.setScene(["board", "win", "lose", "pause"].includes(scr) ? "board" : "home");
       this.audio.duck(["win", "lose", "pause"].includes(scr));
       this.screen = scr;
-      const overlay = { settings: "settings", levels: "levels", win: "win", help: "help", progress: "settings", pause: "pause", lose: "lose" };
+      const overlay = { restart: "restart", workshop: "home", album: "home", settings: "settings", levels: "levels", win: "win", help: "help", progress: "settings", pause: "pause", lose: "lose" };
       if (scr === "board") this.session.modal = "none";
       else if (scr === "home") this.session.modal = "home";
       else if (overlay[scr]) this.session.modal = overlay[scr];
@@ -4577,15 +4994,49 @@
         case "help":
           return "settings";
         default:
-          return "home";
+          return this.dialogBase;
       }
     }
     activate(id) {
+      if (id === "energy-hint") id = "hint";
+      if (["home", "levels", "workshop", "album"].includes(id) && this.mainSession) {
+        this.session = this.mainSession;
+        this.mainSession = null;
+        this.drag = null;
+        this.press = null;
+      }
+      if (id.startsWith("practice:")) {
+        const m = WORKSHOP[Number(id.slice(9))];
+        if (!m) return;
+        if (!this.mainSession) this.mainSession = this.session;
+        this.session = new Session(520);
+        this.session.unlockAll = true;
+        this.session.reset(m.level, false, true);
+        this.setScreen("board");
+        this.invalidate();
+        return;
+      }
+      if (id.startsWith("theme:")) {
+        const t = TABLE_THEMES.find((t2) => t2.id === id.slice(6));
+        if (t && totalStars(this.session) >= t.stars) {
+          this.theme = t.id;
+          try {
+            localStorage.setItem("mj:sunny-theme", t.id);
+          } catch {
+          }
+        }
+        this.invalidate();
+        return;
+      }
       this.audio.unlock();
       this.audio.play(id === "undo" ? "undo" : "ui");
       switch (id) {
         case "home":
           this.go("home");
+          break;
+        case "workshop":
+        case "album":
+          this.go(id);
           break;
         case "start":
           this.session.command("continue");
@@ -4615,6 +5066,10 @@
           this.setScreen("board");
           break;
         case "restart":
+          this.setScreen("restart");
+          break;
+        case "confirm-restart":
+        case "restart-lose":
         case "replay":
           this.act(() => {
             this.session.reset();
@@ -4726,13 +5181,24 @@
         case "home":
           this.drawHome(ctx);
           break;
+        case "workshop": {
+          const items = sunnyWorkshop(this.sunnyState());
+          items.forEach((i) => {
+            if (i.id === "challenge") i.id = "about";
+            if (i.text === "\u72EC\u7ACB\u6311\u6218") i.text = "\u73A9\u6CD5\u8BF4\u660E";
+          });
+          renderSunny(ctx, items, this.hits);
+          break;
+        }
+        case "album":
+          renderSunny(ctx, sunnyAlbum(this.sunnyState()), this.hits);
+          break;
         // 设置 / 选关 / 进度 / 玩法说明都是「首页上的弹框」：底图仍是首页，上面盖遮罩 + 面板
         case "levels":
-          this.drawHome(ctx);
           this.drawLevels(ctx);
           break;
         case "settings":
-          this.drawHome(ctx);
+          this.drawDialogBase(ctx);
           this.drawSettings(ctx);
           break;
         case "progress":
@@ -4746,6 +5212,11 @@
           this.drawBoard(ctx);
           this.drawWin(ctx);
           break;
+        case "restart":
+          this.drawBoard(ctx);
+          this.veil(ctx);
+          renderSunny(ctx, sunnyRestart(this.sunnyState()), this.hits);
+          break;
         case "lose":
           this.drawBoard(ctx);
           this.drawLose(ctx);
@@ -4755,29 +5226,23 @@
           this.drawPause(ctx);
           break;
         case "help":
-          this.drawHome(ctx);
+          this.drawDialogBase(ctx);
           this.drawHelp(ctx);
           break;
       }
       if (this.screen === "board" && this.session.introTip) this.drawTipCard(ctx);
     }
     /** 「新玩法」说明卡：遮罩 + 面板 + 匾额标题 + 文案 + 知道了。展示期间牌桌输入被 Session 屏蔽。 */
+    drawDialogBase(ctx) {
+      if (this.dialogBase === "board") this.drawBoard(ctx);
+      else if (this.dialogBase === "levels") this.drawLevels(ctx);
+      else if (this.dialogBase === "workshop") renderSunny(ctx, sunnyWorkshop(this.sunnyState()), this.hits);
+      else if (this.dialogBase === "album") renderSunny(ctx, sunnyAlbum(this.sunnyState()), this.hits);
+      else this.drawHome(ctx);
+    }
     drawTipCard(ctx) {
-      const W = this.W;
       this.veil(ctx);
-      const tip = this.session.introTip;
-      const ch = CHAPTERS[Number(tip.split(":")[1])];
-      const content = tip.startsWith("ctip:") && ch ? { title: ch[0], lines: [ch[2], ch[3]] } : TIP_CONTENT[tip] || TIP_CONTENT.basic;
-      const lineH = 54, padTop = 104;
-      const ph = padTop + 36 + content.lines.length * lineH + 26 + 96 + 30;
-      const py = this.centeredTop(ph);
-      const b = { x: 60, y: py, w: W - 120, h: ph };
-      panel(ctx, b, { r: 34 });
-      pill(ctx, { x: W / 2 - 160, y: py + 34, w: 320, h: 72 }, content.title, { size: 34, serif: true });
-      content.lines.forEach((ln, i) => text(ctx, ln, b.x + 56, py + padTop + 36 + i * lineH, 25, T.ink, "left"));
-      const btn = { x: W / 2 - 170, y: py + ph - 30 - 96, w: 340, h: 92 };
-      this.push("tip-ok", btn);
-      button(ctx, btn, "\u77E5\u9053\u4E86\uFF0C\u5F00\u59CB", { kind: "jade", size: 30, pressed: this.isPressed("tip-ok") });
+      renderSunny(ctx, sunnyIntro(this.sunnyState()), this.hits);
     }
     push(id, b, enabled = true) {
       this.hits.push({ id, x: b.x, y: b.y, w: b.w, h: b.h, enabled });
@@ -4786,55 +5251,11 @@
       return this.pressed === id;
     }
     /* ══ HOME ══════════════════════════════════════════════ */
+    sunnyState() {
+      return { w: this.W, h: this.H, safe: 0, s: this.session, page: this.page, theme: this.theme, practice: !!this.mainSession, cssScale: this.s };
+    }
     drawHome(ctx) {
-      const W = this.W, H = this.H;
-      const av = 46, ax = 30 + av / 2, ay = 74;
-      ctx.beginPath();
-      ctx.arc(ax, ay, av / 2 + 4, 0, Math.PI * 2);
-      ctx.fillStyle = T.jadeDeep;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(ax, ay, av / 2, 0, Math.PI * 2);
-      const ag = ctx.createLinearGradient(ax, ay - av / 2, ax, ay + av / 2);
-      ag.addColorStop(0, "#F7E9C4");
-      ag.addColorStop(1, "#E2C68C");
-      ctx.fillStyle = ag;
-      ctx.fill();
-      this.faceIcon(ctx, ax, ay, av * 0.62);
-      text(ctx, `\u7B2C ${Math.min(this.session.maxLevel + 1, LEVELS.length)} \u5173`, 30 + av + 16, ay, 27, T.ink, "left", true);
-      const gear = { x: W - 108, y: 44, w: 66, h: 66 };
-      this.gearButton(ctx, gear, "settings");
-      const ty = H * 0.352, subY = H * 0.432;
-      text(ctx, "\u5FEB\u4E50\u63A8\u9EBB", W / 2 - 47, ty, 96, T.jadeDeep, "center", true, true);
-      const seal = { x: W / 2 + 204 - 35, y: ty - 78, w: 70, h: 156 };
-      fillRR2(ctx, seal, 16, "#C0392B");
-      strokeRR2(ctx, seal, 16, "#8C2318", 3);
-      ["\u5BF9", "\u5BF9", "\u6D88"].forEach((ch, i) => text(ctx, ch, seal.x + seal.w / 2, ty - 50 + i * 50, 36, "#FFF3DE", "center", true, true));
-      text(ctx, "\u63A8\u4E00\u63A8 \xB7 \u78B0\u4E2A\u5BF9", W / 2, subY, 34, T.ink, "center", true, true);
-      this.table(ctx, H * 0.655);
-      const baseY = H * 0.585, tw = 170, th = 215;
-      ctx.save();
-      ctx.translate(W / 2 - 130, baseY);
-      ctx.rotate(-0.16);
-      drawTile2(ctx, 0, 0, { face: "x1", w: tw * 0.82, h: th * 0.82 });
-      ctx.restore();
-      ctx.save();
-      ctx.translate(W / 2 - 4, baseY - 30);
-      ctx.rotate(-0.04);
-      drawTile2(ctx, 0, 0, { face: "x2", w: tw, h: th });
-      ctx.restore();
-      ctx.save();
-      ctx.translate(W / 2 + 122, baseY + 4);
-      ctx.rotate(0.13);
-      drawTile2(ctx, 0, 0, { face: "x3", w: tw, h: th });
-      ctx.restore();
-      const bw = W - 168, bx = (W - bw) / 2;
-      const start = { x: bx, y: H * 0.735, w: bw, h: 104 };
-      this.push("start", start);
-      button(ctx, start, "\u5F00\u59CB\u6E38\u620F", { kind: "jade", size: 42, icon: "play", pressed: this.isPressed("start") });
-      const lv = { x: bx, y: start.y + 128, w: bw, h: 92 };
-      this.push("levels", lv);
-      button(ctx, lv, "\u5173\u5361\u9009\u62E9", { kind: "cream", size: 32, pressed: this.isPressed("levels") });
+      renderSunny(ctx, sunnyHome(this.sunnyState()), this.hits);
     }
     faceIcon(ctx, cx, cy, r) {
       ctx.beginPath();
@@ -4889,94 +5310,8 @@
     }
     /* ══ LEVELS（首页上的弹框） ═══════════════════════════ */
     drawLevels(ctx) {
-      const W = this.W;
-      this.veil(ctx);
-      const PER = CHAPTER_LENGTH, COLS = 4, gap = 20;
-      const pages = Math.max(1, Math.ceil(LEVELS.length / PER));
-      this.page = Math.max(0, Math.min(this.page, pages - 1));
-      const count2 = Math.max(0, Math.min(PER, LEVELS.length - this.page * PER));
-      const rows = Math.max(1, Math.ceil(count2 / COLS));
-      const pw = W - 68;
-      const cw = (pw - 80 - gap * (COLS - 1)) / COLS, chh = 110;
-      const gridH = rows * chh + (rows - 1) * gap;
-      const ph = 30 + 72 + 24 + 40 + gridH + 38 + 56 + 34 + 30;
-      const py = this.centeredTop(ph);
-      const b = { x: 34, y: py, w: pw, h: ph };
-      panel(ctx, b, { r: 30 });
-      const cur = { x: 34 + 40, y: py + 30, w: 300, h: 72 };
-      pill(ctx, cur, "\u9009\u62E9\u5173\u5361", { size: 32, fill: "#2E6B3A", edge: T.gold, r: 36, serif: true });
-      const close = { x: b.x + b.w - 96, y: py + 30, w: 58, h: 58 };
-      this.push("__back", close);
-      this.circleBtn(ctx, close, "close");
-      const full = this.session.chapterStars(this.page) >= CHAPTER_LENGTH * 3;
-      text(
-        ctx,
-        `\u7B2C ${this.page + 1} \u7AE0 \xB7 ${CHAPTER_NAMES[this.page] || ""}\uFF08${this.page * PER + 1}-${Math.min(LEVELS.length, (this.page + 1) * PER)}\uFF09`,
-        b.x + 40,
-        py + 30 + 72 + 24,
-        24,
-        T.ink,
-        "left",
-        true
-      );
-      if (full) text(ctx, "\u5168\u4E09\u661F", b.x + b.w - 44, py + 30 + 72 + 24, 21, "#B4442F", "right", true);
-      const gateBlocked = !this.session.canEnterChapter(this.page);
-      const gy = py + 30 + 72 + 24 + 40;
-      for (let i = 0; i < count2; i++) {
-        const idx = this.page * PER + i;
-        const col = i % COLS, row = Math.floor(i / COLS);
-        const bx = b.x + 40 + col * (cw + gap), by = gy + row * (chh + gap);
-        const isCur = idx === this.session.levelIndex;
-        const st = this.session.stars[String(idx)] || 0;
-        const box = { x: bx, y: by, w: cw, h: chh };
-        const unlocked = !gateBlocked && this.session.canEnter(idx);
-        if (!unlocked) {
-          fillRR2(ctx, box, 18, "rgba(222,216,198,.55)");
-          strokeRR2(ctx, box, 18, "rgba(190,180,158,.5)", 2);
-          text(ctx, String(idx + 1), bx + cw / 2, by + chh * 0.42, 36, "#B3A98F", "center", true);
-          continue;
-        }
-        this.push("level:" + idx, box);
-        const g = ctx.createLinearGradient(bx, by, bx, by + chh);
-        g.addColorStop(0, "#6FC46F");
-        g.addColorStop(1, "#2E7D4F");
-        fillRR2(ctx, { x: bx, y: by + 4, w: cw, h: chh - 4 }, 18, "#1C5B37");
-        fillRR2(ctx, box, 18, g);
-        strokeRR2(ctx, box, 18, isCur ? "#FFD84D" : "rgba(255,255,255,.35)", isCur ? 4 : 2);
-        text(ctx, String(idx + 1), bx + cw / 2, by + chh * 0.32, 36, "#FFFFFF", "center", true);
-        stars(ctx, bx + cw / 2, by + chh * 0.72, 12, st);
-        const bm = this.session.bestMoves[String(idx)] || 0;
-        const par = this.session.pars[String(idx)] || 0;
-        if (bm && par && st > 0 && st < 3) {
-          const line = starLines(par);
-          const diff = bm - (st === 1 ? line.two : line.three);
-          if (diff > 0 && diff <= 9) text(ctx, `\u5DEE${diff}\u6B65`, bx + cw - 8, by + chh * 0.3, 13, "#8C3A2E", "right", true);
-        }
-      }
-      if (gateBlocked) {
-        text(
-          ctx,
-          "\u5B8C\u6210\u524D\u9762\u7684\u5173\u5361\uFF0C\u5373\u53EF\u6765\u5230\u8FD9\u91CC",
-          W / 2,
-          py + ph - 92,
-          21,
-          "#B4442F",
-          "center",
-          true
-        );
-      }
-      const pyy = py + ph - 58;
-      const prev = { x: b.x + 40, y: pyy - 26, w: 70, h: 52 };
-      const next = { x: b.x + b.w - 110, y: pyy - 26, w: 70, h: 52 };
-      if (this.page > 0) {
-        this.push("page-prev", prev);
-        backChevron(ctx, prev.x + 35, pyy, 30, T.ink, 5);
-      }
-      if (this.page < pages - 1) {
-        this.push("page-next", next);
-        chevron(ctx, next.x + 35, pyy, 30, T.ink, 5);
-      }
-      text(ctx, `${this.page + 1} / ${pages}`, W / 2, pyy, 24, T.ink, "center", true);
+      this.page = Math.max(0, Math.min(25, this.page));
+      renderSunny(ctx, sunnyMap(this.sunnyState()), this.hits);
     }
     lockIcon(ctx, cx, cy, r, col) {
       ctx.strokeStyle = col;
@@ -5018,51 +5353,10 @@
     drawBoard(ctx) {
       const W = this.W, H = this.H;
       const S = this.session;
-      const back = { x: 26, y: 34, w: 68, h: 68 };
-      this.push("back-home", back);
-      this.circleBtn(ctx, back, "back");
-      const title = { x: W / 2 - 165, y: 30, w: 330, h: 76 };
-      pill(ctx, title, `\u7B2C ${S.levelIndex + 1} \u5173`, { size: 38, fill: "#2E6B3A", edge: T.gold, serif: true });
-      const gear = { x: W - 94, y: 34, w: 68, h: 68 };
-      this.gearButton(ctx, gear, "pause");
-      const left = S.total ? count(S.grid) : 0;
-      const goal = S.goal;
-      text(ctx, S.objectiveText, 40, 134, 25, goal ? T.jadeDeep : T.ink, "left", true);
-      const moveText = S.moveLimit ? `\u5269 ${S.movesLeft} \u6B65` : `${S.moves} \u6B65`;
-      text(ctx, moveText, W - 40, 134, 25, S.moveLimit && S.movesLeft <= 3 ? "#B4442F" : T.ink, "right", true);
-      const targets = goal?.kind === "collect" ? goal.faces || [] : goal?.kind === "face" ? [goal.face] : [];
-      targets.forEach((f, i) => {
-        const x = 62 + i * 68;
-        drawTile2(ctx, x, 193, { face: f, w: 32, h: 40 });
-        text(ctx, (S.mechanics.collected[bare(f)] || 0) >= 2 ? "\u2713" : "2", x + 22, 191, 17, T.jadeDeep, "left", true);
-      });
-      if (S.def.energy) text(ctx, `\u7075\u611F ${S.mechanics.charge}/4`, W - 40, 193, 19, T.jadeDeep, "right", true);
-      const pbar = { x: 40, y: 158, w: W - 80, h: 16 };
-      fillRR2(ctx, pbar, 8, "rgba(60,90,50,.3)");
-      const done = goal && S.goalNeed ? S.goalDone / S.goalNeed : S.total ? (S.total - left) / S.total : 0;
-      if (done > 0) {
-        const g = ctx.createLinearGradient(pbar.x, pbar.y, pbar.x + pbar.w, pbar.y);
-        g.addColorStop(0, "#8FD98F");
-        g.addColorStop(1, "#4FA46A");
-        fillRR2(ctx, { x: pbar.x, y: pbar.y, w: Math.max(12, pbar.w * done), h: pbar.h }, 8, g);
-      }
-      const msg = { x: 34, y: 218, w: W - 68, h: 62 };
-      const mg = ctx.createLinearGradient(msg.x, msg.y, msg.x, msg.y + msg.h);
-      mg.addColorStop(0, "#FFF9E6");
-      mg.addColorStop(1, "#F6EBCB");
-      fillRR2(ctx, msg, 31, mg);
-      strokeRR2(ctx, msg, 31, T.creamEdge, 2);
-      fillRR2(ctx, { x: msg.x + 22, y: msg.y + 16, w: 6, h: msg.h - 32 }, 3, T.jade);
-      const line = this.drag ? (() => {
-        const r = S.runs[this.drag.run];
-        return `\u6B63\u5728\u5411${this.drag.axis === "row" ? this.drag.offset > 0 ? "\u53F3" : "\u5DE6" : this.drag.offset > 0 ? "\u4E0B" : "\u4E0A"}\u63A8 ${Math.max(1, Math.abs(Math.round(this.drag.offset)))} \u683C \xB7 \u677E\u624B\u6D88\u9664\u78B0\u8D77\u7684\u5BF9\u5B50`;
-      })() : S.message || "\u8F7B\u70B9\u914D\u5BF9 / \u6A2A\u7AD6\u62D6\u52A8\u6574\u6BB5";
-      text(ctx, fit(ctx, line, 24, msg.w - 76), msg.x + 42, msg.y + msg.h / 2, 24, T.ink, "left", false);
-      const top2 = msg.y + msg.h + 18;
-      const rows = this.rows(), cols = this.cols(), availH = H - 154 - top2, sidePad = cols <= 4 ? 34 : 44;
-      const cellW = Math.min((W - sidePad * 2) / cols, availH / (rows + 0.4) / 1.24, 156), cellH = cellW * 1.24;
-      const bw = cellW * cols, bh = cellH * rows, pad = cellH * 0.2;
-      const bx = (W - bw) / 2, by = top2 + Math.max(0, (availH - bh) / 2);
+      const line = this.drag ? "\u62D6\u52A8\u6574\u884C\u6216\u6574\u5217\uFF0C\u677E\u624B\u914D\u5BF9" : S.message || "\u540C\u724C\u76F8\u90BB\uFF0C\u8F7B\u70B9\u6216\u63A8\u79FB";
+      const layout = sunnyBoard(this.sunnyState(), line);
+      renderSunny(ctx, layout.items, this.hits);
+      const rows = this.rows(), cols = this.cols(), cellW = layout.cellW, cellH = layout.cellH, bw = cellW * cols, bh = cellH * rows, pad = Math.max(22, cellH * 0.2), bx = layout.x, by = layout.y;
       this.boardBox = { x: bx, y: by, w: bw, h: bh };
       const frame = { x: bx - pad, y: by - pad, w: bw + pad * 2, h: bh + pad * 2 };
       this.woodFrame(ctx, frame);
@@ -5162,20 +5456,20 @@
           const liftY = cellH * 0.05;
           for (let k = 0; k < visible; k++) {
             const depth = visible - 1 - k;
-            const tw2 = cellW * 0.84, th = cellH * 0.84;
+            const tw = cellW * 0.84, th = cellH * 0.84;
             const isTop = k === visible - 1;
             const cx = x0 + cellW / 2, cy = y0 + cellH * 0.5 - depth * liftY;
-            drawTile2(ctx, cx, cy, { face: cell[k], w: tw2, h: th, lift: th * 0.08 });
-            if (isTop && cell.length > 1) this.countBadge(ctx, cx + tw2 * 0.42, cy - th * 0.38, cell.length);
+            drawTile2(ctx, cx, cy, { face: cell[k], w: tw, h: th, lift: th * 0.08 });
+            if (isTop && cell.length > 1) this.countBadge(ctx, cx + tw * 0.42, cy - th * 0.38, cell.length);
           }
         }
       }
       (def.floors || []).forEach((f, i) => {
-        const x = bx + f.c * cellW, y = by + f.r * cellH, n = S.mechanics.marks[i] || 0, done2 = n >= f.need;
-        const color = done2 ? "#4D9965" : f.kind === "dew" ? "#4B95B5" : "#CE6D8A";
+        const x = bx + f.c * cellW, y = by + f.r * cellH, n = S.mechanics.marks[i] || 0, done = n >= f.need;
+        const color = done ? "#4D9965" : f.kind === "dew" ? "#4B95B5" : "#CE6D8A";
         strokeRR2(ctx, { x: x + 2, y: y + 2, w: cellW - 4, h: cellH - 4 }, 8, color, 3);
         fillRR2(ctx, { x: x + 1, y: y + cellH - 24, w: f.kind === "bud" ? 43 : 24, h: 24 }, 7, "#FFF9EA");
-        text(ctx, done2 ? "\u2713" : f.kind === "dew" ? "\u6EF4" : f.kind === "bud" ? `${n}/2` : "\u82B1", x + 12, y + cellH - 12, 17, color, "center", true);
+        text(ctx, done ? "\u2713" : f.kind === "dew" ? "\u6EF4" : f.kind === "bud" ? `${n}/2` : "\u82B1", x + 12, y + cellH - 12, 17, color, "center", true);
       });
       const keys = (def.keyLocks || []).filter((k) => (S.mechanics.collected[k.face] || 0) < k.count).map((k) => k.face);
       if (!this.drag) S.grid.forEach((row, r) => row.forEach((cell, c) => {
@@ -5242,16 +5536,6 @@
         }
       }
       ctx.restore();
-      const tools = [{ id: "hint", icon: "hint", label: "\u63D0\u793A" }, { id: "undo", icon: "undo", label: "\u64A4\u9500" }, { id: "restart", icon: "restart", label: "\u91CD\u5F00" }];
-      const tw = (W - 68) / 3, ty = H - 132;
-      fillRR2(ctx, { x: 34, y: ty, w: W - 68, h: 96 }, 22, "#F9F3DF");
-      strokeRR2(ctx, { x: 34, y: ty, w: W - 68, h: 96 }, 22, "#CCCFAD", 2);
-      tools.forEach((t, i) => {
-        const b = { x: 34 + i * tw, y: ty + 4, w: tw, h: 88 };
-        this.push(t.id, b);
-        icon(ctx, t.icon, b.x + tw / 2 - 40, ty + 48, 28, T.jadeDeep);
-        text(ctx, t.label, b.x + tw / 2 + 18, ty + 48, 26, T.jadeDeep, "center", true);
-      });
     }
     circleBtn(ctx, b, kind) {
       const cx = b.x + b.w / 2, cy = b.y + b.h / 2, r = b.w / 2;
@@ -5306,19 +5590,7 @@
       ctx.restore();
     }
     woodFrame(ctx, b) {
-      ctx.save();
-      ctx.globalAlpha = 0.3;
-      fillRR2(ctx, { x: b.x + 4, y: b.y + 8, w: b.w, h: b.h }, 26, "#20361F");
-      ctx.restore();
-      const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-      g.addColorStop(0, T.woodLight);
-      g.addColorStop(0.5, T.wood);
-      g.addColorStop(1, T.woodDeep);
-      fillRR2(ctx, b, 26, g);
-      strokeRR2(ctx, b, 26, "#A38F68", 5);
-      const inner = { x: b.x + 12, y: b.y + 12, w: b.w - 24, h: b.h - 24 };
-      fillRR2(ctx, inner, 18, "#A7C8AA");
-      strokeRR2(ctx, inner, 18, "rgba(30,50,20,.5)", 3);
+      drawSunnyTable(ctx, b.x, b.y, b.w, b.h, this.theme);
     }
     countBadge(ctx, cx, cy, n) {
       const r = 15;
@@ -5354,42 +5626,9 @@
     }
     /* ══ SETTINGS（首页上的弹框） ══════════════════════════ */
     drawSettings(ctx) {
-      const W = this.W;
       this.veil(ctx);
-      const rows = [
-        { id: "progress", icon: "progress", label: "\u6211\u7684\u8FDB\u5EA6" },
-        { id: "toggle-sound", icon: "sound", label: "\u97F3\u6548", toggle: this.sound },
-        { id: "toggle-music", icon: "music", label: "\u80CC\u666F\u97F3\u4E50", toggle: this.music },
-        { id: "toggle-vibration", icon: "vibrate", label: "\u9707\u52A8", toggle: this.session.vibration },
-        { id: "about", icon: "book", label: "\u73A9\u6CD5\u8BF4\u660E" }
-      ];
-      const rh = 104;
-      const ph = 94 + rh * rows.length + 34 + 40;
-      const py = this.centeredTop(ph);
-      const b = { x: 40, y: py, w: W - 80, h: ph };
-      panel(ctx, b, { r: 28 });
-      pill(ctx, { x: b.x + 40, y: py + 28, w: 240, h: 66 }, "\u8BBE\u7F6E", { size: 32, fill: "#2E6B3A", edge: T.gold, r: 33, serif: true });
-      const close = { x: b.x + b.w - 98, y: py + 28, w: 58, h: 58 };
-      this.push("__back", close);
-      this.circleBtn(ctx, close, "close");
-      rows.forEach((r, i) => {
-        const y = py + 94 + i * rh;
-        const box = { x: b.x + 24, y, w: b.w - 48, h: rh - 8 };
-        if (i % 2 === 0) fillRR2(ctx, box, 16, "rgba(255,255,255,.5)");
-        icon(ctx, r.icon, box.x + 42, y + rh / 2 - 4, 34, T.jade, 3);
-        text(ctx, r.label, box.x + 82, y + rh / 2 - 4, 27, T.ink, "left");
-        if (r.toggle) {
-          const tw2 = 74;
-          const tb = toggle(ctx, box.x + box.w - tw2 - 8, y + rh / 2 - 4, tw2, !!r.toggle);
-          this.push(r.id, tb, true);
-        } else {
-          chevron(ctx, box.x + box.w - 20, y + rh / 2 - 4, 26, T.inkFaint, 3);
-          this.push(r.id, box);
-        }
-      });
-      text(ctx, `\u7248\u672C ${APP_VERSION}`, W / 2, py + ph - 34, 22, T.inkSoft, "center");
+      renderSunny(ctx, sunnySettings(this.sunnyState(), this.music, this.sound, APP_VERSION), this.hits);
     }
-    /* ══ PROGRESS（设置里的弹框） ══════════════════════════ */
     drawProgress(ctx) {
       const W = this.W;
       this.veil(ctx);
@@ -5461,116 +5700,16 @@
       ctx.fillRect(0, 0, this.W, this.H);
     }
     drawWin(ctx) {
-      const W = this.W;
       this.veil(ctx);
-      const S = this.session;
-      const oLevel = 76, oStars = 182, oR1 = 268, oR2 = 318, oR3 = 368, oR4 = 418, oNext = 512, oHome = 610;
-      const ph = oHome + 38 + 42;
-      const py = this.centeredTop(ph);
-      const b = { x: 78, y: py, w: W - 156, h: ph };
-      panel(ctx, b, { r: 34 });
-      const ban = { x: W / 2 - 232, y: py - 54, w: 464, h: 100 };
-      const bg = ctx.createLinearGradient(ban.x, ban.y, ban.x, ban.y + ban.h);
-      bg.addColorStop(0, "#B4763C");
-      bg.addColorStop(1, "#7C4A1E");
-      fillRR2(ctx, ban, 26, bg);
-      strokeRR2(ctx, ban, 26, "#5A3714", 5);
-      text(ctx, "\u606D\u559C\u901A\u5173", W / 2, ban.y + ban.h / 2, 50, "#F7DFA0", "center", true, true);
-      text(ctx, `\u7B2C ${S.levelIndex + 1} \u5173`, W / 2, py + oLevel, 34, T.ink, "center", true, true);
-      stars(ctx, W / 2, py + oStars, 44, S.rating);
-      const row = (y, k, v) => {
-        text(ctx, k, b.x + 70, py + y, 26, T.inkSoft, "left");
-        text(ctx, v, b.x + b.w - 70, py + y, 26, T.ink, "right", true);
-      };
-      row(oR1, "\u672C\u5C40\u6B65\u6570", `${S.moves} \u6B65`);
-      row(oR2, "\u4E09\u661F\u7EBF", `${S.starLines.three} \u6B65`);
-      row(oR3, "\u672C\u5C40\u5F97\u5206", `${S.score}`);
-      const bestNow = S.best[String(S.levelIndex)] || 0;
-      row(oR4, "\u5386\u53F2\u6700\u9AD8", `${bestNow}`);
-      if (S.score > 0 && S.score >= bestNow) text(ctx, "\u65B0\u7EAA\u5F55", b.x + b.w - 70, py + oR3 - 30, 20, "#B4442F", "right", true);
-      const nb = { x: b.x + 46, y: py + oNext - 46, w: b.w - 92, h: 92 };
-      const nextIdx = S.levelIndex + 1;
-      const last = nextIdx >= LEVELS.length;
-      const blocked = !last && !S.canEnter(nextIdx);
-      if (blocked) {
-        this.push("levels", nb);
-        button(ctx, nb, "\u9009\u62E9\u5173\u5361", { kind: "jade", size: 30, pressed: this.isPressed("levels") });
-      } else {
-        this.push("next", nb);
-        button(ctx, nb, last ? "\u518D\u73A9\u4E00\u6B21" : "\u4E0B\u4E00\u5173", { kind: "jade", size: 36, icon: "play", pressed: this.isPressed("next") });
-      }
-      const hb = { x: b.x + 46, y: py + oHome - 38, w: b.w - 92, h: 76 };
-      this.push("home", hb);
-      button(ctx, hb, "\u8FD4\u56DE\u9996\u9875", { kind: "cream", size: 30, pressed: this.isPressed("home") });
+      renderSunny(ctx, sunnyWin(this.sunnyState()), this.hits);
     }
     drawLose(ctx) {
-      const W = this.W;
       this.veil(ctx);
-      const S = this.session;
-      const oSub = 76, oTile = 188, oLevel = 298, oLeft = 340, oMoves = 376, oPrimary = 486, oRow = 586, oFoot = 660;
-      const ph = oFoot + 30 + 40;
-      const py = this.centeredTop(ph);
-      const b = { x: 84, y: py, w: W - 168, h: ph };
-      panel(ctx, b, { r: 34 });
-      const ban = { x: W / 2 - 214, y: py - 50, w: 428, h: 96 };
-      const bg = ctx.createLinearGradient(ban.x, ban.y, ban.x, ban.y + ban.h);
-      bg.addColorStop(0, "#A83B32");
-      bg.addColorStop(1, "#6E211B");
-      fillRR2(ctx, ban, 24, bg);
-      strokeRR2(ctx, ban, 24, "#5A1913", 5);
-      text(ctx, "\u5F88\u9057\u61BE", W / 2, ban.y + ban.h / 2, 48, "#F7DFA0", "center", true, true);
-      const reasonText = S.failReason === "time" ? "\u65F6\u95F4\u5230" : S.failReason === "dead" ? "\u724C\u8D70\u6B7B\u4E86" : "\u6B65\u6570\u7528\u5C3D";
-      text(ctx, reasonText, W / 2, py + oSub, 28, T.inkSoft, "center", true, true);
-      drawTile2(ctx, W / 2, py + oTile, { face: "5z", w: 116, h: 144 });
-      text(ctx, `\u7B2C ${S.levelIndex + 1} \u5173`, W / 2, py + oLevel, 30, T.ink, "center", true);
-      text(ctx, `\u5269\u4F59 ${S.remaining} / ${S.liveTotal} \u5F20`, W / 2, py + oLeft, 25, T.inkSoft, "center");
-      text(ctx, `${S.moves} \u6B65 \xB7 \u4E09\u661F \u2264 ${S.starLines.three} \u6B65`, W / 2, py + oMoves, 25, T.inkSoft, "center");
-      const dead = S.failReason === "dead";
-      const left = Math.max(0, 2 - S.revivesUsed);
-      const primary = { x: b.x + 58, y: py + oPrimary - 46, w: b.w - 116, h: 92 };
-      const primaryOk = dead || S.canRevive;
-      const primaryText = dead ? S.shuffleBlocked ? S.canUndo ? "\u64A4\u9500\u4E00\u6B65" : "\u91CD\u65B0\u5F00\u59CB" : "\u91CD\u6392\u8FD9\u76D8\u724C" : S.failReason === "time" ? "\u8865 30 \u79D2" : `\u8865 ${S.reviveBonus} \u6B65`;
-      const pid = dead ? S.shuffleBlocked ? S.canUndo ? "undo" : "restart" : "rescue" : "revive";
-      if (primaryOk) {
-        this.push(pid, primary);
-        button(ctx, primary, primaryText, { kind: "jade", size: 32, pressed: this.isPressed(pid) });
-      } else {
-        button(ctx, primary, "\u590D\u6D3B\u6B21\u6570\u5DF2\u7528\u5B8C", { kind: "disabled", size: 32 });
-      }
-      if (!dead) text(ctx, `\u672C\u5173\u8FD8\u5269 ${left} \u6B21`, W / 2, py + oPrimary - 74, 22, T.inkSoft, "center");
-      const half = (b.w - 116) / 2;
-      const restart = { x: b.x + 58, y: py + oRow - 40, w: half, h: 80 };
-      const home = { x: b.x + 58 + half + 0, y: py + oRow - 40, w: half, h: 80 };
-      this.push("restart", restart);
-      this.push("home", home);
-      button(ctx, restart, "\u91CD\u65B0\u5F00\u59CB", { kind: "cream", size: 28, pressed: this.isPressed("restart") });
-      button(ctx, home, "\u8FD4\u56DE\u9996\u9875", { kind: "cream", size: 28, pressed: this.isPressed("home") });
-      text(ctx, dead ? S.shuffleBlocked ? "\u6362\u4E00\u6761\u8DEF\u7EBF\uFF0C\u5B8C\u6210\u76EE\u6807\u683C\u3002" : "\u8BD5\u8BD5\u91CD\u6392\uFF0C\u6216\u4ECE\u5934\u518D\u6765\u3002" : "\u6B47\u4E00\u4F1A\uFF0C\u518D\u8BD5\u8BD5\u3002", W / 2, py + oFoot, 24, T.inkSoft, "center", true);
+      renderSunny(ctx, sunnyLose(this.sunnyState()), this.hits);
     }
     drawPause(ctx) {
-      const W = this.W;
       this.veil(ctx);
-      const items = [
-        { id: "resume", icon: "play", label: "\u7EE7\u7EED\u6E38\u620F", kind: "jade" },
-        { id: "restart", icon: "restart", label: "\u91CD\u65B0\u5F00\u59CB", kind: "cream" },
-        { id: "home", icon: "home", label: "\u8FD4\u56DE\u9996\u9875", kind: "cream" }
-      ];
-      if (!this.session.shuffleBlocked) items.splice(1, 0, { id: "shuffle", icon: "shuffle", label: `\u6D17\u724C \xB7 ${this.session.shufflesLeft}`, kind: "cream" });
-      const oStart = 83, step = 100;
-      const ph = oStart + (items.length - 1) * step + 41 + 42;
-      const py = this.centeredTop(ph);
-      const b = { x: 96, y: py, w: W - 192, h: ph };
-      panel(ctx, b, { r: 30 });
-      const ban = { x: W / 2 - 150, y: py - 42, w: 300, h: 84 };
-      pill(ctx, ban, "\u5DF2\u6682\u505C", { size: 40, fill: "#2E6B3A", edge: T.gold, serif: true });
-      const close = { x: b.x + b.w - 52, y: py - 30, w: 62, h: 62 };
-      this.push("resume", close);
-      this.circleBtn(ctx, close, "close");
-      items.forEach((it, i) => {
-        const bb = { x: b.x + 44, y: py + oStart + i * step - 41, w: b.w - 88, h: 82 };
-        this.push(it.id, bb);
-        button(ctx, bb, it.label, { kind: it.kind, size: 30, icon: it.icon, pressed: this.isPressed(it.id) });
-      });
+      renderSunny(ctx, sunnyPause(this.sunnyState()), this.hits);
     }
     drawHelp(ctx) {
       const W = this.W;

@@ -1,3 +1,4 @@
+import {drawSunnyTable,drawSunnySurface} from './sunnyArt';
 /**
  * 图集内容：把牌面与 UI 素材画进 `Atlas`，并登记每块子区域。
  *
@@ -14,7 +15,7 @@ import {
   Ctx2D, IconName, SERIF, drawButton, drawChevron, drawChip, drawFrostFrame, drawGear, drawIcon, drawLock, drawPanel, drawPill, drawStar, drawToggle, drawTile, fillCircle, fillRR, linear, rr, strokeRR
 } from './art';
 import {FACES as CORE_FACES} from '../core/Generator';
-import {drawGarden, drawTable} from './garden';
+import {drawGarden} from './garden';
 import {palette} from './theme';
 
 /**
@@ -148,7 +149,7 @@ export type UiName =
   | 'star-on' | 'star-off'
   | 'lock' | 'chevron' | 'chevron-back' | 'gear'
   | 'hl-gold' | 'hl-select' | 'hl-hint'
-  | 'slot' | 'rail' | 'wood'
+  | 'slot' | 'rail' | 'wood' | 'wood-blue' | 'wood-rose'
   | 'chip-light' | 'chip-dark' | 'badge' | 'dot' | 'avatar' | 'tile-tray'
   | 'banner' | 'banner-win' | 'banner-lose' | 'card-on' | 'card-off'
   | 'frost1' | 'frost2'
@@ -189,8 +190,8 @@ export class UiAtlas {
 
     // 卡片 / 匾额（9 宫格）——几何一律照 H5 的 ui.ts：面板 r=min(w,h)*.09（取常用面板的典型值 48），
     // 匾额是 h/2 的胶囊 → 直接复用 art.ts 的 drawPill（原来这里手抄了一份胶囊几何，改一处忘另一处）
-    put('panel', 240, 240, (c, x, y, w, h) => drawPanel(c, x, y, w, h, 48), [56, 56, 56, 56]);
-    put('plate', 300, 76, (c, x, y, w, h) => drawPill(c, x, y, w, h, '#2E6B3A'), [38, 38, 38, 38]);
+    put('panel', 240, 240, (c, x, y, w, h) => drawSunnySurface(c, x, y, w, h), [56, 56, 56, 56]);
+    put('plate', 300, 76, (c, x, y, w, h) => drawSunnySurface(c, x, y, w, h, 'jade'), [38, 38, 38, 38]);
 
     // 按钮（9 宫格）——r = h*.34 与 H5 的 button() 一致。
     // 开始 / 继续 / 知道了 / 关卡选择这一族走 flat：单色面、无渐变、无高光、无铆钉。
@@ -198,8 +199,8 @@ export class UiAtlas {
     const btn = (name: string, top: string, bottom: string, edge: string, stud: string, flat = false) =>
       put(name, 200, 100, (c, x, y, w, h) => drawButton(c, x, y, w, h, top, bottom, edge, h * .34,
         flat ? {flat: true, stroke: edge} : {studs: true, stud}), [40, 34, 40, 34]);
-    btn('btn-jade', palette.jade, palette.jade, palette.jadeDeep, palette.goldLight, true);
-    btn('btn-cream', '#FFFDF6', '#FFFDF6', '#D8B872', palette.gold, true);
+    put('btn-jade',200,100,(c,x,y,w,h)=>drawSunnySurface(c,x,y,w,h,'jade'),[34,34,34,34]);
+    put('btn-cream',200,100,(c,x,y,w,h)=>drawSunnySurface(c,x,y,w,h),[34,34,34,34]);
     btn('btn-gold', '#F5D27A', palette.gold, palette.goldDeep, palette.gold);
     // 工具条按钮走的是 H5 的 toolButton()：无高光、无铆钉、描边是半透明金
     put('btn-dark', 200, 116, (c, x, y, w, h) => drawButton(c, x, y, w, h, '#3E7A48', '#245530', '#1B3A22', 20, {gloss: false, stroke: 'rgba(216,169,78,.55)'}), [40, 34, 40, 34]);
@@ -311,17 +312,7 @@ export class UiAtlas {
       fillRR(c, x, y, w, h, 5, 'rgba(96,64,28,.30)');
       strokeRR(c, x + 1, y + 1, w - 2, h - 2, 5, 'rgba(60,38,14,.35)', 2);
     }, [22, 22, 12, 12]);
-    put('wood', 200, 200, (c, x, y, w, h) => {
-      rr(c, x, y, w, h, 26);
-      const g = c.createLinearGradient(x, y, x, y + h);
-      g.addColorStop(0, palette.woodLight); g.addColorStop(.5, palette.wood); g.addColorStop(1, palette.woodDeep);
-      c.fillStyle = g; c.fill();
-      strokeRR(c, x, y, w, h, 26, '#A38F68', 5);
-      // 内圈绿毡 = 棋盘真正的台面（H5 稿 woodFrame 同款）。
-      // 只描边不填充的话整块木框就是一整片棕色板子，牌和槽位都读不出来。
-      fillRR(c, x + 12, y + 12, w - 24, h - 24, 18, '#A7C8AA');
-      strokeRR(c, x + 12, y + 12, w - 24, h - 24, 18, 'rgba(30,50,20,.5)', 3);
-    }, [44, 44, 44, 44]);
+    for(const theme of ['jade','blue','rose'] as const)put(theme==='jade'?'wood':'wood-'+theme,200,200,(c,x,y,w,h)=>drawSunnyTable(c,x,y,w,h,theme),[40,40,44,44]);
     put('tile-tray', 120, 120, (c, x, y, w, h) => {
       fillRR(c, x, y, w, h, 14, palette.woodInner);
       strokeRR(c, x, y, w, h, 14, 'rgba(30,50,20,.55)', 3);
@@ -411,41 +402,12 @@ export const SCENE_SCALE = 0.9;
  * 否则一次屏幕尺寸变化就多挂一张全屏显存，微信小游戏上是直接黑屏而不是变慢。
  */
 export class SceneAtlas {
-  readonly atlas: Atlas;
-  /** 木桌顶边（设计单位，从屏幕顶部往下量）。 */
-  readonly tableTop: number;
-
-  constructor(readonly w: number, readonly h: number, scale = SCENE_SCALE) {
-    this.tableTop = h * .655;
-    const tableH = Math.max(1, h - this.tableTop);
-    // 纹理边长有上限：超了不是变糊，而是**整张贴图静默画不出来**（鸿蒙真机就是这样只剩文字）。
-    // garden 与木桌共用一张画布纵向叠放，所以按"两块合计高"反推能用的倍率，宁可糊一点。
-    const S = fitScale(w, h + tableH, scale);
-    const aw = Math.max(2, Math.round(w * S));
-    const ah = Math.max(2, Math.round(h * S));
-    const th = Math.max(1, Math.round(tableH * S));
-    // 木桌单独占画布下方的一条，**绝不能和 garden 区域重叠**：
-    // 之前两者共用一块画布、而 garden 又登记成整块画布，结果木桌被一起烘进了背景，
-    // 于是选关 / 牌桌 / 设置这些不用木桌的屏幕下面都多出一大块棕色桌面。
-    const atlas = new Atlas(aw, ah + th);
-    const ctx = atlas.context;
-
-    ctx.save();
-    ctx.scale(S, S);
-    drawGarden(ctx, w, h);
-    ctx.restore();
-    atlas.region('garden', {x: 0, y: 0, w: aw, h: ah});
-
-    ctx.save();
-    ctx.translate(0, ah);
-    ctx.scale(S, S);
-    drawTable(ctx, w, 0, tableH);
-    ctx.restore();
-    atlas.region('table', {x: 0, y: ah, w: aw, h: th});
-
-    atlas.bake();
-    this.atlas = atlas;
+  readonly atlas:Atlas;
+  constructor(readonly w:number,readonly h:number,scale=SCENE_SCALE){
+    const S=fitScale(w,h,scale),aw=Math.max(2,Math.round(w*S)),ah=Math.max(2,Math.round(h*S));
+    const atlas=new Atlas(aw,ah),ctx=atlas.context;
+    ctx.save();ctx.scale(S,S);drawGarden(ctx,w,h);ctx.restore();
+    atlas.region('garden',{x:0,y:0,w:aw,h:ah});atlas.bake();this.atlas=atlas;
   }
-
-  frame(name: 'garden' | 'table') { return this.atlas.frame(name); }
+  frame(name:'garden'){return this.atlas.frame(name);}
 }
