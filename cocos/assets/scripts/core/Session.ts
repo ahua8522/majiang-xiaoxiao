@@ -62,6 +62,7 @@ export class Session {
   par=0;hintsUsed=0;shufflesUsed=0;stars:Record<string,number>={};levelPage=0;
   /** 体验版 / 开发版全解锁（视图按 wx envVersion 设置）：选关不再受 maxLevel 限制，但跳关不推进进度。 */
   unlockAll=false;
+  setEnvironment(env:unknown):void{this.unlockAll=env==='trial'||env==='develop';}
   /** 累计「真正消掉」的对数（碎冰不算）——连锁解锁的阈值与目标进度都基于它。 */
   clearedPairs=0;
   /** 目标关进度（已达成数）。 */
@@ -451,15 +452,18 @@ export class Session {
   gateGap(chapter:number):number{return Math.max(0,gateFor(chapter)-this.chapterStars(chapter));}
   /** 正式版按 maxLevel 线性解锁；开发与体验版可跳关验证。 */
   canEnterChapter(chapter:number):boolean{
+    if(!Number.isInteger(chapter)||chapter<0||chapter>=Math.ceil(LEVELS.length/CHAPTER_SIZE))return false;
     if(this.unlockAll)return true;
     if(chapter<=0)return true;
     return chapter*CHAPTER_SIZE<=this.maxLevel;
   }
+  /** 真实进度用于地图外观；测试版的跳关权限不能把锁定样式抹掉。 */
+  isLevelUnlocked(index:number):boolean{
+    return Number.isInteger(index)&&index>=0&&index<LEVELS.length&&index<=this.maxLevel;
+  }
   canEnter(index:number):boolean{
     if(!Number.isInteger(index)||index<0||index>=LEVELS.length)return false;
-    if(this.unlockAll)return true;              // 体验版/开发版：进度与星数门槛都绕过
-    if(index>this.maxLevel)return false;
-    return this.canEnterChapter(chapterOf(index));
+    return this.unlockAll||this.isLevelUnlocked(index);
   }
   /** 星级：只看步数（旧口径的「用道具掉星」已删，理由见 `ratingFor` 注释）。 */
   get rating(){return ratingFor(this.moves,this.par);}
@@ -804,7 +808,7 @@ export class Session {
     if(open!=='none'){
       if(id==='close'){this.modal=this.returnModal;this.returnModal='none';this.revision++;return;}
       if(open==='home'&&id==='continue'){
-        if(this.finished||!count(this.grid)){
+        if(this.finished||!count(this.grid)||!this.canEnter(this.levelIndex)){
           // 门槛挡住 maxLevel（章末打完了但星数不够）时，退回最后一个能进的关。
           // 直接 `reset(maxLevel)` 会把玩家塞进一个锁着的章——门槛就形同虚设。
           let i=this.maxLevel;
@@ -819,7 +823,7 @@ export class Session {
       if(open==='settings'&&id==='toggle-motion'){this.reducedMotion=!this.reducedMotion;this.save();this.revision++;return;}
       if(open==='settings'&&id==='toggle-vibration'){this.vibration=!this.vibration;this.save();this.revision++;return;}
       if(open==='restart'&&id==='confirm-restart'){this.reset();this.save();return;}
-      if(open==='win'&&id==='next'&&this.levelIndex<LEVELS.length-1){this.reset(this.levelIndex+1);this.save();return;}
+      if(open==='win'&&id==='next'&&this.canEnter(this.levelIndex+1)){this.reset(this.levelIndex+1);this.save();return;}
       if(open==='win'&&id==='home'){this.modal='home';this.revision++;return;}
       if(open==='win'&&id==='replay'){this.reset();this.save();return;}
       if(open==='win'&&id==='levels'){this.returnModal='win';this.modal='levels';this.revision++;return;}

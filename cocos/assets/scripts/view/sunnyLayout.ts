@@ -1,10 +1,10 @@
 /** 正式 Cocos 与 H5 共用布局和文案，尺寸以 750 宽的可见区域为基准。 */
 import type {Session} from '../core/Session';
 import {CHAPTER_LENGTH, CHAPTERS} from '../core/Campaign';
-import {SUNNY, TABLE_THEMES, TableTheme} from './sunnyArt';
+import {SUNNY, TABLE_THEMES, TableTheme, gardenPoints, GARDEN_PALETTES} from './sunnyArt';
 
-export type SunnyKind='paper'|'peach'|'jade'|'off'|'circle'|'hero'|'line'|'text'|'icon'|'tile';
-export interface SunnyItem {kind:SunnyKind;x:number;y:number;w:number;h:number;text?:string;size?:number;color?:string;bold?:boolean;serif?:boolean;align?:'left'|'center'|'right';id?:string;enabled?:boolean;name?:string;angle?:number}
+export type SunnyKind='paper'|'peach'|'jade'|'off'|'circle'|'hero'|'line'|'text'|'icon'|'tile'|'garden'|'stage'|'veil';
+export interface SunnyItem {kind:SunnyKind;x:number;y:number;w:number;h:number;text?:string;size?:number;color?:string;bold?:boolean;serif?:boolean;align?:'left'|'center'|'right';id?:string;enabled?:boolean;name?:string;angle?:number;chapter?:number;frontier?:number}
 export interface SunnyState {w:number;h:number;safe:number;s:Session;page:number;theme:TableTheme;practice:boolean;cssScale?:number}
 export interface SunnyBoardLayout {items:SunnyItem[];x:number;y:number;cellW:number;cellH:number}
 /** 首页留给未来横幅的独立区域；当前只留白，不创建广告或占位按钮。 */
@@ -36,8 +36,7 @@ function kit(a:SunnyState){
  const circle=(icon:string,id:string,x:number,y:number)=>{box('circle',x,y,82,82,id);ico(icon,x+24,y+24,34);};
  const tile=(name:string,x:number,y:number,w:number)=>out.push({kind:'tile',name,x,y,w,h:w*1.24});
  const top=()=>{tile('z6',35,a.safe+43,72);txt('今天也开心',120,a.safe+51,26,SUNNY.ink,'left',true);txt('给自己一点放松时间',120,a.safe+88,20,SUNNY.soft);box('paper',a.w-234,a.safe+51,116,64);txt('★ '+totalStars(a.s),a.w-176,a.safe+64,27,SUNNY.ink,'center',true);circle('gear','settings',a.w-105,a.safe+40);};
- const nav=(active:string)=>{box('line',0,a.h-112,a.w,112);out[out.length-1].color='#FFFDF5';const tabs=[['home','home','花园'],['levels','map','游园'],['workshop','workshop','机关'],['album','book','收藏']];tabs.forEach(([id,icon,label],i)=>{const x=i*a.w/4;box('line',x,a.h-112,a.w/4,106,id);out[out.length-1].color='#FFFDF5';if(id===active){box('line',x+a.w/8-24,a.h-112,48,4);out[out.length-1].color=SUNNY.jade;}ico(icon,x+a.w/8-20,a.h-89,40,id===active?SUNNY.ink:'#9AA086');txt(label,x+a.w/8,a.h-37,19,id===active?SUNNY.ink:'#9AA086','center',id===active);});};
- return {out,box,txt,ico,button,circle,tile,top,nav};
+ return {out,box,txt,ico,button,circle,tile,top};
 }
 export function sunnyHome(a:SunnyState):SunnyItem[]{
  const {out,box,txt,button,ico,top}=kit(a);top();
@@ -59,34 +58,63 @@ export function sunnyHome(a:SunnyState):SunnyItem[]{
   const x=44+i*(cw+16);box('paper',x,cy,cw,108,id);ico(icon,x+cw/2-17,cy+17,34,i===1?'#B38A51':SUNNY.jade);txt(label,x+cw/2,cy+65,24,SUNNY.ink,'center',true);
  });return out;
 }
+/** 三个入口共用浮层边界；底部横幅区域与面板内容互不遮挡。 */
+export function sunnyPanelArea(a:Pick<SunnyState,'w'|'h'|'safe'>){const y=a.safe+24,bottom=sunnyBannerArea(a).y-22;return {x:24,y,w:a.w-48,h:bottom-y,bottom};}
+function panelKit(a:SunnyState,title:string,eyebrow:string){
+ const k=kit(a),p=sunnyPanelArea(a);
+ // 保留首页轮廓作为底图，但背景入口不可点击。
+ k.out.push(...sunnyHome(a).map(i=>({...i,id:undefined,enabled:false})));
+ k.box('veil',0,0,a.w,sunnyBannerArea(a).y-2,'__panel-block');k.box('paper',p.x,p.y,p.w,p.h);k.out[k.out.length-1].name='garden-panel';
+ k.txt(eyebrow,54,p.y+24,18,'#9B9675');k.txt(title,54,p.y+58,38,SUNNY.ink,'left',true,true);
+ k.circle('close','panel-close',a.w-116,p.y+23);
+ return {...k,p};
+}
 export function sunnyMap(a:SunnyState):SunnyItem[]{
- const {out,box,txt,ico,button,circle,top,nav}=kit(a);top();const ci=a.page;
- txt('下一站，好风景',44,a.safe+168,46,SUNNY.ink,'left',true,true);
- txt(`第 ${ci+1} 章 · ${CHAPTERS[ci][0]}`,44,a.safe+241,29,SUNNY.ink,'left',true);
- txt(`${ci+1} / 26`,a.w-44,a.safe+245,23,SUNNY.soft,'right');
- txt(CHAPTERS[ci][2],44,a.safe+290,21,SUNNY.soft);
- const y0=a.safe+388,y1=a.h-385,stepY=(y1-y0)/4,stepX=(a.w-220)/3,d=Math.min(96,stepY*.62);
- const points=Array.from({length:20},(_,j)=>{const row=Math.floor(j/4),col=row%2?3-j%4:j%4;return {x:110+col*stepX,y:y0+row*stepY};});
- points.forEach((p,j)=>{if(j<19){const q=points[j+1],dx=q.x-p.x,dy=q.y-p.y;out.push({kind:'line',x:(p.x+q.x)/2,y:(p.y+q.y)/2,w:Math.hypot(dx,dy),h:14,color:'#D4DFC1',angle:Math.atan2(dy,dx)});}});
- points.forEach((p,j)=>{const idx=ci*20+j,st=a.s.stars[idx]||0,open=a.s.canEnter(idx),current=idx===a.s.levelIndex;box('circle',p.x-d/2,p.y-d/2,d,d,'level:'+idx,open);out[out.length-1].color=current?'#DEA080':st?'#8FB38E':open?'#FFFDF4':'#E2E9D5';txt(String(idx+1),p.x,p.y-21,31,open?SUNNY.ink:'#9AA68D','center',true,true);if(st)txt('★'.repeat(st),p.x,p.y+d/2+8,20,'#B58D46','center');else if(!open)txt('待开启',p.x,p.y+d/2+8,17,'#97A089','center');});
- box('paper',44,a.h-305,a.w-88,82);txt(`已走过 ${Object.keys(a.s.stars).length} 处小景`,74,a.h-282,25,SUNNY.ink,'left',true);txt('通关前一关即可继续',a.w-73,a.h-278,20,SUNNY.soft,'right');
- button('上一章','page-prev',44,a.h-206,220,74,'paper',ci>0);button('下一章','page-next',a.w-264,a.h-206,220,74,'paper',ci<25);nav('levels');return out;
+ const ci=Math.max(0,Math.min(CHAPTERS.length-1,a.page)),S=a.s,palette=GARDEN_PALETTES[Math.floor(ci/2)%4];
+ const {out,box,txt,ico,button,p}=panelKit(a,'下一站，好风景','游园手记  /  GARDEN WALK');
+ const titleY=p.y+124;box('paper',48,titleY,a.w-96,92);ico('flower',65,titleY+24,38,palette.deep);
+ txt(CHAPTERS[ci][0],116,titleY+15,30,SUNNY.ink,'left',true,true);txt(`第 ${ci+1} 章 · ${ci*20+1}—${ci*20+20} 关`,116,titleY+55,20,SUNNY.soft);
+ txt(`${S.chapterStars(ci)} / 60 ★`,a.w-70,titleY+33,23,'#A88951','right',true);
+ const map={x:48,y:titleY+108,w:a.w-96,h:p.bottom-(titleY+108)-163};
+ out.push({kind:'garden',...map,chapter:ci,frontier:S.maxLevel});
+ const points=gardenPoints(map.w,map.h),d=Math.min(108,Math.max(80,(map.h-158)/4*.89));
+ points.forEach((pos,j)=>{
+  const idx=ci*20+j,unlocked=S.isLevelUnlocked(idx),stars=S.stars[idx]||0,current=unlocked&&idx===S.maxLevel;
+  const state=!unlocked?'locked':current?'current':stars?'done':'open',x=map.x+pos.x,y=map.y+pos.y;
+  out.push({kind:'stage',x:x-d/2,y:y-d/2,w:d,h:d,name:state,id:'level:'+idx,enabled:S.canEnter(idx)});
+  txt(String(idx+1),x,y-17,idx>=99?26:30,unlocked?SUNNY.ink:'#859477','center',true,true);
+  if(!unlocked)ico('lock',x-9,y+d*.19,18,'#889779');
+  else if(stars)txt('★'.repeat(stars)+'☆'.repeat(3-stars),x,y+d*.23,17,'#A48243','center');
+  else txt(current?'出发':'可挑战',x,y+d*.23,16,current?'#99623F':SUNNY.soft,'center',true);
+ });
+ const fy=p.bottom-145,done=Array.from({length:20},(_,j)=>S.stars[ci*20+j]||0).filter(Boolean).length;
+ txt(`本章留花 ${done} / 20`,58,fy,20,SUNNY.ink,'left',true);
+ txt(S.unlockAll?'体验游园 · 锁定关卡也可试玩':'循着花径，通关前一关开启下一关',a.w-58,fy,19,SUNNY.soft,'right');
+ button('‹ 上一章','page-prev',52,p.bottom-99,184,76,'paper',ci>0);
+ txt(`${String(ci+1).padStart(2,'0')} / ${CHAPTERS.length}`,a.w/2,p.bottom-77,23,SUNNY.soft,'center',true);
+ button('下一章 ›','page-next',a.w-236,p.bottom-99,184,76,'jade',ci<CHAPTERS.length-1);return out;
 }
 export function sunnyWorkshop(a:SunnyState):SunnyItem[]{
- const {out,box,txt,ico,button,top,nav}=kit(a);top();txt('机关工坊',44,a.safe+172,46,SUNNY.ink,'left',true,true);txt('先玩一小桌，再去闯关',44,a.safe+244,24,SUNNY.soft);
- const start=a.safe+307,end=a.h-269,rowH=Math.min(197,(end-start)/4),cw=(a.w-108)/2;
- WORKSHOP.forEach((m,i)=>{const x=44+(i%2)*(cw+20),y=start+Math.floor(i/2)*rowH;box('paper',x,y,cw,rowH-17,'practice:'+i);ico(m.icon,x+23,y+23,39,i%2?'#BA9460':'#6C966F');txt(m.name,x+79,y+24,27,SUNNY.ink,'left',true);txt(m.note,x+23,y+79,21,SUNNY.soft);txt('试一桌  ›',x+23,y+rowH-57,23,SUNNY.jade,'left',true);});
- button('独立挑战','challenge',44,a.h-231,a.w-88,83,'jade');nav('workshop');return out;
+ const {out,box,txt,ico,button,p}=panelKit(a,'机关工坊','先试一桌  /  LITTLE WORKSHOP');
+ txt('跟着小机关，发现推麻的新乐趣',54,p.y+127,23,SUNNY.soft);
+ const start=p.y+185,end=p.bottom-135,rowH=Math.min(218,(end-start)/4),cw=(a.w-124)/2;
+ WORKSHOP.forEach((m,i)=>{const x=52+(i%2)*(cw+20),y=start+Math.floor(i/2)*rowH;box('paper',x,y,cw,rowH-14,'practice:'+i);
+  box('circle',x+18,y+16,52,52);out[out.length-1].color=i%2?'#F4E5C6':'#DFEBCF';ico(m.icon,x+29,y+27,30,i%2?'#AF8850':'#6B926A');
+  txt(m.name,x+83,y+25,25,SUNNY.ink,'left',true);txt(m.note,x+20,y+79,21,SUNNY.soft);txt('试一桌  ›',x+20,y+rowH-49,22,SUNNY.jade,'left',true);
+ });
+ button('独立挑战','challenge',52,p.bottom-110,a.w-104,84,'jade');return out;
 }
 export function sunnyAlbum(a:SunnyState):SunnyItem[]{
- const {out,box,txt,ico,button,top,nav}=kit(a);top();const stars=totalStars(a.s);
- txt('把好心情收起来',44,a.safe+170,44,SUNNY.ink,'left',true,true);txt('通关留花笺，星星换桌布',44,a.safe+245,23,SUNNY.soft);
- const start=a.safe+311,rh=Math.min(165,(a.h-a.safe-750)/3);
- TABLE_THEMES.forEach((t,i)=>{const y=start+i*rh,open=stars>=t.stars;box('paper',44,y,a.w-88,rh-17,'theme:'+t.id,open);box('circle',64,y+20,76,76);out[out.length-1].color=t.felt;ico('flower',84,y+40,36,'#FFFDEE');txt(t.name,163,y+24,30,SUNNY.ink,'left',true);txt(open?'已经收藏':`收集 ${t.stars} 颗星解锁`,163,y+72,21,SUNNY.soft);txt(a.theme===t.id?'使用中':open?'换上':'未解锁',a.w-82,y+42,25,open?SUNNY.jade:'#A3AA95','right',true);});
- const fy=start+3*rh+27;txt('旅途花笺',44,fy,29,SUNNY.ink,'left',true,true);const completed=CHAPTERS.map((c,ci)=>({name:c[0],ci})).filter(c=>Array.from({length:20},(_,j)=>a.s.stars[c.ci*20+j]||0).some(Boolean));
- if(!completed.length){box('paper',44,fy+57,a.w-88,174);ico('flower',a.w/2-24,fy+78,48,'#92AA80');txt('第一桌通关，留下一枚花笺',a.w/2,fy+155,24,SUNNY.soft,'center');}
- else completed.slice(-6).forEach((c,i)=>{const x=44+(i%3)*(a.w-88)/3,y=fy+57+Math.floor(i/3)*91;box('paper',x,y,(a.w-112)/3,78);txt(c.name,x+(a.w-112)/6,y+25,22,SUNNY.ink,'center',true);});
- nav('album');return out;
+ const {out,box,txt,ico,p}=panelKit(a,'把好心情收起来','花园收藏  /  MY KEEPSAKES'),stars=totalStars(a.s);
+ txt('通关留花笺，星星换桌布',54,p.y+128,23,SUNNY.soft);txt(`已收集 ${stars} ★`,a.w-56,p.y+128,23,'#A88951','right',true);
+ const start=p.y+183,rh=Math.min(170,(p.h-465)/3);
+ TABLE_THEMES.forEach((t,i)=>{const y=start+i*rh,open=stars>=t.stars;box('paper',52,y,a.w-104,rh-14,'theme:'+t.id,open);box('circle',70,y+19,72,72);out[out.length-1].color=t.felt;ico('flower',89,y+38,34,'#FFFDEE');
+  txt(t.name,163,y+23,29,SUNNY.ink,'left',true);txt(open?'已经收藏':`收集 ${t.stars} 颗星解锁`,163,y+67,21,SUNNY.soft);txt(a.theme===t.id?'使用中':open?'换上':'未解锁',a.w-78,y+40,24,open?SUNNY.jade:'#A3AA95','right',true);
+ });
+ const fy=start+3*rh+19;txt('旅途花笺',54,fy,28,SUNNY.ink,'left',true,true);const completed=CHAPTERS.map((c,ci)=>({name:c[0],ci})).filter(c=>Array.from({length:20},(_,j)=>a.s.stars[c.ci*20+j]||0).some(Boolean));
+ if(!completed.length){box('paper',52,fy+49,a.w-104,154);ico('flower',a.w/2-24,fy+66,48,'#92AA80');txt('第一桌通关，留下一枚花笺',a.w/2,fy+131,23,SUNNY.soft,'center');}
+ else completed.slice(-6).forEach((c,i)=>{const x=52+(i%3)*(a.w-104)/3,y=fy+49+Math.floor(i/3)*86;box('paper',x,y,(a.w-128)/3,75);txt(c.name,x+(a.w-128)/6,y+25,21,SUNNY.ink,'center',true);});
+ return out;
 }
 export function sunnyBoard(a:SunnyState,message:string):SunnyBoardLayout{
  const {out,box,txt,ico,circle,tile}=kit(a),S=a.s,W=a.w,safe=a.safe,tools=boardTools(a);

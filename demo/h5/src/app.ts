@@ -22,7 +22,7 @@ import {Box, Hit, KIND, backChevron, button, chevron, fillRR, fit, panel, pill, 
 
 export const DW = 750;
 /** 应用版本号：与 upload-ci.cjs 上传时传的版本保持一致（提版时手动同步）。 */
-export const APP_VERSION = '1.4.2';
+export const APP_VERSION = '1.4.3';
 
 /**
  * 「新玩法」说明卡的内容（与 cocos GameRoot 的 TIP_CONTENT 同文案）：
@@ -92,7 +92,7 @@ export class App {
     this.audio.configure(this.music,this.sound);
     document.addEventListener('visibilitychange',()=>this.audio.visibility(document.hidden));
     const q = new URLSearchParams(location.search);
-    this.session.unlockAll=q.get('preview')==='1';
+    this.session.setEnvironment(q.get('preview')==='1'?'develop':'release');
     const lv = Number(q.get('level'));
     if (Number.isFinite(lv) && q.has('level')) this.session.reset(lv, false);
     const scr = q.get('screen') as Screen | null;
@@ -241,7 +241,10 @@ export class App {
   }
   /* ── actions ────────────────────────────────────────────── */
 
+  private panelBase: 'home' | 'board' = 'home';
+
   private go(scr: Screen): void {
+    if(['levels','workshop','album'].includes(scr)&&!['levels','workshop','album','settings','help'].includes(this.screen))this.panelBase=scr==='levels'&&['board','pause','restart','win','lose'].includes(this.screen)?'board':'home';
     if(['home','levels','board','workshop','album'].includes(this.screen))this.dialogBase=this.screen;
     this.returnScreen = this.screen;
     this.setScreen(scr);
@@ -277,6 +280,7 @@ export class App {
 
     this.audio.unlock();this.audio.play(id==='undo'?'undo':'ui');
     switch (id) {
+      case 'panel-close': this.setScreen(this.panelBase); break;
       case 'home': this.go('home'); break;
       case 'workshop':case 'album':this.go(id);break;
       case 'start': this.session.command('continue'); this.setScreen('board'); break;

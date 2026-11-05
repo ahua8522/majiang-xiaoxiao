@@ -682,6 +682,13 @@
     } else if (name === "close") {
       line([5, 5, 19, 19]);
       line([19, 5, 5, 19]);
+    } else if (name === "lock") {
+      c.moveTo(7, 11);
+      c.lineTo(7, 7);
+      c.arc(12, 7, 5, Math.PI, 0);
+      c.lineTo(17, 11);
+      line([5, 11, 19, 11, 19, 22, 5, 22, 5, 11]);
+      line([12, 15, 12, 18]);
     } else if (name === "play") {
       line([7, 4, 20, 12, 7, 20, 7, 4]);
       c.fill();
@@ -696,6 +703,184 @@
       line([9, 13, 15, 13]);
     }
     c.stroke();
+    c.restore();
+  }
+  function gardenPoints(w, h) {
+    const left = 82, right = w - 82, dy = (h - 158) / 4;
+    return Array.from({ length: 20 }, (_, i) => {
+      const row = Math.floor(i / 4), col = row % 2 ? 3 - i % 4 : i % 4;
+      return { x: left + (right - left) * col / 3 + (row % 2 ? -10 : 10), y: 72 + row * dy + [8, -9, 5, -3][col] };
+    });
+  }
+  var GARDEN_PALETTES = [
+    { top: "#F2F4DA", bottom: "#D9E7C3", leaf: "#8EAF73", deep: "#557F61", petal: "#ECA687", water: "#A0CDD0", name: "\u6674\u65E5\u82B1\u5F84" },
+    { top: "#EDF4E8", bottom: "#CDDDD3", leaf: "#89ADA0", deep: "#547F78", petal: "#DFB0BA", water: "#92BFCF", name: "\u8584\u96FE\u6C34\u5CB8" },
+    { top: "#FFF0DF", bottom: "#E6DEBC", leaf: "#AAA578", deep: "#788566", petal: "#E2A06E", water: "#ACCBC1", name: "\u6696\u9633\u5C0F\u56ED" },
+    { top: "#EFEEDD", bottom: "#D8E0D6", leaf: "#9DAAA1", deep: "#607C78", petal: "#CAB5C4", water: "#A6BCD5", name: "\u6708\u8272\u82B1\u5EAD" }
+  ];
+  function drawSunnyGarden(c, x, y, w, h, chapter, frontier) {
+    const p = GARDEN_PALETTES[Math.floor(chapter / 2) % 4];
+    c.save();
+    c.translate(x, y);
+    fillRR(c, 0, 7, w, h - 7, 28, "#C3CDAE");
+    fillRR(c, 0, 0, w, h - 9, 28, linear(c, 0, 0, w, h, [[0, p.top], [1, p.bottom]]));
+    strokeRR(c, 3, 3, w - 6, h - 15, 25, "#FCFBEA", 3);
+    for (let i = 0; i < 8; i++) ellipse(c, (i * 157 + 35) % w, 40 + i * 139 % (h - 85), 75, 26, i % 2 ? "#D6E2BF" : "#E5EACB", -0.18);
+    for (let i = 0; i < 115; i++) {
+      const xx = 14 + i * 137 % (w - 28), yy = 18 + i * 83 % (h - 45);
+      ellipse(c, xx, yy, 1.4, 0.8, "rgba(103,133,82,.13)");
+    }
+    const pts = gardenPoints(w, h), dy = (h - 158) / 4;
+    const path = (to, col, width, offset = 0) => {
+      c.beginPath();
+      c.moveTo(pts[0].x, pts[0].y + offset);
+      for (let i = 1; i <= to; i++) {
+        const a = pts[i - 1], b = pts[i];
+        if (Math.floor(i / 4) !== Math.floor((i - 1) / 4)) {
+          const bend = i % 8 === 4 ? 48 : -48;
+          c.bezierCurveTo(a.x + bend, a.y + dy * 0.45 + offset, b.x + bend, b.y - dy * 0.45 + offset, b.x, b.y + offset);
+        } else c.bezierCurveTo(a.x + (b.x - a.x) * 0.5, a.y - 15 + offset, a.x + (b.x - a.x) * 0.5, b.y + 15 + offset, b.x, b.y + offset);
+      }
+      c.strokeStyle = col;
+      c.lineWidth = width;
+      c.lineCap = "round";
+      c.lineJoin = "round";
+      c.stroke();
+    };
+    path(19, "#B8C69F", 32, 5);
+    path(19, "#FFFAE5", 30);
+    path(19, "#E9DFBB", 18);
+    const end = Math.max(0, Math.min(19, frontier - chapter * 20));
+    if (end > 0) {
+      path(end, "#93B598", 16);
+      path(end, "#C2D9A6", 7);
+    }
+    const bush = (xx, yy, scale = 1) => {
+      c.save();
+      c.translate(xx, yy);
+      c.scale(scale, scale);
+      ellipse(c, 0, 11, 39, 12, "rgba(70,105,72,.12)");
+      ellipse(c, -20, 0, 20, 22, p.leaf);
+      ellipse(c, 9, -10, 25, 27, p.leaf);
+      ellipse(c, 26, 5, 17, 17, p.deep);
+      ellipse(c, 3, -19, 16, 13, "#B6CD90");
+      flower(c, -18, -8, 9);
+      flower(c, 20, -8, 7);
+      c.restore();
+    };
+    const bed = (xx, yy) => {
+      c.save();
+      c.translate(xx, yy);
+      fillRR(c, -50, 7, 100, 22, 9, "#B99271");
+      fillRR(c, -53, -3, 106, 22, 10, "#E6C39E");
+      ellipse(c, 0, 1, 45, 9, "#879466");
+      for (let i = 0; i < 5; i++) {
+        const bx2 = -34 + i * 17, by2 = -15 - i % 2 * 10;
+        c.strokeStyle = p.deep;
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(bx2, 0);
+        c.lineTo(bx2, by2);
+        c.stroke();
+        ellipse(c, bx2 + 4, by2 + 8, 7, 3, p.leaf, -0.5);
+        for (let k = 0; k < 5; k++) {
+          const a = k * Math.PI * 0.4;
+          ellipse(c, bx2 + Math.cos(a) * 5, by2 + Math.sin(a) * 5, 4, 4, i % 2 ? "#FFFBEA" : p.petal);
+        }
+        ellipse(c, bx2, by2, 2.5, 2.5, "#CFAD58");
+      }
+      c.restore();
+    };
+    const pond = (xx, yy) => {
+      ellipse(c, xx, yy + 7, 67, 27, "#BCCAA6", -0.14);
+      ellipse(c, xx, yy, 67, 27, "#F7F2D9", -0.14);
+      ellipse(c, xx, yy - 2, 59, 21, p.water, -0.14);
+      ellipse(c, xx - 20, yy - 7, 22, 3, "rgba(255,255,242,.6)", -0.14);
+      ellipse(c, xx + 28, yy + 3, 14, 7, p.leaf);
+      flower(c, xx + 29, yy, 8);
+    };
+    const middle = (row) => 72 + row * dy + dy * 0.56;
+    pond(w * 0.48, middle(0));
+    bush(w * 0.18, middle(0), 0.75);
+    bed(w * 0.71, middle(1));
+    bush(w * 0.2, middle(2), 1);
+    pond(w * 0.66, middle(3));
+    c.save();
+    c.translate(w * 0.48, middle(0));
+    c.rotate(-0.12);
+    fillRR(c, -17, -32, 34, 62, 4, "#AB8A65");
+    for (let i = 0; i < 7; i++) fillRR(c, -19, -31 + i * 8, 38, 6, 2, "#DFC39A");
+    c.restore();
+    const ax = w * 0.26, ay = middle(1);
+    fillRR(c, ax - 35, ay - 17, 6, 43, 2, "#B49771");
+    fillRR(c, ax + 31, ay - 17, 6, 43, 2, "#B49771");
+    fillRR(c, ax - 43, ay - 27, 86, 8, 3, "#DEC49D");
+    for (let i = 0; i < 6; i++) {
+      ellipse(c, ax - 35 + i * 14, ay - 27 + i % 2 * 3, 11, 8, p.leaf);
+      if (i % 2) flower(c, ax - 35 + i * 14, ay - 27, 6);
+    }
+    fillRR(c, ax - 7, ay - 9, 14, 18, 4, "#E7B767");
+    ellipse(c, ax, ay, 4, 6, "#FFF1B0");
+    const bx = w * 0.7, by = middle(2);
+    for (let i = 0; i < 3; i++) fillRR(c, bx - 31, by - 17 + i * 8, 62, 5, 2, "#BA9B78");
+    fillRR(c, bx - 34, by + 8, 68, 9, 3, "#DFC29D");
+    fillRR(c, bx - 27, by + 17, 5, 12, 1, "#A5896B");
+    fillRR(c, bx + 22, by + 17, 5, 12, 1, "#A5896B");
+    const sx = w * 0.25, sy = middle(3);
+    fillRR(c, sx - 3, sy - 10, 6, 40, 2, "#B6946B");
+    fillRR(c, sx - 33, sy - 23, 65, 24, 5, "#F5DFB8");
+    c.strokeStyle = "#A78C60";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(sx - 11, sy - 11);
+    c.lineTo(sx + 13, sy - 11);
+    c.lineTo(sx + 6, sy - 17);
+    c.moveTo(sx + 13, sy - 11);
+    c.lineTo(sx + 6, sy - 5);
+    c.stroke();
+    for (const [xx, yy] of [[w * 0.84, middle(0) - 12], [w * 0.5, middle(2) + 4]]) {
+      ellipse(c, xx - 5, yy - 2, 7, 4, p.petal, 0.6);
+      ellipse(c, xx + 5, yy - 2, 7, 4, p.petal, -0.6);
+      ellipse(c, xx, yy + 1, 1.5, 5, p.deep);
+    }
+    bush(28, h - 46, 0.56);
+    bush(w - 30, 32, 0.53);
+    bed(w / 2, h - 35);
+    c.restore();
+  }
+  function drawSunnyStage(c, x, y, w, h, state) {
+    c.save();
+    c.translate(x, y);
+    c.scale(w / 108, h / 108);
+    const locked = state === "locked", current = state === "current", done = state === "done";
+    ellipse(c, 54, 89, 44, 12, "rgba(57,84,48,.14)");
+    if (current) {
+      ellipse(c, 54, 56, 50, 44, "rgba(235,178,125,.25)");
+    }
+    const edge = locked ? "#BBC7A6" : current ? "#BA805C" : done ? "#4F7F60" : "#ACAD83";
+    const top2 = locked ? "#DEE5CC" : current ? "#F4BF90" : done ? "#B4D1A0" : "#FFFBE5";
+    ellipse(c, 54, 65, 41, 34, edge);
+    fillRR(c, 13, 53, 82, 13, 2, edge);
+    ellipse(c, 54, 55, 41, 34, top2);
+    c.beginPath();
+    c.ellipse(54, 54, 35, 28, 0, 0, Math.PI * 2);
+    c.strokeStyle = locked ? "#EEF1E1" : "#FFFADE";
+    c.lineWidth = 2.5;
+    c.stroke();
+    c.beginPath();
+    c.ellipse(54, 51, 30, 24, 0, Math.PI, Math.PI * 2);
+    c.strokeStyle = locked ? "#C4CEB2" : current ? "#D59E72" : done ? "#8DAD81" : "#DDD3AE";
+    c.lineWidth = 1.3;
+    c.stroke();
+    if (current) {
+      c.beginPath();
+      c.moveTo(47, 6);
+      c.lineTo(61, 6);
+      c.lineTo(54, 15);
+      c.closePath();
+      c.fillStyle = "#C08762";
+      c.fill();
+    }
     c.restore();
   }
 
@@ -749,23 +934,7 @@
       txt("\u2605 " + totalStars(a.s), a.w - 176, a.safe + 64, 27, SUNNY.ink, "center", true);
       circle("gear", "settings", a.w - 105, a.safe + 40);
     };
-    const nav = (active) => {
-      box("line", 0, a.h - 112, a.w, 112);
-      out[out.length - 1].color = "#FFFDF5";
-      const tabs = [["home", "home", "\u82B1\u56ED"], ["levels", "map", "\u6E38\u56ED"], ["workshop", "workshop", "\u673A\u5173"], ["album", "book", "\u6536\u85CF"]];
-      tabs.forEach(([id, icon2, label], i) => {
-        const x = i * a.w / 4;
-        box("line", x, a.h - 112, a.w / 4, 106, id);
-        out[out.length - 1].color = "#FFFDF5";
-        if (id === active) {
-          box("line", x + a.w / 8 - 24, a.h - 112, 48, 4);
-          out[out.length - 1].color = SUNNY.jade;
-        }
-        ico(icon2, x + a.w / 8 - 20, a.h - 89, 40, id === active ? SUNNY.ink : "#9AA086");
-        txt(label, x + a.w / 8, a.h - 37, 19, id === active ? SUNNY.ink : "#9AA086", "center", id === active);
-      });
-    };
-    return { out, box, txt, ico, button: button2, circle, tile, top: top2, nav };
+    return { out, box, txt, ico, button: button2, circle, tile, top: top2 };
   }
   function sunnyHome(a) {
     const { out, box, txt, button: button2, ico, top: top2 } = kit(a);
@@ -795,89 +964,94 @@
     });
     return out;
   }
+  function sunnyPanelArea(a) {
+    const y = a.safe + 24, bottom = sunnyBannerArea(a).y - 22;
+    return { x: 24, y, w: a.w - 48, h: bottom - y, bottom };
+  }
+  function panelKit(a, title, eyebrow) {
+    const k = kit(a), p = sunnyPanelArea(a);
+    k.out.push(...sunnyHome(a).map((i) => ({ ...i, id: void 0, enabled: false })));
+    k.box("veil", 0, 0, a.w, sunnyBannerArea(a).y - 2, "__panel-block");
+    k.box("paper", p.x, p.y, p.w, p.h);
+    k.out[k.out.length - 1].name = "garden-panel";
+    k.txt(eyebrow, 54, p.y + 24, 18, "#9B9675");
+    k.txt(title, 54, p.y + 58, 38, SUNNY.ink, "left", true, true);
+    k.circle("close", "panel-close", a.w - 116, p.y + 23);
+    return { ...k, p };
+  }
   function sunnyMap(a) {
-    const { out, box, txt, ico, button: button2, circle, top: top2, nav } = kit(a);
-    top2();
-    const ci = a.page;
-    txt("\u4E0B\u4E00\u7AD9\uFF0C\u597D\u98CE\u666F", 44, a.safe + 168, 46, SUNNY.ink, "left", true, true);
-    txt(`\u7B2C ${ci + 1} \u7AE0 \xB7 ${CHAPTERS[ci][0]}`, 44, a.safe + 241, 29, SUNNY.ink, "left", true);
-    txt(`${ci + 1} / 26`, a.w - 44, a.safe + 245, 23, SUNNY.soft, "right");
-    txt(CHAPTERS[ci][2], 44, a.safe + 290, 21, SUNNY.soft);
-    const y0 = a.safe + 388, y1 = a.h - 385, stepY = (y1 - y0) / 4, stepX = (a.w - 220) / 3, d = Math.min(96, stepY * 0.62);
-    const points = Array.from({ length: 20 }, (_, j) => {
-      const row = Math.floor(j / 4), col = row % 2 ? 3 - j % 4 : j % 4;
-      return { x: 110 + col * stepX, y: y0 + row * stepY };
+    const ci = Math.max(0, Math.min(CHAPTERS.length - 1, a.page)), S = a.s, palette2 = GARDEN_PALETTES[Math.floor(ci / 2) % 4];
+    const { out, box, txt, ico, button: button2, p } = panelKit(a, "\u4E0B\u4E00\u7AD9\uFF0C\u597D\u98CE\u666F", "\u6E38\u56ED\u624B\u8BB0  /  GARDEN WALK");
+    const titleY = p.y + 124;
+    box("paper", 48, titleY, a.w - 96, 92);
+    ico("flower", 65, titleY + 24, 38, palette2.deep);
+    txt(CHAPTERS[ci][0], 116, titleY + 15, 30, SUNNY.ink, "left", true, true);
+    txt(`\u7B2C ${ci + 1} \u7AE0 \xB7 ${ci * 20 + 1}\u2014${ci * 20 + 20} \u5173`, 116, titleY + 55, 20, SUNNY.soft);
+    txt(`${S.chapterStars(ci)} / 60 \u2605`, a.w - 70, titleY + 33, 23, "#A88951", "right", true);
+    const map = { x: 48, y: titleY + 108, w: a.w - 96, h: p.bottom - (titleY + 108) - 163 };
+    out.push({ kind: "garden", ...map, chapter: ci, frontier: S.maxLevel });
+    const points = gardenPoints(map.w, map.h), d = Math.min(108, Math.max(80, (map.h - 158) / 4 * 0.89));
+    points.forEach((pos, j) => {
+      const idx = ci * 20 + j, unlocked = S.isLevelUnlocked(idx), stars2 = S.stars[idx] || 0, current = unlocked && idx === S.maxLevel;
+      const state = !unlocked ? "locked" : current ? "current" : stars2 ? "done" : "open", x = map.x + pos.x, y = map.y + pos.y;
+      out.push({ kind: "stage", x: x - d / 2, y: y - d / 2, w: d, h: d, name: state, id: "level:" + idx, enabled: S.canEnter(idx) });
+      txt(String(idx + 1), x, y - 17, idx >= 99 ? 26 : 30, unlocked ? SUNNY.ink : "#859477", "center", true, true);
+      if (!unlocked) ico("lock", x - 9, y + d * 0.19, 18, "#889779");
+      else if (stars2) txt("\u2605".repeat(stars2) + "\u2606".repeat(3 - stars2), x, y + d * 0.23, 17, "#A48243", "center");
+      else txt(current ? "\u51FA\u53D1" : "\u53EF\u6311\u6218", x, y + d * 0.23, 16, current ? "#99623F" : SUNNY.soft, "center", true);
     });
-    points.forEach((p, j) => {
-      if (j < 19) {
-        const q = points[j + 1], dx = q.x - p.x, dy = q.y - p.y;
-        out.push({ kind: "line", x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, w: Math.hypot(dx, dy), h: 14, color: "#D4DFC1", angle: Math.atan2(dy, dx) });
-      }
-    });
-    points.forEach((p, j) => {
-      const idx = ci * 20 + j, st = a.s.stars[idx] || 0, open = a.s.canEnter(idx), current = idx === a.s.levelIndex;
-      box("circle", p.x - d / 2, p.y - d / 2, d, d, "level:" + idx, open);
-      out[out.length - 1].color = current ? "#DEA080" : st ? "#8FB38E" : open ? "#FFFDF4" : "#E2E9D5";
-      txt(String(idx + 1), p.x, p.y - 21, 31, open ? SUNNY.ink : "#9AA68D", "center", true, true);
-      if (st) txt("\u2605".repeat(st), p.x, p.y + d / 2 + 8, 20, "#B58D46", "center");
-      else if (!open) txt("\u5F85\u5F00\u542F", p.x, p.y + d / 2 + 8, 17, "#97A089", "center");
-    });
-    box("paper", 44, a.h - 305, a.w - 88, 82);
-    txt(`\u5DF2\u8D70\u8FC7 ${Object.keys(a.s.stars).length} \u5904\u5C0F\u666F`, 74, a.h - 282, 25, SUNNY.ink, "left", true);
-    txt("\u901A\u5173\u524D\u4E00\u5173\u5373\u53EF\u7EE7\u7EED", a.w - 73, a.h - 278, 20, SUNNY.soft, "right");
-    button2("\u4E0A\u4E00\u7AE0", "page-prev", 44, a.h - 206, 220, 74, "paper", ci > 0);
-    button2("\u4E0B\u4E00\u7AE0", "page-next", a.w - 264, a.h - 206, 220, 74, "paper", ci < 25);
-    nav("levels");
+    const fy = p.bottom - 145, done = Array.from({ length: 20 }, (_, j) => S.stars[ci * 20 + j] || 0).filter(Boolean).length;
+    txt(`\u672C\u7AE0\u7559\u82B1 ${done} / 20`, 58, fy, 20, SUNNY.ink, "left", true);
+    txt(S.unlockAll ? "\u4F53\u9A8C\u6E38\u56ED \xB7 \u9501\u5B9A\u5173\u5361\u4E5F\u53EF\u8BD5\u73A9" : "\u5FAA\u7740\u82B1\u5F84\uFF0C\u901A\u5173\u524D\u4E00\u5173\u5F00\u542F\u4E0B\u4E00\u5173", a.w - 58, fy, 19, SUNNY.soft, "right");
+    button2("\u2039 \u4E0A\u4E00\u7AE0", "page-prev", 52, p.bottom - 99, 184, 76, "paper", ci > 0);
+    txt(`${String(ci + 1).padStart(2, "0")} / ${CHAPTERS.length}`, a.w / 2, p.bottom - 77, 23, SUNNY.soft, "center", true);
+    button2("\u4E0B\u4E00\u7AE0 \u203A", "page-next", a.w - 236, p.bottom - 99, 184, 76, "jade", ci < CHAPTERS.length - 1);
     return out;
   }
   function sunnyWorkshop(a) {
-    const { out, box, txt, ico, button: button2, top: top2, nav } = kit(a);
-    top2();
-    txt("\u673A\u5173\u5DE5\u574A", 44, a.safe + 172, 46, SUNNY.ink, "left", true, true);
-    txt("\u5148\u73A9\u4E00\u5C0F\u684C\uFF0C\u518D\u53BB\u95EF\u5173", 44, a.safe + 244, 24, SUNNY.soft);
-    const start = a.safe + 307, end = a.h - 269, rowH = Math.min(197, (end - start) / 4), cw = (a.w - 108) / 2;
+    const { out, box, txt, ico, button: button2, p } = panelKit(a, "\u673A\u5173\u5DE5\u574A", "\u5148\u8BD5\u4E00\u684C  /  LITTLE WORKSHOP");
+    txt("\u8DDF\u7740\u5C0F\u673A\u5173\uFF0C\u53D1\u73B0\u63A8\u9EBB\u7684\u65B0\u4E50\u8DA3", 54, p.y + 127, 23, SUNNY.soft);
+    const start = p.y + 185, end = p.bottom - 135, rowH = Math.min(218, (end - start) / 4), cw = (a.w - 124) / 2;
     WORKSHOP.forEach((m, i) => {
-      const x = 44 + i % 2 * (cw + 20), y = start + Math.floor(i / 2) * rowH;
-      box("paper", x, y, cw, rowH - 17, "practice:" + i);
-      ico(m.icon, x + 23, y + 23, 39, i % 2 ? "#BA9460" : "#6C966F");
-      txt(m.name, x + 79, y + 24, 27, SUNNY.ink, "left", true);
-      txt(m.note, x + 23, y + 79, 21, SUNNY.soft);
-      txt("\u8BD5\u4E00\u684C  \u203A", x + 23, y + rowH - 57, 23, SUNNY.jade, "left", true);
+      const x = 52 + i % 2 * (cw + 20), y = start + Math.floor(i / 2) * rowH;
+      box("paper", x, y, cw, rowH - 14, "practice:" + i);
+      box("circle", x + 18, y + 16, 52, 52);
+      out[out.length - 1].color = i % 2 ? "#F4E5C6" : "#DFEBCF";
+      ico(m.icon, x + 29, y + 27, 30, i % 2 ? "#AF8850" : "#6B926A");
+      txt(m.name, x + 83, y + 25, 25, SUNNY.ink, "left", true);
+      txt(m.note, x + 20, y + 79, 21, SUNNY.soft);
+      txt("\u8BD5\u4E00\u684C  \u203A", x + 20, y + rowH - 49, 22, SUNNY.jade, "left", true);
     });
-    button2("\u72EC\u7ACB\u6311\u6218", "challenge", 44, a.h - 231, a.w - 88, 83, "jade");
-    nav("workshop");
+    button2("\u72EC\u7ACB\u6311\u6218", "challenge", 52, p.bottom - 110, a.w - 104, 84, "jade");
     return out;
   }
   function sunnyAlbum(a) {
-    const { out, box, txt, ico, button: button2, top: top2, nav } = kit(a);
-    top2();
-    const stars2 = totalStars(a.s);
-    txt("\u628A\u597D\u5FC3\u60C5\u6536\u8D77\u6765", 44, a.safe + 170, 44, SUNNY.ink, "left", true, true);
-    txt("\u901A\u5173\u7559\u82B1\u7B3A\uFF0C\u661F\u661F\u6362\u684C\u5E03", 44, a.safe + 245, 23, SUNNY.soft);
-    const start = a.safe + 311, rh = Math.min(165, (a.h - a.safe - 750) / 3);
+    const { out, box, txt, ico, p } = panelKit(a, "\u628A\u597D\u5FC3\u60C5\u6536\u8D77\u6765", "\u82B1\u56ED\u6536\u85CF  /  MY KEEPSAKES"), stars2 = totalStars(a.s);
+    txt("\u901A\u5173\u7559\u82B1\u7B3A\uFF0C\u661F\u661F\u6362\u684C\u5E03", 54, p.y + 128, 23, SUNNY.soft);
+    txt(`\u5DF2\u6536\u96C6 ${stars2} \u2605`, a.w - 56, p.y + 128, 23, "#A88951", "right", true);
+    const start = p.y + 183, rh = Math.min(170, (p.h - 465) / 3);
     TABLE_THEMES.forEach((t, i) => {
       const y = start + i * rh, open = stars2 >= t.stars;
-      box("paper", 44, y, a.w - 88, rh - 17, "theme:" + t.id, open);
-      box("circle", 64, y + 20, 76, 76);
+      box("paper", 52, y, a.w - 104, rh - 14, "theme:" + t.id, open);
+      box("circle", 70, y + 19, 72, 72);
       out[out.length - 1].color = t.felt;
-      ico("flower", 84, y + 40, 36, "#FFFDEE");
-      txt(t.name, 163, y + 24, 30, SUNNY.ink, "left", true);
-      txt(open ? "\u5DF2\u7ECF\u6536\u85CF" : `\u6536\u96C6 ${t.stars} \u9897\u661F\u89E3\u9501`, 163, y + 72, 21, SUNNY.soft);
-      txt(a.theme === t.id ? "\u4F7F\u7528\u4E2D" : open ? "\u6362\u4E0A" : "\u672A\u89E3\u9501", a.w - 82, y + 42, 25, open ? SUNNY.jade : "#A3AA95", "right", true);
+      ico("flower", 89, y + 38, 34, "#FFFDEE");
+      txt(t.name, 163, y + 23, 29, SUNNY.ink, "left", true);
+      txt(open ? "\u5DF2\u7ECF\u6536\u85CF" : `\u6536\u96C6 ${t.stars} \u9897\u661F\u89E3\u9501`, 163, y + 67, 21, SUNNY.soft);
+      txt(a.theme === t.id ? "\u4F7F\u7528\u4E2D" : open ? "\u6362\u4E0A" : "\u672A\u89E3\u9501", a.w - 78, y + 40, 24, open ? SUNNY.jade : "#A3AA95", "right", true);
     });
-    const fy = start + 3 * rh + 27;
-    txt("\u65C5\u9014\u82B1\u7B3A", 44, fy, 29, SUNNY.ink, "left", true, true);
+    const fy = start + 3 * rh + 19;
+    txt("\u65C5\u9014\u82B1\u7B3A", 54, fy, 28, SUNNY.ink, "left", true, true);
     const completed = CHAPTERS.map((c, ci) => ({ name: c[0], ci })).filter((c) => Array.from({ length: 20 }, (_, j) => a.s.stars[c.ci * 20 + j] || 0).some(Boolean));
     if (!completed.length) {
-      box("paper", 44, fy + 57, a.w - 88, 174);
-      ico("flower", a.w / 2 - 24, fy + 78, 48, "#92AA80");
-      txt("\u7B2C\u4E00\u684C\u901A\u5173\uFF0C\u7559\u4E0B\u4E00\u679A\u82B1\u7B3A", a.w / 2, fy + 155, 24, SUNNY.soft, "center");
+      box("paper", 52, fy + 49, a.w - 104, 154);
+      ico("flower", a.w / 2 - 24, fy + 66, 48, "#92AA80");
+      txt("\u7B2C\u4E00\u684C\u901A\u5173\uFF0C\u7559\u4E0B\u4E00\u679A\u82B1\u7B3A", a.w / 2, fy + 131, 23, SUNNY.soft, "center");
     } else completed.slice(-6).forEach((c, i) => {
-      const x = 44 + i % 3 * (a.w - 88) / 3, y = fy + 57 + Math.floor(i / 3) * 91;
-      box("paper", x, y, (a.w - 112) / 3, 78);
-      txt(c.name, x + (a.w - 112) / 6, y + 25, 22, SUNNY.ink, "center", true);
+      const x = 52 + i % 3 * (a.w - 104) / 3, y = fy + 49 + Math.floor(i / 3) * 86;
+      box("paper", x, y, (a.w - 128) / 3, 75);
+      txt(c.name, x + (a.w - 128) / 6, y + 25, 21, SUNNY.ink, "center", true);
     });
-    nav("album");
     return out;
   }
   function sunnyBoard(a, message) {
@@ -1029,6 +1203,15 @@
         ctx.textBaseline = "top";
         ctx.fillStyle = it.color || SUNNY.ink;
         ctx.fillText(it.text || "", it.x, it.y);
+      } else if (it.kind === "garden") {
+        ctx.beginPath();
+        ctx.rect(it.x, it.y, it.w, it.h);
+        ctx.clip();
+        drawSunnyGarden(ctx, it.x, it.y, it.w, it.h, it.chapter, it.frontier);
+      } else if (it.kind === "stage") drawSunnyStage(ctx, it.x, it.y, it.w, it.h, it.name);
+      else if (it.kind === "veil") {
+        ctx.fillStyle = "rgba(53,82,66,.67)";
+        ctx.fillRect(it.x, it.y, it.w, it.h);
       } else if (it.kind === "tile") drawTile(ctx, it.name, it.x + it.w * 0.05, it.y + it.h * 0.05, { w: it.w * 0.9, h: it.h * 0.9, lift: it.h * 0.07 });
       else if (it.kind === "hero") drawSunnyHero(ctx, it.x, it.y, it.w, it.h);
       else if (it.kind === "icon") drawSunnyIcon(ctx, it.name, it.x, it.y, it.w, it.color || SUNNY.ink);
@@ -2955,7 +3138,6 @@
   var CHAPTER_SIZE = PAGE_SIZE;
   var CHAPTER_MAX_STARS = CHAPTER_SIZE * 3;
   var CHAPTER_GATE = Array.from({ length: 26 }, () => 0);
-  var chapterOf = (index) => Math.floor(index / CHAPTER_SIZE);
   var gateFor = (chapter) => CHAPTER_GATE[chapter] ?? 0;
   function ratingFor(moves, par) {
     if (par <= 0) return 3;
@@ -3108,6 +3290,9 @@
         this.reset(this.maxLevel, false);
       }
       this.modal = "home";
+    }
+    setEnvironment(env) {
+      this.unlockAll = env === "trial" || env === "develop";
     }
     save() {
       try {
@@ -3499,15 +3684,18 @@
     }
     /** 正式版按 maxLevel 线性解锁；开发与体验版可跳关验证。 */
     canEnterChapter(chapter) {
+      if (!Number.isInteger(chapter) || chapter < 0 || chapter >= Math.ceil(LEVELS.length / CHAPTER_SIZE)) return false;
       if (this.unlockAll) return true;
       if (chapter <= 0) return true;
       return chapter * CHAPTER_SIZE <= this.maxLevel;
     }
+    /** 真实进度用于地图外观；测试版的跳关权限不能把锁定样式抹掉。 */
+    isLevelUnlocked(index) {
+      return Number.isInteger(index) && index >= 0 && index < LEVELS.length && index <= this.maxLevel;
+    }
     canEnter(index) {
       if (!Number.isInteger(index) || index < 0 || index >= LEVELS.length) return false;
-      if (this.unlockAll) return true;
-      if (index > this.maxLevel) return false;
-      return this.canEnterChapter(chapterOf(index));
+      return this.unlockAll || this.isLevelUnlocked(index);
     }
     /** 星级：只看步数（旧口径的「用道具掉星」已删，理由见 `ratingFor` 注释）。 */
     get rating() {
@@ -4001,7 +4189,7 @@
           return;
         }
         if (open === "home" && id === "continue") {
-          if (this.finished || !count(this.grid)) {
+          if (this.finished || !count(this.grid) || !this.canEnter(this.levelIndex)) {
             let i = this.maxLevel;
             while (i > 0 && !this.canEnter(i)) i--;
             this.reset(i);
@@ -4037,7 +4225,7 @@
           this.save();
           return;
         }
-        if (open === "win" && id === "next" && this.levelIndex < LEVELS.length - 1) {
+        if (open === "win" && id === "next" && this.canEnter(this.levelIndex + 1)) {
           this.reset(this.levelIndex + 1);
           this.save();
           return;
@@ -4723,7 +4911,7 @@
 
   // demo/h5/src/app.ts
   var DW = 750;
-  var APP_VERSION = "1.4.2";
+  var APP_VERSION = "1.4.3";
   var App = class {
     constructor(canvas2) {
       this.mainSession = null;
@@ -4756,6 +4944,8 @@
         this.needsPaint = false;
         this.draw();
       };
+      /* ── actions ────────────────────────────────────────────── */
+      this.panelBase = "home";
       this.music = true;
       this.sound = true;
       this.canvas = canvas2;
@@ -4797,7 +4987,7 @@
       this.audio.configure(this.music, this.sound);
       document.addEventListener("visibilitychange", () => this.audio.visibility(document.hidden));
       const q = new URLSearchParams(location.search);
-      this.session.unlockAll = q.get("preview") === "1";
+      this.session.setEnvironment(q.get("preview") === "1" ? "develop" : "release");
       const lv = Number(q.get("level"));
       if (Number.isFinite(lv) && q.has("level")) this.session.reset(lv, false);
       const scr = q.get("screen");
@@ -4957,8 +5147,8 @@
       }
       this.invalidate();
     }
-    /* ── actions ────────────────────────────────────────────── */
     go(scr) {
+      if (["levels", "workshop", "album"].includes(scr) && !["levels", "workshop", "album", "settings", "help"].includes(this.screen)) this.panelBase = scr === "levels" && ["board", "pause", "restart", "win", "lose"].includes(this.screen) ? "board" : "home";
       if (["home", "levels", "board", "workshop", "album"].includes(this.screen)) this.dialogBase = this.screen;
       this.returnScreen = this.screen;
       this.setScreen(scr);
@@ -5020,6 +5210,9 @@
       this.audio.unlock();
       this.audio.play(id === "undo" ? "undo" : "ui");
       switch (id) {
+        case "panel-close":
+          this.setScreen(this.panelBase);
+          break;
         case "home":
           this.go("home");
           break;

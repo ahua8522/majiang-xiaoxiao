@@ -43,7 +43,7 @@ const dirLabel = (axis: Axis, step: number): string => axis === 'row' ? (step > 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 /** 应用版本号：与 cocos/package.json 的 version、upload-ci 上传版本保持一致（提版时三处一起改）。 */
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.3';
 
 /**
  * 「新玩法」说明卡的内容：每关首次出现某机制时，进关先弹这张卡（看完才开局）。
@@ -295,7 +295,7 @@ export class GameRoot extends Component {
       // 体验版 / 开发版全解锁，方便测试直接选关；正式版（release）保持按进度解锁
       try {
         const env = wx?.getAccountInfoSync?.().miniProgram?.envVersion;
-        this.session.unlockAll = env === 'trial' || env === 'develop';
+        this.session.setEnvironment(env);
         if (this.session.unlockAll) console.log('[game] 非正式版环境，选关全解锁 env=' + env);
       } catch { /* 编辑器预览 / Web 下没有该 API，保持默认 */ }
       const want = levelAt(this.session.levelIndex).map;
@@ -607,7 +607,10 @@ export class GameRoot extends Component {
     return this.dialogBase;
   }
 
+  private panelBase: 'home' | 'board' = 'home';
+
   private go(s: Screen): void {
+    if(['levels','workshop','album'].includes(s)&&!['levels','workshop','album','settings','help'].includes(this.screen))this.panelBase=s==='levels'&&['board','pause','restart','win','lose'].includes(this.screen)?'board':'home';
     // 弹框画在谁上面，取决于它是**从哪一屏打开的**：从牌桌开的就该继续看到牌桌，
     // 而不是被换成大厅（真机反馈：牌桌点设置"回到了首页"，关掉又跳回牌桌）。
     // 弹框之间跳转（设置→玩法说明）在这张表里没有条目，所以子页沿用父页的底图与来源。
@@ -629,6 +632,7 @@ export class GameRoot extends Component {
     if(id.startsWith('theme:')){const t=TABLE_THEMES.find(t=>t.id===id.slice(6));if(t&&totalStars(this.session)>=t.stars){this.theme=t.id;try{sys.localStorage.setItem('mj:sunny-theme',t.id);}catch{}}this.dirty=true;return;}
     if(id!=='hint'&&id!=='undo')this.audio?.play('ui');
     switch (id) {
+      case 'panel-close': this.setScreen(this.panelBase); break;
       case 'tip-ok': this.session.dismissTip(); break;
       case 'home': this.go('home'); break;
       case 'workshop':case 'album':this.go(id);break;
@@ -665,7 +669,6 @@ export class GameRoot extends Component {
       case 'toggle-vibration': this.session.command('toggle-vibration'); break;
       case 'page-prev': this.page = Math.max(0, this.page - 1); break;
       case 'page-next': {
-        const shown = this.session.unlockAll ? LEVELS.length : this.session.maxLevel + 1;
         this.page = Math.min(Math.ceil(LEVELS.length / CHAPTER_LENGTH) - 1, this.page + 1);
         break;
       }
@@ -744,11 +747,11 @@ export class GameRoot extends Component {
     const show = (n: Node, on: boolean) => { if (n.active !== on) n.active = on; };
     // 弹框（设置 / 选关 / 玩法说明）画在谁上面：由 dialogBase 决定，而不是写死"永远大厅"。
     const dialog = this.screen === 'settings' || this.screen === 'levels' || this.screen === 'help';
-    const homeFlow = ['home','workshop','album'].includes(this.screen) || (dialog && this.dialogBase !== 'board');
+    const homeFlow = ['home','workshop','album'].includes(this.screen) || (dialog && this.screen!=='levels' && this.dialogBase !== 'board');
     show(this.screens.home, homeFlow);
     if(homeFlow){const base=dialog?this.dialogBase:this.screen;clearChildren(this.screens.home);this.renderSunny(this.screens.home,base==='workshop'?sunnyWorkshop(this.sunnyState()):base==='album'?sunnyAlbum(this.sunnyState()):base==='levels'?sunnyMap(this.sunnyState()):sunnyHome(this.sunnyState()));}
     const boardVisible = this.screen === 'board' || this.screen === 'win' || this.screen === 'lose' || this.screen === 'pause'
-      || this.screen === 'restart' || (dialog && this.dialogBase === 'board');
+      || this.screen === 'restart' || (dialog && this.screen!=='levels' && this.dialogBase === 'board');
     const challengeVisible = this.screen === 'challenge';
     show(this.screens.board, boardVisible || challengeVisible);
     if (challengeVisible) this.renderChallenge();

@@ -118,6 +118,7 @@ export class Atlas {
   private regions = new Map<string, Region>();
   private frames = new Map<string, SpriteFrame>();
   private tag = '';
+  private info!:AtlasInfo;
 
   constructor(readonly width: number, readonly height: number) {
     this.tag = `atlas ${width}x${height}`;
@@ -125,7 +126,8 @@ export class Atlas {
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('离屏画布没有 2D context');
     this.ctx = ctx as Ctx2D;
-    INFO.atlases.push({name: this.tag, w: this.canvas.width, h: this.canvas.height, ok: false});
+    this.info={name:this.tag,w:this.canvas.width,h:this.canvas.height,ok:false};
+    INFO.atlases.push(this.info);
   }
 
   /** 直接用 2D context 画（调用方负责落在分配好的区域内）。 */
@@ -161,10 +163,10 @@ export class Atlas {
       tex.setMipFilter(Texture2D.Filter.NONE);
       this.texture = tex;
       this.frames.clear();
-      const rec = INFO.atlases.find((a) => a.name === this.tag);
+      const rec = this.info;
       if (rec) rec.ok = true;
     } catch (e) {
-      const rec = INFO.atlases.find((a) => a.name === this.tag);
+      const rec = this.info;
       if (rec) { rec.ok = false; rec.error = String((e as Error)?.message || e); }
     }
   }
@@ -184,7 +186,7 @@ export class Atlas {
       const d: Uint8ClampedArray = src.data;
       let filled = 0;
       for (let i = 3; i < d.length; i += 4) if (d[i] > 8) filled++;
-      const rec = INFO.atlases.find((a) => a.name === this.tag);
+      const rec = this.info;
       if (rec) rec.ink = `${Math.round(filled / (w * h) * 100)}%`;
       return new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
     } catch { return null; }
@@ -237,11 +239,15 @@ export class Atlas {
    * 光把引用置空（`this.texture = null`）等于什么都没释放。
    */
   dispose(): void {
+    // 同尺寸图集也各有独立记录；翻章销毁后不再留下假告警或增长的诊断列表。
+    const index=INFO.atlases.indexOf(this.info);if(index>=0)INFO.atlases.splice(index,1);
+    this.frames.forEach(frame=>frame.destroy());
     if (this.texture) {
       this.texture.destroy();
       this.texture = null;
     }
     this.frames.clear();
+    this.canvas.width=1;this.canvas.height=1;
   }
 
   has(name: string): boolean { return this.regions.has(name); }

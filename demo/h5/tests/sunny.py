@@ -27,16 +27,16 @@ with sync_playwright() as p:
  click('settings');screen('settings');before=state();click('toggle-music');assert state()['music']!=before['music'];click('toggle-music');click('__back');screen('board')
  click('restart');screen('restart');click('resume');screen('board')
  before=state();click('pause');click('home');screen('home');click('start');screen('board');assert state()['grid']==before['grid']
- click('pause');click('levels');screen('levels');click('page-next');assert state()['page']==1;click('page-prev');assert state()['page']==0;click('level:0');screen('board')
+ click('pause');click('levels');screen('levels');click('page-next');assert state()['page']==1;click('page-prev');assert state()['page']==0;click('panel-close');screen('board');click('pause');click('levels');click('level:0');screen('board')
  if page.evaluate('!!testApp.session.introTip'):click('tip-ok')
  click('pause');click('home');click('workshop');screen('workshop');main=state();click('practice:2');screen('board');assert state()['practice'];assert state()['level']==60
  if page.evaluate('!!testApp.session.introTip'):click('tip-ok')
  click('pause');click('workshop');screen('workshop');assert not state()['practice'];assert state()['grid']==main['grid'];assert state()['stars']==main['stars']
- click('album');screen('album');click('settings');screen('settings');click('__back');screen('album')
+ click('panel-close');screen('home');click('album');screen('album')
  # Unlock cosmetic thresholds in the isolated test context; actual switching uses the visible button.
  page.evaluate("testApp.session.stars={0:3,1:3,2:3,3:3,4:3,5:3,6:3};if(testApp.invalidate)testApp.invalidate();else testApp.dirty=true")
  page.wait_for_timeout(100);click('theme:blue');assert state()['theme']=='blue';assert page.evaluate("localStorage.getItem('mj:sunny-theme')")=='blue'
- click('home');click('start');screen('board');page.screenshot(path=str(out/f'{"native" if native else "h5"}-blue.png'))
+ click('panel-close');click('start');screen('board');page.screenshot(path=str(out/f'{"native" if native else "h5"}-blue.png'))
  for w,h in [(320,568),(390,844),(430,932)]:
   page.set_viewport_size({'width':w,'height':h});page.wait_for_timeout(220)
   if native:

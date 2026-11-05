@@ -1,5 +1,5 @@
 import {SunnyItem} from '../../../cocos/assets/scripts/view/sunnyLayout';
-import {drawSunnyHero,drawSunnyIcon,drawSunnySurface,SUNNY} from '../../../cocos/assets/scripts/view/sunnyArt';
+import {drawSunnyHero,drawSunnyIcon,drawSunnySurface,drawSunnyGarden,drawSunnyStage,SUNNY} from '../../../cocos/assets/scripts/view/sunnyArt';
 import {drawTile} from '../../../cocos/assets/scripts/view/art';
 import {FONT_SANS,FONT_SERIF} from './theme';
 import {Hit} from './ui';
@@ -10,7 +10,10 @@ export function renderSunny(ctx:CanvasRenderingContext2D,items:SunnyItem[],hits:
   ctx.save();
   if(it.kind==='text'){
    ctx.font=`${it.bold?'700 ':''}${it.size}px ${it.serif?FONT_SERIF:FONT_SANS}`;ctx.textAlign=it.align||'left';ctx.textBaseline='top';ctx.fillStyle=it.color||SUNNY.ink;ctx.fillText(it.text||'',it.x,it.y);
-  }else if(it.kind==='tile')drawTile(ctx,it.name!,it.x+it.w*.05,it.y+it.h*.05,{w:it.w*.90,h:it.h*.90,lift:it.h*.07});
+  }else if(it.kind==='garden'){ctx.beginPath();ctx.rect(it.x,it.y,it.w,it.h);ctx.clip();drawSunnyGarden(ctx,it.x,it.y,it.w,it.h,it.chapter!,it.frontier!);}
+  else if(it.kind==='stage')drawSunnyStage(ctx,it.x,it.y,it.w,it.h,it.name!);
+  else if(it.kind==='veil'){ctx.fillStyle='rgba(53,82,66,.67)';ctx.fillRect(it.x,it.y,it.w,it.h);}
+  else if(it.kind==='tile')drawTile(ctx,it.name!,it.x+it.w*.05,it.y+it.h*.05,{w:it.w*.90,h:it.h*.90,lift:it.h*.07});
   else if(it.kind==='hero')drawSunnyHero(ctx,it.x,it.y,it.w,it.h);
   else if(it.kind==='icon')drawSunnyIcon(ctx,it.name!,it.x,it.y,it.w,it.color||SUNNY.ink);
   else if(it.kind==='line'){
