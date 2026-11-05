@@ -13,6 +13,11 @@
         "demo:watch": "node demo/h5/build.cjs --watch",
         "demo": "node demo/h5/serve.cjs",
         "demo:check": "node demo/h5/check.cjs",
-        "demo:test": "python demo/h5/tests/e2e.py"
+        "demo:test": "python demo/h5/tests/e2e.py",
+        "redesign:build": "node docs/redesign-2026-11/build.cjs",
+        "redesign:test": "npm run redesign:build && node --test docs/redesign-2026-11/model.test.cjs",
+        "redesign:check": "node cocos/node_modules/typescript/bin/tsc docs/redesign-2026-11/app.ts docs/redesign-2026-11/model.ts --noEmit --target ES2020 --module commonjs --lib ES2020,DOM --strict --skipLibCheck",
+        "redesign:serve": "python -m http.server 8788 --bind 127.0.0.1 --directory docs/redesign-2026-11",
+        "redesign:verify": "python docs/redesign-2026-11/verify.py"
     }
 }

@@ -38,3 +38,6 @@ docs/关卡切图/
 .workbuddy/
 .workbuddy-ai/
 .playwright-mcp/
+
+# 本地取证截图、临时脚本与设计稿测试产物
+/temp/
