@@ -1,12 +1,11 @@
 # 快乐推麻对对消 · 微信小游戏（Cocos Creator 3.8）
 
-> 2026-11-05 改版设计：保留备案名称与麻将，转向清新日光花园；取消清一色等限制、增加直观机关。实体牌面已更新到源码，完整界面和玩法重编仍在设计稿验证。
-> [完整方案](docs/redesign-2026-11/DESIGN.md) · [可交互设计稿](docs/redesign-2026-11/index.html)。
-> 本轮重点：[玩法梳理与前 16 关](docs/redesign-2026-11/GAMEPLAY.md) · [音乐/音效试听](docs/redesign-2026-11/sound-lab.html) · [声音方案](docs/redesign-2026-11/AUDIO.md)。设计稿已接入两首音乐、12 个音效，底部缩为「提示 / 撤销 / 重开」单行工具栏。
-> 广告等开通流量主后再评估，原[收益方案](docs/redesign-2026-11/MONETIZATION.md)留作后续参考。本轮不接服务器；正式 Cocos 界面、音频与 224 关尚未迁移。
-> 运行 `npm run redesign:serve` 后打开 `http://127.0.0.1:8788/`。这是独立设计稿，尚未替换下面介绍的正式 Cocos 版本。
+> 2026-11-05：正式主线已扩展为 **520 关 / 26 章**，Cocos 与 H5 共用同一套规则。新增花圃、水滴、花苞、钥匙与灵感充能，保留推移配对、叠层、冰牌等机制，移除清一色等番型禁消限制。
+> 牌桌从 4×3 到 8×10（列×行），大小交替；底部只保留「提示 / 撤销 / 重开」。两首背景音乐、12 个音效已接入两端。无服务器，广告暂缓。
+> [520 关设计与章节安排](docs/redesign-2026-11/CAMPAIGN-520.md) · [逐关全量表](docs/关卡全量表.md) · [音乐试听](docs/redesign-2026-11/sound-lab.html)。
+> 运行 `npm run demo` 试玩当前主线；`?screen=board&level=519&preview=1` 打开第 520 关（参数从 0 开始）。旧五模式设计稿留在 `docs/redesign-2026-11/index.html` 供对照。
 
-绿玉庭院风格的牌类「推一推，碰个对」消除小游戏：相邻同牌点一下就消；按住一行横拖、一列竖拖，整段循环滑动，滑完自动连消。首页另有独立的**挑战模式**：整行/整列循环滑动，同线同牌自动消，盘面无尽、无步数失败。
+日光花园风格的麻将消除小游戏：相邻同牌点一下就消；按住一行横拖、一列竖拖，整段循环滑动，滑完自动连消。首页另有独立的**挑战模式**：整行/整列循环滑动，同线同牌自动消，盘面无尽、无步数失败。
 
 界面**零美术资源**：背景、牌面、按钮、图标全部由代码画出来（`view/art.ts` + `view/garden.ts`），启动时烘焙成两张图集。**图标一律是线描矢量图，不使用 emoji**——emoji 的字形与配色由系统字体决定，在各平台不一致，且会直接破坏整套中式配色。
 
@@ -14,9 +13,10 @@
 
 ```
 cocos/                       Cocos Creator 3.8 工程（唯一产物）
-  assets/scripts/core/       纯规则，不依赖 cc：Rules（滑动/配对/连消/提示搜索）、Generator（关卡+清台证书）、Session（评级/辅助/续局存档）、levels（224 关 / 14 章数据，每关钉死 seed + 盘面指纹）、Challenge/ChallengeSession（挑战模式：整线循环滑动 + 反向构造生成器 + 独立存档）
+  assets/scripts/core/       纯规则，不依赖 cc：Rules、Generator、Session、Campaign / Mechanics（章节与机关）、levels（520 关，每关固定 seed + 盘面指纹）、Challenge / ChallengeSession（独立挑战模式）
   assets/scripts/view/
     theme.ts                 设计令牌（色板 / 圆角 / 厚度 / 排版），不依赖 cc
+    AudioBus.ts              本地音乐和音效：独立开关、首触解锁、后台暂停
     art.ts                   纯 Canvas2D 画法（牌面 / 卡片 / 按钮 / 星 / 锁 / 箭头 / 图标），不依赖 cc 与 DOM
     garden.ts                程序化庭院背景 + 首页木桌（整屏大图，烘焙成一张纹理）
     atlas.ts                 把离屏画布烘焙成 cc 的 SpriteFrame；平台差异只在这一层（wx.createCanvas / document.createElement）

@@ -7,7 +7,7 @@
  *   - 拖动只改被拖行/列节点的 `position`，不重建任何网格。
  *   - 消除用 `tween` 缩放淡出，动画跑引擎自己的时钟，不再逐帧生成命令。
  */
-import {Mask, Node, Sprite, Tween, UIOpacity, UITransform, Vec3, tween} from 'cc';
+import {Graphics, Mask, Node, Sprite, Tween, UIOpacity, UITransform, Vec3, tween} from 'cc';
 import {TileAtlas, UiAtlas} from './assets';
 import {iceLayers} from './art';
 import {clearChildren, hex, makeHighlight, makeLabel, makeNode, makeSprite} from './widgets';
@@ -25,6 +25,8 @@ export interface Pair {a: Pos; b: Pos; face: string; other?: string}
 
 /** 一帧要画的牌桌内容，全部由 GameRoot 从 Session 解析好。 */
 export interface BoardModel {
+  floors?: {r:number;c:number;kind:'flower'|'dew'|'bud';need:number;progress:number}[];
+  keyFaces?: string[];
   grid: Cell[][];
   runs: Run[];
   selected: Pos | null;
@@ -87,6 +89,7 @@ export class Board {
   /** 消除动画幽灵层：挂在最上（hlRoot 之后），位置直接用 Board 本地坐标，不用补偿遮罩偏移 */
   private ghostRoot: Node;
   private ghosts: GhostNode[] = [];
+  private keyBadges:Node[]=[];
   /** 最近一次 build 用的牌图集——幽灵牌要用它取牌面（消除发生在两次 build 之间） */
   private lastAtlas: TileAtlas | null = null;
   private pool: TileNode[] = [];
@@ -204,6 +207,30 @@ export class Board {
 
     this.applyPositions();
     this.drawHighlights(model);
+    this.drawMechanics(model);
+  }
+
+  private drawMechanics(model:BoardModel):void{
+    for(const badge of this.keyBadges){badge.removeFromParent();badge.destroy();}this.keyBadges=[];
+    for(const f of model.floors||[]){
+      const p=this.cellCenter(f),done=f.progress>=f.need;
+      const frame=makeSprite(this.hlRoot,this.ui.frame('hl-gold'),this.cellWid*.94,this.cellHei*.94,p.x,p.y,true,this.ui.inset('hl-gold'));
+      frame.color=hex(done?'#8FBD83':f.kind==='dew'?'#87C8D9':'#E4BD6F');
+      const radius=Math.max(10,this.cellWid*.13);
+      const n=makeNode(this.hlRoot,{w:radius*2,h:radius*2,x:p.x+this.cellWid*.30,y:p.y-this.cellHei*.33,name:'floor:'+f.r+','+f.c});
+      const g=n.addComponent(Graphics);g.fillColor=hex(done?'#588C63':'#FFFCED');g.circle(0,0,radius);g.fill();
+      g.fillColor=hex(done?'#FFF9D9':f.kind==='dew'?'#559EB7':'#D5A44A');
+      if(f.kind==='dew'){g.moveTo(0,radius*.75);g.bezierCurveTo(-radius,radius*-.2,-radius*.6,-radius*.75,0,-radius*.75);g.bezierCurveTo(radius*.6,-radius*.75,radius,-radius*.2,0,radius*.75);g.fill();}
+      else {for(const [x,y]of [[0,.38],[.38,0],[0,-.38],[-.38,0]]){g.circle(x*radius,y*radius,radius*.34);g.fill();}}
+      if(f.need>1)makeLabel(n,`${f.progress}/${f.need}`,{x:0,y:-radius-1,size:Math.max(13,radius),align:'center',color:'#355E48',bold:true});
+    }
+    if(model.keyFaces?.length)for(let r=0;r<model.grid.length;r++)for(let c=0;c<model.grid[r].length;c++){
+      const cell=model.grid[r][c];if(!Array.isArray(cell)||!cell.length)continue;
+      if(!model.keyFaces.includes(cell[cell.length-1].replace(/[~*]+$/,'')))continue;
+      const tile=this.live.find(t=>t.r===r&&t.c===c&&t.depth===0);if(!tile)continue;
+      const n=makeNode(tile.node,{w:24,h:24,x:-this.cellWid*.28,y:this.cellHei*.28,name:'key'});this.keyBadges.push(n);
+      const g=n.addComponent(Graphics);g.strokeColor=hex('#BE8B33');g.lineWidth=3;g.circle(-4,4,5);g.moveTo(0,0);g.lineTo(9,-9);g.lineTo(12,-6);g.moveTo(6,-6);g.lineTo(9,-3);g.stroke();
+    }
   }
 
   /** 拖动预览：只改被拖行/列的牌，其它节点不碰。 */

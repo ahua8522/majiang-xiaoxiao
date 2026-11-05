@@ -103,7 +103,7 @@ test('教学屏：Board 不挂 overlay、modal 不双停、回跳认来源、降
 test('玩法说明：章首说明由弹框负责，不再列小盘回放入口', () => {
     const src = fs.readFileSync(path.join(VIEW, 'GameRoot.ts'), 'utf8');
     assert.match(src, /const CHAPTER_TIPS: string\[\]\[\]/, '14 章说明必须以数据表存在');
-    assert.match(src, /每次进入新的一章都会弹一次章首说明/, '玩法说明要解释弹框触发点');
+    assert.match(src, /每章首次进入有说明/, '玩法说明要解释弹框触发点');
     assert.doesNotMatch(src, /CHAPTER_TUTORIALS\.filter/, '小盘回放列表必须退场');
     assert.doesNotMatch(src, /help:.*tutorial/, '玩法列表不再挂 tutorial 重放入口');
 });

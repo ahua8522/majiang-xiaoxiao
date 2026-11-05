@@ -52,6 +52,7 @@ export class DesignSession {
     for (const a of this.solution) {
       const out = transition(g, runsFor(g, [], []), a);
       for (const p of out.erased) {
+        if(hasIce(p.face)||hasIce(p.other))continue;
         for (const [pos, face] of [[p.a, p.face], [p.b, p.other]] as [Pos, string][]) {
           if (!hasIce(face) && !firstRemoval.has(key(pos))) firstRemoval.set(key(pos), turn);
           const base = face.replace(/[~*]+$/, '');
@@ -88,7 +89,7 @@ export class DesignSession {
     this.solution = expected?.changed && signature(expected.grid) === signature(out.grid) ? this.solution.slice(1) : [];
     let removed = 0;
     for (const p of out.erased) for (const [pos, face] of [[p.a, p.face], [p.b, p.other]] as [Pos, string][]) {
-      if (hasIce(face)) continue;
+      if (hasIce(p.face)||hasIce(p.other)) continue;
       removed++;
       const base = face.replace(/[~*]+$/, '');
       this.collected[base] = (this.collected[base] || 0) + 1;

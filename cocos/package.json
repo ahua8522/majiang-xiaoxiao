@@ -5,9 +5,9 @@
   "description": "快乐推麻对对消 · Cocos Creator 微信小游戏（规则引擎 + cc 原生视图层）",
   "scripts": {
     "build:core": "tsc assets/scripts/core/levels.ts assets/scripts/core/Rules.ts assets/scripts/core/Generator.ts assets/scripts/core/Session.ts assets/scripts/core/Challenge.ts assets/scripts/core/ChallengeSession.ts assets/scripts/core/tutorials.ts assets/scripts/core/Tutorial.ts assets/scripts/core/coach.ts --outDir .test/core --target ES2020 --module commonjs --strict --skipLibCheck",
-    "author:levels": "npm run build:core && node tools/author-levels.cjs && npm run build:core",
-    "test": "npm run build:core && node --test tests/core.test.cjs tests/generation.test.cjs tests/session.test.cjs tests/transpile.test.cjs tests/view-source.test.cjs tests/levels-meta.test.cjs tests/levels-seed.test.cjs tests/timelimit.test.cjs tests/dialect.test.cjs tests/goals.test.cjs tests/tutorial.test.cjs tests/progression.test.cjs tests/challenge.test.cjs",
-    "export:table": "npm run build:core && node tools/export-level-table.cjs",
+    "author:levels": "npm run build:core && node tools/author-campaign.cjs && npm run build:core",
+    "test": "npm run build:core && node --test tests/core.test.cjs tests/generation.test.cjs tests/session.test.cjs tests/transpile.test.cjs tests/view-source.test.cjs tests/levels-meta.test.cjs tests/levels-seed.test.cjs tests/timelimit.test.cjs tests/dialect.test.cjs tests/goals.test.cjs tests/tutorial.test.cjs tests/progression.test.cjs tests/challenge.test.cjs tests/campaign.test.cjs",
+    "export:table": "npm run build:core && node tools/export-campaign.cjs",
     "test:stress": "npm run build:core && node --test tests/stress-review.test.cjs",
     "test:all": "npm run test && npm run test:stress && npm run check:cocos",
     "check:cocos": "tsc -p tsconfig.check.json",

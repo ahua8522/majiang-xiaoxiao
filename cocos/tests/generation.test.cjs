@@ -3,7 +3,7 @@ const R=require('../.test/core/Rules.js');
 const G=fs.existsSync(__dirname+'/../.test/core/Generator.js')?require('../.test/core/Generator.js'):{};
 test('全部关卡证书都由真实转换走完，绝不返回未证明兜底',()=>{
   assert.equal(typeof G.generate,'function','缺少可证生成器');
-  assert.equal(G.LEVELS.length,224,`关数 ${G.LEVELS.length}`);
+  assert.equal(G.LEVELS.length,520,`关数 ${G.LEVELS.length}`);
   // 钉死那颗种子**必须**能发能证（发布内容可证的定义）；抽样种子是"洗牌能不能用"的代理指标，
   // 方言关牌池窄，个别种子发不出满盘解是允许的，但不能成批失败（下面按 2/3 兜）。
   // 只对**提供洗牌**的关要求"抽样种子也能发牌"：方言关按产品决定不提供洗牌
@@ -145,7 +145,7 @@ test('生成器整体不退化成"完全不罚冲突"（宽松兜底，非发布
   assert.ok(total/combos<=2.0,`随机种子冲突均值 ${total/combos}，生成器可能不再惩罚冲突（worst ${worst}）`);
 });
 test('后期完整打乱失败时逐步构造，不退回铺满现成对子的简单牌局',()=>{  // 挑三关"提供洗牌"的关（方言关牌池窄、抽样种子可能发不出牌，语义上不该进这条）
-  const probes=[0,70,140].map((hint)=>{
+  const probes=[20,70,140].map((hint)=>{
     for(let i=hint;i<G.LEVELS.length;i++)if(!G.LEVELS[i].dialect)return i;
     return -1;
   }).filter((i)=>i>=0);
@@ -158,34 +158,19 @@ test('后期完整打乱失败时逐步构造，不退回铺满现成对子的�
     assert.equal(R.count(g),0);
   }
 });
-test('224 关棋盘两两不同，尺寸与机制按章节门槛递进',()=>{
-  assert.equal(G.LEVELS.length,224);
-  const seen=new Set();
-  let prevArea=0;
+test('520 个固定牌局各不相同，牌桌大小交替、机制按学习顺序进入',()=>{
+  const seen=new Set(),sizes=new Set();let reductions=0;
   for(let i=0;i<G.LEVELS.length;i++){
-    const L=G.LEVELS[i],key=L.map.join('|');
-    assert.ok(!seen.has(key),`第 ${i+1} 关棋盘与前面某关完全相同`);
-    seen.add(key);
-    const rows=L.map.length,cols=L.map[0].length,area=rows*cols;
-    // 牌桌约束：行 ≤10、列 ≤9（再大就超出可用高度）。以前 101 关起的"窄高盘"路线
-    // 就是被这条约束逼出来的，最后成了退坡的发生地——现在改成章内单调 + 边界，不再规定形状。
-    assert.ok(rows<=10&&cols<=9,`第 ${i+1} 关 ${rows}x${cols} 超出牌桌约束`);
-    if(i%16===0)prevArea=0;                       // 面积只在章内要求单调（换章允许回落）
-    assert.ok(area>=prevArea,`第 ${i+1} 关棋盘面积比本章上一关小`);
-    prevArea=area;
-    assert.ok(L.faces>=4&&L.faces<=42,`第 ${i+1} 关花色数越界`);
-    const d=G.generate(i,L.seed),slots=R.count(d.grid);
-    assert.ok(slots<=136,'牌位上限 136');
-    const ci=L.chapter??Math.floor(i/16);
-    // 机制门槛按章而不是按关号同余：谁先谁后是章节表定的
-    if(ci>=1)assert.ok(L.lockR.length||L.lockC.length||L.oneWay?.length||L.unlock?.length,`第 ${i+1} 关（第二章起）应有约束`);
-    if(ci<3)assert.ok(!L.ice,`第 ${i+1} 关不该有冰面（第四章才引入）`);
-    // 冰面从第四章起，但集组章（八花齐/三元齐/清龙）按章节表就是不配冰的一档，别硬要
-    if(ci<3)assert.ok(!L.bombs,`第 ${i+1} 关不该有鞭炮（跟冰一起，第四章才给）`);
-    // 冰面不是「第四章以后每章都得有」：集组章与清龙章按章节表就是不配冰的一档，
-    // 原来那条断言是我写死的旧口径，会把设计里合法的选择当成缺陷。
-    if(ci<2)assert.ok(!(L.oneWay&&L.oneWay.length)&&!(L.unlock&&L.unlock.length),`第 ${i+1} 关不该有单向轨/连锁（第三章才引入）`);
+    const L=G.LEVELS[i],d=G.generate(i,L.seed),hash=R.boardHash(d.grid);
+    assert.ok(!seen.has(hash),`重复牌局 ${i+1}`);seen.add(hash);
+    const rows=L.map.length,cols=L.map[0].length;sizes.add(`${cols}x${rows}`);
+    assert.ok(cols<=8&&rows<=10&&R.count(d.grid)<=136);
+    if(i&&rows*cols<G.LEVELS[i-1].map.length*G.LEVELS[i-1].map[0].length)reductions++;
+    if(i<20)assert.ok(!L.ice&&!L.floors&&!L.oneWay&&!L.moveLimit);
+    if(i<40)assert.ok(!L.ice);
+    assert.ok(!L.dialect&&!L.timeLimit);
   }
+  assert.ok(sizes.has('8x10')&&sizes.size>=10);assert.ok(reductions>60,'穿插小盘休息关');
 });
 
 test('新机制按配额落位，且确实用到了（不生成「名义上有、实际没有」的关）',()=>{
@@ -200,11 +185,11 @@ test('新机制按配额落位，且确实用到了（不生成「名义上有�
     }
     if(L.goal){
       goal++;
-      assert.ok(L.goal.count>=2&&L.goal.count<=20,`第 ${i+1} 关目标数异常`);
+      assert.ok(L.goal.count>=1&&L.goal.count<=20,`第 ${i+1} 关目标数异常`);
       // collect 目标带的是 faces 数组（八花齐/三元齐/清龙），以前只认 face/ice 两种
       assert.ok(L.goal.kind==='face'?!!L.goal.face
         :L.goal.kind==='collect'?!!(L.goal.faces&&L.goal.faces.length)
-        :L.goal.kind==='ice',`第 ${i+1} 关目标定义不完整`);
+        :L.goal.kind==='garden'?!!L.floors?.length:L.goal.kind==='ice',`第 ${i+1} 关目标定义不完整`);
     }
     if(L.oneWay&&L.oneWay.length){
       oneWay++;
@@ -227,6 +212,6 @@ test('新机制按配额落位，且确实用到了（不生成「名义上有�
   assert.ok(bombs>=3,`鞭炮关太少：${bombs}`);        // 鞭炮只在有冰的关、每章 k%5===4
   assert.ok(wild>=4,`百搭关太少：${wild}`);          // 设计是每章 2-4 关，第五章给 4 关
   assert.ok(ice2>=6,`厚冰关太少：${ice2}`);
-  for(const k of ['basic','stack','lockRow','moveLimit','oneWay','lockCol','goal','ice','flower','wild','stack3','ice2','bomb','unlock'])
+  for(const k of Array.from({length:26},(_,i)=>'ctip:'+i))
     assert.ok(intros.has(k),`缺少机制说明键 ${k}`);
 });

@@ -316,10 +316,10 @@ export class UiAtlas {
       const g = c.createLinearGradient(x, y, x, y + h);
       g.addColorStop(0, palette.woodLight); g.addColorStop(.5, palette.wood); g.addColorStop(1, palette.woodDeep);
       c.fillStyle = g; c.fill();
-      strokeRR(c, x, y, w, h, 26, '#4A2C10', 5);
+      strokeRR(c, x, y, w, h, 26, '#A38F68', 5);
       // 内圈绿毡 = 棋盘真正的台面（H5 稿 woodFrame 同款）。
       // 只描边不填充的话整块木框就是一整片棕色板子，牌和槽位都读不出来。
-      fillRR(c, x + 12, y + 12, w - 24, h - 24, 18, '#4E6B33');
+      fillRR(c, x + 12, y + 12, w - 24, h - 24, 18, '#A7C8AA');
       strokeRR(c, x + 12, y + 12, w - 24, h - 24, 18, 'rgba(30,50,20,.5)', 3);
     }, [44, 44, 44, 44]);
     put('tile-tray', 120, 120, (c, x, y, w, h) => {

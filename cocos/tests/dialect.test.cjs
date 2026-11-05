@@ -113,18 +113,6 @@ test('transition 认方言：滑到一起的哑弹不会自动消除，白名单
   assert.equal(R.count(plain.grid), 0, '无方言时连消应生效');
 });
 
-test('方言关的证书：走完路线 liveCount 归零，且确实留下哑弹', () => {
-  const idx = G.LEVELS.findIndex(d => d.dialect && d.dialect.ranks);
-  assert.ok(idx >= 0, '关卡表还没有方言关（Task 8 章节表接上后才会有）');
-  const def = G.LEVELS[idx];
-  const deal = G.generate(idx, def.seed);
-  let g = deal.grid, runs = deal.runs;
-  for (const a of deal.solution) {
-    const out = R.transition(g, runs, a, def.dialect);
-    assert.equal(out.changed, true, `第 ${idx + 1} 关证书某步失效`);
-    g = out.grid;
-    runs = R.runsFor(g, def.lockR, def.lockC, def.oneWay);
-  }
-  assert.equal(R.liveCount(g, def.dialect), 0, '证书走完还剩能配的牌');
-  assert.ok(R.count(g) > 0, '一张哑弹都没留下 = 白名单没真正生效');
+test('新主线没有麻将番型禁消限制，独立旧规则仍保持兼容',()=>{
+  assert.equal(G.LEVELS.filter(d=>d.dialect).length,0);
 });

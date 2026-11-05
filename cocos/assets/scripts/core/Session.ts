@@ -1,5 +1,7 @@
 import {Action,Grid,Pos,Run,Pair,clone,count,Dialect,equal,hasIce,isDead,liveCount,partners,pairs,runsFor,searchHint,signature,stripIce,top,transition,unwild} from './Rules';
 import {Deal,generate,goalPairs,redeal,stateLegal,LEVELS,levelAt,isFace,activeLocks,LevelDef} from './Generator';
+import {CAMPAIGN_VERSION,CHAPTER_LENGTH} from './Campaign';
+import {MechanicState,freshMechanics,copyMechanics,advanceMechanics,mechanicGoal,mechanicLocks,restoreMechanics,restoreRoute,searchObjective} from './Mechanics';
 import {Tutorial,tutorialByKey} from './tutorials';
 import {coachFor,coachSeenKey} from './coach';
 import type {CoachState} from './coach';
@@ -7,7 +9,7 @@ export type Modal='none'|'home'|'help'|'settings'|'restart'|'win'|'levels'|'lose
 /** 失败原因：步数用尽 / 时间到 / 牌走死。失败页按它给不同的出路（见 `docs/玩法深度与变现设计.md` A3）。 */
 export type FailReason=''|'step'|'time'|'dead';
 export interface Platform {load():unknown;save(data:unknown):void;feedback():void}
-interface Snapshot {grid:Grid;moves:number;lastChain:number;solution:Action[];hint:Action[];clearedPairs:number;goalDone:number;timeLeft:number;score:number}
+interface Snapshot {grid:Grid;moves:number;lastChain:number;solution:Action[];hint:Action[];clearedPairs:number;goalDone:number;timeLeft:number;score:number;mechanics:MechanicState;energySpent:number}
 const local:Platform={load:()=>null,save:()=>{},feedback:()=>{}};
 /**
  * 本地日期戳（`YYYY-MM-DD`）。道具账本按它判断「是不是新的一天」。
@@ -19,35 +21,17 @@ export function dayStamp(now:Date=new Date()):string{
   const p=(n:number):string=>(n<10?'0':'')+n;
   return `${now.getFullYear()}-${p(now.getMonth()+1)}-${p(now.getDate())}`;
 }
-/** 关卡选择每页格数（4 列 × 4 行，扁平网格，不分组）。 */
-export const PAGE_SIZE=16;
-/** 一章的关数，与选关页的 4×4 一屏一致。章节门槛按它切分。 */
+/** 关卡选择每页格数（4 列 × 5 行，扁平网格，不分组）。 */
+export const PAGE_SIZE=CHAPTER_LENGTH;
+/** 一章的关数，与选关页的 4×5 一屏一致。章节门槛按它切分。 */
 export const CHAPTER_SIZE=PAGE_SIZE;
-/** 每章满星数 = 16 关 × 3 星。 */
+/** 每章满星数 = 20 关 × 3 星。 */
 export const CHAPTER_MAX_STARS=CHAPTER_SIZE*3;
-/**
- * 章节星数门槛（`docs/玩法深度与变现设计.md` B2）。
- *
- * 章 1 放宽到 22（教学章不卡人），其后统一 27。全 1 星打通一章只有 16 星，
- * 所以 27 星意味着必须把约 11 关重打到 2 星——这就是复玩量的来源。
- * **这两个数必须靠 `star_gain` / `chapter_gate_block` 埋点回调，不要凭感觉改。**
- */
-export const CHAPTER_GATE=[22,27,27,27,27,27,27,27,27,27,27,27,27,27];
+/** 章节准入保留兼容接口，不设刷星门槛。 */
+export const CHAPTER_GATE=Array.from({length:26},()=>0);
 export const chapterOf=(index:number):number=>Math.floor(index/CHAPTER_SIZE);
-export const gateFor=(chapter:number):number=>CHAPTER_GATE[chapter]??27;
-/**
- * 星级线（`docs/玩法深度与变现设计.md` B1）。**只看步数，不看是否用过道具。**
- *
- * 三条理由：
- * ① `par` 是生成器证书的步数，实测跨度 4~71 步（`docs/关卡全量表.md`），
- *    要求玩家一步不差复现机器解法在长关里几乎不可能，所以 3 星给 8% 缓冲；
- * ② 2 星从 `par*1.5` 收紧到 `par*1.35`——1.5 倍太松，首次通关随手打就 2 星，
- *    章节门槛（B2）的缺口就不成立了；
- * ③ 缓冲用 `max(下限, 比例)` 而不是纯比例：`par=4` 时纯比例只给 5.4 步，一次滑动就超。
- *
- * 旧的「用提示/洗牌就掉星」被删掉了：它让玩家为了保星不敢点提示，
- * 直接把道具消耗和广告触发量一起压死。
- */
+export const gateFor=(chapter:number):number=>CHAPTER_GATE[chapter]??0;
+/** 星级只看参考路线与实际步数；提示、洗牌不扣星。 */
 export function ratingFor(moves:number,par:number):1|2|3{
   if(par<=0)return 3;
   if(moves<=par+Math.max(1,Math.round(par*0.08)))return 3;
@@ -60,6 +44,9 @@ export function starLines(par:number):{three:number;two:number}{
   return{three:par+Math.max(1,Math.round(par*0.08)),two:par+Math.max(2,Math.round(par*0.35))};
 }
 export class Session {
+  mechanics:MechanicState=freshMechanics(LEVELS[0]);
+  legacyProgress:unknown=null;
+  private energySpent=0;
   grid:Grid=[];runs:Run[]=[];levelIndex=0;maxLevel=0;total=0;moves=0;
   selected:Pos|null=null;hint:Action[]=[];message='';modal:Modal='none';
   reducedMotion=false;vibration=true;lastChain=0;solution:Action[]=[];lastErased:Pair[]=[];
@@ -94,10 +81,7 @@ export class Session {
   coach:CoachState|null=null;
   /** 本关该展示的机制键；setupLevel 决定，reset 装好 solution 后再起 coach。 */
   private introKey:string|null=null;
-  /**
-   * 上一次进入的章号。章首弹框按「换章」触发：同一章内下一关/重开不重复，
-   * 换章或冷启动（初值为 null）都会弹；不落盘，所以每次开游戏都会看到当前章的说明。
-   */
+  /** 上一次进入的章号；说明是否展示由持久化 tipsSeen 决定。 */
   private lastChapter:number|null=null;
   /** 已经看过的机制说明（持久化，避免每次都弹）。 */
   tipsSeen:Record<string,boolean>={};
@@ -114,12 +98,7 @@ export class Session {
    * 供选关页算「再快 N 步能升几星」。没通关的关没有这个数，也就不显示刷星导航。
    */
   pars:Record<string,number>={};
-  /**
-   * 道具账本（A2）：`levelIndex → {h,s}` = 这一关已经用掉的提示/洗牌次数。
-   *
-   * **不随重开清零**——清零就等于额度无限，广告补给也就没有需求。
-   * 通关时删除该关记录；`usedDay` 变化（跨天）时整体清空，兜住「用完提示又打不过」的永久卡死。
-   */
+  /** 同一局道具用量持久化；免费重开恢复提示与洗牌。 */
   used:Record<string,{h:number;s:number}>={};
   /** 道具账本的日期戳（本地 YYYY-MM-DD）。跨天整表清空。 */
   usedDay='';
@@ -135,6 +114,11 @@ export class Session {
   constructor(seed=Date.now(),platform:Platform=local){
     this.seed=seed;this.platform=platform;let data:any;
     try{data=platform.load();if(typeof data==='string')data=JSON.parse(data);}catch{data=null;}
+    if(data&&typeof data==='object'&&data.campaign!==CAMPAIGN_VERSION){
+      // Keep the old records recoverable; rewritten boards must not inherit old scores or an incompatible live board.
+      this.legacyProgress={maxLevel:data.maxLevel,stars:data.stars,best:data.best,bestMoves:data.bestMoves,run:data.run};
+      data={...data,stars:{},best:{},bestMoves:{},pars:{},tipsSeen:{},used:{},run:null};
+    }else if(data?.legacyProgress)this.legacyProgress=data.legacyProgress;
     if(data&&typeof data==='object'){
       if(Number.isInteger(data.maxLevel))this.maxLevel=Math.max(0,Math.min(LEVELS.length-1,data.maxLevel));
       if(data.stars&&typeof data.stars==='object')for(const [i,n]of Object.entries(data.stars))if(/^\d+$/.test(i)&&Number(i)<=this.maxLevel&&Number.isInteger(n)&&Number(n)>=1&&Number(n)<=3)this.stars[i]=Number(n);
@@ -165,18 +149,20 @@ export class Session {
     if(!(data?.version>=2&&this.restore(data.run))){this.lastChapter=null;this.reset(this.maxLevel,false);}
     this.modal='home';
   }
-  private save(){try{this.platform.save({version:4,maxLevel:this.maxLevel,stars:this.stars,best:this.best,bestMoves:this.bestMoves,pars:this.pars,
+  private save(){try{this.platform.save({version:5,campaign:CAMPAIGN_VERSION,legacyProgress:this.legacyProgress,maxLevel:this.maxLevel,stars:this.stars,best:this.best,bestMoves:this.bestMoves,pars:this.pars,
     used:this.used,usedDay:this.usedDay,
     reducedMotion:this.reducedMotion,vibration:this.vibration,tipsSeen:this.tipsSeen,
     // 已经结束（通关 / 判负）的一局不再当成"可以继续的进度"落盘：否则冷启动会回到
     // 一个已经赢了的目标盘（win 弹框不会重放）或 0 秒的限时盘（tick 只在 before>0 时判负，
     // 于是 0 秒还能一直推）。通关那一局本来也不该继续。
-    run:!this.finished&&count(this.grid)?{index:this.levelIndex,seed:this.seed,grid:this.grid,total:this.total,moves:this.moves,par:this.par,
+    run:!this.finished&&count(this.grid)?{hash:this.def.hash,mechanics:this.mechanics,solution:this.solution,hint:this.hint,energySpent:this.energySpent,index:this.levelIndex,seed:this.seed,grid:this.grid,total:this.total,moves:this.moves,par:this.par,
       hintsUsed:this.hintsUsed,shufflesUsed:this.shufflesUsed,clearedPairs:this.clearedPairs,goalDone:this.goalDone,goalTarget:this.goalTarget,
       score:this.score,bonusMoves:this.bonusMoves,revivesUsed:this.revivesUsed,hintTotal:this.hintTotal,timeLeft:Math.round(this.timeLeft*10)/10}:null});}catch{/* Storage quota must not block play. */}}
   /** @returns 是否已经装好一副可玩的牌桌（false = 调用方需要用 `reset` 初始化）。 */
   private restore(run:any):boolean{
     if(!run||!Number.isInteger(run.index)||run.index<0||run.index>this.maxLevel||!Array.isArray(run.grid))return false;
+    if(run.hash!==levelAt(run.index).hash)return false;
+    const restored=restoreMechanics(levelAt(run.index),run.mechanics);if(!restored)return false;
     const map=levelAt(run.index).map,grid=run.grid as Grid;
     if(grid.length!==map.length||!grid.every((row,r)=>Array.isArray(row)&&row.length===map[r].length&&row.every((cell,c)=>map[r][c]==='.'?cell===null:map[r][c]==='#'?cell==='#':Array.isArray(cell)&&cell.length<=3&&cell.every(f=>isFace(f)))))return false;
     // 额度上限放宽到 9：广告补给（C3/C4）会把次数加回 1，固定卡 3/2 会把补给过的存档当脏档丢弃。
@@ -186,6 +172,7 @@ export class Session {
     // （实测第 60 关消一对就是 3m×3、f5*×3）。旧校验把这种合法进度当脏档丢弃：
     // 玩家重开直接回到开局，洗牌也从此永久不可用。
     if(!stateLegal(grid)||count(grid)>run.total||run.total>136)return false;
+    if(Object.values(restored.collected).reduce((n,v)=>n+v,0)!==run.total-count(grid))return false;
     // 剩余时间必须恢复，否则杀进程重进＝白送一次倒计时重置，限步关可以靠反复退出刷成无限时间。
     // 旧的 version 2 存档没有这个字段，退到"满值"而不是 0（那批档不可能来自限时关）。
     const level=levelAt(run.index),limit=level.timeLimit||0;
@@ -201,7 +188,8 @@ export class Session {
     // 于是冷启动白白多花一次发牌（实测单次 61~553ms）。
     this.setupLevel(run.index);
     this.timeLeft=Math.max(0,Math.min(tl,limit));
-    this.grid=clone(grid);this.seed=run.seed;this.total=run.total;this.moves=run.moves;this.par=run.par;
+    this.grid=clone(grid);this.mechanics=restored;this.seed=run.seed;this.total=run.total;this.moves=run.moves;this.par=run.par;
+    this.energySpent=Number.isInteger(run.energySpent)?Math.max(0,run.energySpent):0;
     // 进度条分母要能恢复：哑弹不可能被消掉，所以「已消的牌」全是能消的，
     // liveTotal = 现在还能消的 + 已经消掉的。不补这一句，读档后进度条会除以 0。
     this.liveTotal=liveCount(this.grid,this.dialect)+(this.total-count(this.grid));
@@ -218,10 +206,14 @@ export class Session {
     this.clearedPairs=Number.isInteger(run.clearedPairs)?Math.max(0,run.clearedPairs):0;
     this.goalDone=Number.isInteger(run.goalDone)?Math.max(0,run.goalDone):0;
     // 目标按「已经收到手的 + 盘上还剩的」收敛，绝不让读档之后的目标变成够不着的数字
-    this.goalTarget=Math.max(this.goalDone,goalPairs(this.def,this.grid));
+    this.goalTarget=target||goalPairs(this.def,this.grid);
     // 读中盘不补放引导：引导只服务“新开这一关”。玩家杀进程不该被同一段教学再拦一次。
     // 保留 setupLevel 根据换章算出的章首弹框：冷启动读中盘也属于“进入这一章”。
-    this.refreshRuns();this.coach=null;this.introKey=null;this.solution=[];this.message='牌桌已保留，接着上一盘慢慢想。';
+    this.refreshRuns();this.coach=null;this.introKey=null;
+    this.solution=restoreRoute(this.def,this.grid,this.mechanics,this.clearedPairs,run.solution);
+    this.hint=restoreRoute(this.def,this.grid,this.mechanics,this.clearedPairs,run.hint,false);
+    this.hintTotal=this.hint.length?Math.max(this.hint.length,this.hintTotal):0;
+    this.message='牌桌已保留，接着上一盘慢慢想。';
     return true;
   }
   /** 当前关的关卡定义（reset 时从关卡表取；单测可直接替换）。 */
@@ -233,7 +225,7 @@ export class Session {
    * ② 连锁解锁要按进度放开锁轨。
    */
   private refreshRuns():void{
-    const l=activeLocks(this.def,this.clearedPairs);
+    const l=mechanicLocks(this.def,this.clearedPairs,this.mechanics);
     this.runs=runsFor(this.grid,l.lockR,l.lockC,this.def.oneWay);
   }
   get levelCount(){return LEVELS.length;}
@@ -261,16 +253,11 @@ export class Session {
    * 而章节才是玩家感知的难度台阶。
    */
   // 用 ?? 而不是 Number.isInteger 判空：TS 不认后者做类型窄化。
-  get difficulty(){const c=this.def.chapter??Math.floor(this.levelIndex/16);return Math.max(1,Math.min(5,1+Math.floor(c/3.2)));}
-  get hintsLeft(){return 3-this.hintsUsed;}
+  get difficulty(){const c=this.def.chapter??Math.floor(this.levelIndex/CHAPTER_SIZE);return Math.max(1,Math.min(5,1+Math.floor(c/6)));}
+  get hintsLeft(){return Math.max(0,3-this.hintsUsed)+(this.mechanics.charge>=4?1:0);}
   get shufflesLeft(){return 2-this.shufflesUsed;}
-  /**
-   * 方言关不提供洗牌——这是产品决定，不是兜底失败。
-   * 方言的牌池被白名单砍窄，`redeal` 用的又是**别的种子**（`seed + revision*7919`），
-   * 实测经常发不出可证满盘解；与其让玩家按了没反应，不如明说"洗不开"。
-   * 设计意图：方言章卖的是规划，不是重开一次运气。
-   */
-  get shuffleBlocked(){return !!this.def.dialect;}
+  /** 旧方言与固定位置目标不提供洗牌，避免重排破坏解题条件。 */
+  get shuffleBlocked(){return !!this.def.dialect||!!this.def.floors?.length;}
   get canUndo(){return this.history.length>0;}
   /** 本关步数上限（0 = 不限步）。复活换来的额外步数算在里面。 */
   get moveLimit(){return (this.def.moveLimit||0)+this.bonusMoves;}
@@ -291,13 +278,23 @@ export class Session {
   }
   /** 只看 `goalNeed`，不看关卡表里那个可能偏大的 `count`。 */
   get goalReached(){return this.goalNeed>0&&this.goalDone>=this.goalNeed;}
+  get objectiveText():string{
+    const g=this.goal;
+    if(this.def.floors?.length){const names={flower:'开花',dew:'浇水',bud:'花苞'};return `${names[this.def.floors[0].kind]} ${this.goalDone}/${this.goalNeed}`;}
+    if(g?.kind==='collect')return `收集 ${this.goalDone}/${this.goalNeed} 种`;
+    if(g?.kind==='face')return `${Session.faceName(g.face||'')} ${this.goalDone}/${this.goalNeed}`;
+    if(g?.kind==='ice')return `破冰 ${this.goalDone}/${this.goalNeed}`;
+    return `剩余 ${this.remaining} 张`;
+  }
+
   /**
    * 可靠的死局判定（不是近似搜索）：没有可消对子，且所有可达状态都没有任何一步能减少牌数。
    * 视图在每次落子后调用；预算用尽时返回 false（不误判）。
    */
   get dead():boolean{
-    if(!liveCount(this.grid,this.dialect)||this.goalReached)return false;
-    return isDead(this.grid,(grid)=>{const l=activeLocks(this.def,this.clearedPairs);return runsFor(grid,l.lockR,l.lockC,this.def.oneWay);},2000,60,this.dialect);
+    if(this.goalReached)return false;
+    if(!liveCount(this.grid,this.dialect))return !!this.def.floors?.length;
+    return isDead(this.grid,(grid)=>{const l=mechanicLocks(this.def,this.clearedPairs,this.mechanics);return runsFor(grid,l.lockR,l.lockC,this.def.oneWay);},2000,60,this.dialect);
   }
   /** 待展示的说明卡：第 1 关固定教学；其余机制只在首次出现时弹一次。 */
   get introTip():string|null{return this.tip;}
@@ -452,20 +449,11 @@ export class Session {
   gateOf(chapter:number):number{return gateFor(chapter);}
   /** 距离解锁本章还差几星（0 = 已达标）。 */
   gateGap(chapter:number):number{return Math.max(0,gateFor(chapter)-this.chapterStars(chapter));}
-  /**
-   * 这一关能不能进：`maxLevel` 的线性进度 **+ 上一章的星数门槛**，两道闸叠加。
-   *
-   * `maxLevel` 的语义刻意不改——它仍然是「已通关的最远关」。
-   * 这样「打完了第 16 关但星数不够」是合法可表达的状态（maxLevel=16 且 canEnter(16)=false），
-   * 不需要重构存档，也不用给 maxLevel 塞第二层含义。
-   *
-   * `unlockAll`（体验版 / 开发版）必须绕过门槛，否则内部测试会被自己的门槛挡住。
-   * 选关页的整章灰化也走这一处判断——门槛只许有一个口径，视图再手算一遍就会漏掉 unlockAll。
-   */
+  /** 正式版按 maxLevel 线性解锁；开发与体验版可跳关验证。 */
   canEnterChapter(chapter:number):boolean{
     if(this.unlockAll)return true;
     if(chapter<=0)return true;
-    return this.chapterStars(chapter-1)>=gateFor(chapter-1);
+    return chapter*CHAPTER_SIZE<=this.maxLevel;
   }
   canEnter(index:number):boolean{
     if(!Number.isInteger(index)||index<0||index>=LEVELS.length)return false;
@@ -477,14 +465,13 @@ export class Session {
   get rating(){return ratingFor(this.moves,this.par);}
   /** 本关的 2 星线 / 3 星线。视图（牌桌 HUD、失败页、选关页）直接用，避免两端各算一遍算岔。 */
   get starLines(){return starLines(this.par);}
-  private remember(){this.history.push({grid:clone(this.grid),moves:this.moves,lastChain:this.lastChain,solution:this.solution.slice(),hint:this.hint.slice(),clearedPairs:this.clearedPairs,goalDone:this.goalDone,timeLeft:this.timeLeft,score:this.score});if(this.history.length>80)this.history.shift();}
+  private remember(){this.history.push({grid:clone(this.grid),moves:this.moves,lastChain:this.lastChain,solution:this.solution.slice(),hint:this.hint.slice(),clearedPairs:this.clearedPairs,goalDone:this.goalDone,timeLeft:this.timeLeft,score:this.score,mechanics:copyMechanics(this.mechanics),energySpent:this.energySpent});if(this.history.length>80)this.history.shift();}
   /** 只装配关卡的静态部分（定义、计数器、待弹的说明卡），**不发牌**。 */
   private setupLevel(chosen:number,chapterEntry=false):void{
-    this.levelIndex=chosen;this.def=levelAt(chosen);
+    this.levelIndex=chosen;this.def=levelAt(chosen);this.mechanics=freshMechanics(this.def);this.energySpent=0;
     this.finished=false;this.coach=null;this.introKey=null;
     this.moves=0;this.lastChain=0;this.selected=null;this.hint=[];this.history=[];this.modal='none';this.lastErased=[];
-    // 道具额度**从账本里读**，不是无条件清零：重开继承已用次数（A2）。
-    // 清零就等于额度无限——玩家用完 3 次提示重开一次又满，广告补给永远没有需求。
+    // 读档保留同一局用量，reset 已先清空本关账本。
     const book=this.used[chosen];
     this.hintsUsed=book?book.h:0;this.shufflesUsed=book?book.s:0;
     this.levelPage=Math.floor(chosen/PAGE_SIZE);this.returnModal='none';
@@ -495,10 +482,10 @@ export class Session {
     // 不再按机制首现弹卡，也不再把章 6 拦进独立小盘教学屏。
     // 判据是「这一章第一次被进入」而不是「这一关是章首」：玩家从选关跳进章 6 的第 4 关，
     // 也该补上这段与具体盘面无关的章级说明。
-    const chapter=this.def.chapter??Math.floor(chosen/16);
-    // 每次换章都弹：同一章内继续下一关/重开不重复，避免 16 关弹 16 次；
-    // 冷启动 lastChapter 为 null，所以每次开游戏也会看到当前章的说明。
-    this.tip=(chapterEntry||this.lastChapter!==chapter)?'ctip:'+chapter:null;
+    const chapter=this.def.chapter??Math.floor(chosen/CHAPTER_SIZE);
+    // 每章首次阅读后记住，冷启动与重开都不重复。
+    const tipKey='ctip:'+chapter;
+    this.tip=!this.tipsSeen[tipKey]?tipKey:null;
     this.lastChapter=chapter;
     this.introKey=null;                                  // 旧 coach / intro 机制停用
   }
@@ -547,8 +534,9 @@ export class Session {
     const pin=LEVELS[wanted]?.seed;
     this.seed=Number.isInteger(pin)?pin>>>0:(fresh?(this.seed+0x9e3779b9)>>>0:this.seed);
     const{index:chosen,deal}=this.deal(wanted);
+    delete this.used[chosen];
     this.setupLevel(chosen,chapterEntry);
-    this.grid=deal.grid;this.runs=deal.runs;this.solution=deal.solution;
+    this.grid=deal.grid;this.runs=deal.runs;this.solution=deal.solution;this.refreshRuns();
     this.total=count(this.grid);this.liveTotal=liveCount(this.grid,this.dialect);this.par=deal.solution.length;
     this.goalTarget=goalPairs(this.def,this.grid);
     this.message=chosen===0?'同牌相邻，轻点消除；拖动一行或一列，松手自动消。'
@@ -585,10 +573,12 @@ export class Session {
     // 会在这里就地补算一次，等盘面改完再算就变成 0 了（碎冰/收对之后牌已经不在盘上）。
     const need=this.goalNeed;
     this.remember();
+    const nextMechanics=advanceMechanics(this.def,this.mechanics,out);
+    const sameMarks=(change:typeof out)=>advanceMechanics(this.def,this.mechanics,change).marks.join()===nextMechanics.marks.join();
     const planned=this.solution[0],expected=planned?transition(this.grid,this.runs,planned,this.dialect):null;
-    if(expected?.changed&&signature(expected.grid)===signature(out.grid))this.solution.shift();else this.solution=[];
+    if(expected?.changed&&signature(expected.grid)===signature(out.grid)&&sameMarks(expected))this.solution.shift();else this.solution=[];
     const hinted=this.hint[0];
-    if(hinted&&signature(transition(this.grid,this.runs,hinted,this.dialect).grid)===signature(out.grid)){
+    if(hinted&&signature(transition(this.grid,this.runs,hinted,this.dialect).grid)===signature(out.grid)&&sameMarks(transition(this.grid,this.runs,hinted,this.dialect))){
       // 提示是**分步计划**（B1）：走对一步就前进到下一步，玩家不用再点一次提示。
       this.hint.shift();
       if(!this.hint.length)this.hintTotal=0;
@@ -597,6 +587,8 @@ export class Session {
       // 比不给指引更糟——玩家会照着错的走。
       this.hint=[];this.hintTotal=0;
     }
+    const previousGrid=this.grid;
+    this.mechanics=nextMechanics;
     this.grid=out.grid;this.selected=null;this.lastChain=out.chain;this.lastErased=out.erased;
     this.moves++;
     // 分数（B1）：一次消得多、连锁波数多，得分才高。
@@ -611,17 +603,10 @@ export class Session {
     this.clearedPairs+=cleared;
     const g=this.goal;
     if(g){
-      const base=unwild(g.face||'');
-      const isGoal=(p:Pair):boolean=>unwild(stripIce(p.face))===base||unwild(stripIce(p.other))===base;
-      if(g.kind==='collect'){
-        // 一步连消里同一种可能不止一对（冰面要消两次），集组按「这一种到手了」算，只加一次。
-        const hit=new Set<string>();
-        for(const pr of out.erased)for(const f of [pr.face,pr.other]){
-          const b=unwild(stripIce(f));if(g.faces&&g.faces.includes(b))hit.add(b);
-        }
-        this.goalDone+=hit.size;
-      }
-      else this.goalDone+=g.kind==='face'?(g.face?out.erased.filter(isGoal).length:cleared):out.erased.filter(anyIce).length;
+      if(g.kind==='ice'){
+        const layers=(grid:Grid)=>grid.flat().reduce((n,c)=>n+(Array.isArray(c)?c.reduce((v,f)=>v+(f.match(/~/g)||[]).length,0):0),0);
+        this.goalDone+=layers(previousGrid)-layers(this.grid);
+      }else this.goalDone=mechanicGoal(this.def,this.mechanics);
       if(need)this.goalDone=Math.min(this.goalDone,need);
     }
     this.refreshRuns();
@@ -637,8 +622,8 @@ export class Session {
     if(this.hint.length)this.message=this.hintLead()+this.describe(this.hint[0]);
     // 方言关的终点是还能配的都消光：哑弹留在盘上也算清台（判据见 Rules.liveCount）
     const done=liveCount(this.grid,this.dialect)===0;
-    if(done||this.goalReached){
-      this.modal='win';this.finished=true;this.maxLevel=Math.max(this.maxLevel,Math.min(LEVELS.length-1,this.levelIndex+1));
+    if((done&&!this.goal)||this.goalReached){
+      this.modal='win';this.finished=true;if(this.levelIndex<=this.maxLevel)this.maxLevel=Math.max(this.maxLevel,Math.min(LEVELS.length-1,this.levelIndex+1));
       const lv=this.levelIndex;
       this.stars[lv]=Math.max(this.stars[lv]||0,this.rating);
       // 最高分 / 最少步数：都只往好的方向写，重打一次打砸了不许把纪录冲掉。
@@ -651,6 +636,8 @@ export class Session {
       delete this.used[lv];
       this.hint=[];this.hintTotal=0;
       this.message=done?'胡了！清台。':'胡了！目标达成。';
+    }else if(done&&this.goal){
+      this.modal='lose';this.finished=true;this.failReason='dead';this.message='目标还没完成，试试换个消除位置。';
     }else if(this.moveLimit&&this.moves>=this.moveLimit){
       // 步数用尽：明确判负（视图据此弹失败页）
       this.modal='lose';this.finished=true;this.failReason='step';this.message=`步数用尽，还差 ${liveCount(this.grid,this.dialect)} 张可消。`;
@@ -686,43 +673,32 @@ export class Session {
     this.message='牌走死了：剩下的牌凑不出可消的组合。';
     this.save();this.revision++;
   }
-  /**
-   * 还能不能复活（A3）。死局不给复活——死局的痛点是「这盘无解」，
-   * 卖广告解决不了根本问题，只会让玩家觉得被敲诈。死局走 `rescueShuffle`（免费）。
-   */
+  /** 失败后免费补步，上限两次；位置目标死局用撤销或重开。 */
   get canRevive():boolean{return this.modal==='lose'&&this.finished&&this.failReason!=='dead'&&this.revivesUsed<2;}
   /** 这次复活能换多少：第一次 +3 步，第二次 +1 步。不做递减上限就是无限续命。 */
   get reviveBonus():number{return this.revivesUsed===0?3:1;}
-  /**
-   * 复活：保留盘面与进度，把步数预算 / 倒计时补回来。
-   *
-   * 为什么值钱：盘面已经消掉一大半，重开要从头来。复活卖的是**已经投入的那 5 分钟**，
-   * 这也是激励视频点击率最高的点位。
-   */
+  /** 免费续局：保留盘面与机关进度，补充步数或兼容模式的时间。 */
   revive():boolean{
     if(!this.canRevive)return false;
+    const bonus=this.reviveBonus;
     if(this.failReason==='step'){
-      this.bonusMoves+=this.reviveBonus;
+      this.bonusMoves+=bonus;
     }else if(this.failReason==='time'){
       this.timeLeft=Math.max(0,this.timeLeft)+30;
     }else return false;
     this.revivesUsed++;
     this.finished=false;this.modal='none';this.failReason='';this.selected=null;this.hint=[];this.hintTotal=0;
-    this.message=this.bonusMoves?`补了 ${this.reviveBonus} 步，接着推。`:'补了 30 秒，接着推。';
+    this.message=this.bonusMoves?`补了 ${bonus} 步，接着推。`:'补了 30 秒，接着推。';
     this.save();this.revision++;return true;
   }
-  /**
-   * 死局救援：免费重排剩余牌，**不消耗本关洗牌额度**。
-   *
-   * 这是刻意让利的点位：玩家在「这盘走死了」的时候最容易被激怒，
-   * 这时候免费救一次，他会相信后面的广告不是敲诈。方言关洗不开就返回 false，走重开。
-   */
+  /** 非位置目标死局可免费重排；位置目标必须保留布局。 */
   rescueShuffle():boolean{
     if(this.modal!=='lose'||this.failReason!=='dead')return false;
+    if(this.shuffleBlocked){this.message='位置目标需要保留原布局，可以撤销或重开。';this.revision++;return false;}
     const deal=redeal(this.levelIndex,this.grid,(this.seed+this.revision*7919)>>>0);
     if(!deal){this.message='这一关的牌重排不开，只能重新开始。';this.revision++;return false;}
     this.remember();
-    this.grid=deal.grid;this.runs=deal.runs;this.solution=deal.solution;this.hint=[];this.hintTotal=0;
+    this.grid=deal.grid;this.runs=deal.runs;this.solution=deal.solution;this.refreshRuns();this.hint=[];this.hintTotal=0;
     this.selected=null;this.lastChain=0;this.lastErased=[];
     this.refreshRuns();
     this.finished=false;this.modal='none';this.failReason='';
@@ -732,25 +708,26 @@ export class Session {
   slide(run:number,step:number):boolean{const a={kind:'slide' as const,run,step};return this.coach?this.coachAct(a):this.apply(a);}
   undo():boolean{
     if(this.tip||this.coach)return false;
-    // 失败页不给撤销（A3）：撤销不退步数，在步数用尽的盘上撤销只会立刻再判负，
-    // 而且它原本是「免费无限续命」的后门——那个位置要留给复活广告。
-    if(this.modal!=='none'&&this.modal!=='win')return false;
+    // 步数/时间失败用续局；位置目标死局可以撤销恢复路线。
+    if(this.modal!=='none'&&this.modal!=='win'&&!(this.modal==='lose'&&this.failReason==='dead'))return false;
     const snap=this.history.pop();if(!snap){this.message='还没有需要撤销的操作。';this.revision++;return false;}
     this.grid=snap.grid;
     // ⚠️ A1：`moves` 与 `timeLeft` **刻意不回退**。
     // 回退就等于限步关可以「推→撤销→再推」无限穷举（138 关，占 61%），
     // 限时关可以靠撤销把时间倒流。撤销的代价必须是「花掉 1 步 / 花掉已经流逝的时间」。
     this.lastChain=snap.lastChain;this.solution=snap.solution;this.hint=snap.hint;this.hintTotal=0;
-    this.clearedPairs=snap.clearedPairs;this.goalDone=snap.goalDone;this.score=snap.score;
+    this.clearedPairs=snap.clearedPairs;this.goalDone=snap.goalDone;this.score=snap.score;this.mechanics=copyMechanics(snap.mechanics);
+    // Undo removes earned charge but cannot refund a hint already received.
+    this.mechanics.charge=Math.max(0,this.mechanics.charge-4*(this.energySpent-snap.energySpent));
     // 从失败页撤销回来：这一局重新变成"活着"，时间也退回落子前的那一瞬。
     // 只把 modal 改成 none 而不退时间，会出现"0 秒还能继续推"的漏洞
     // （tick 的判负条件要求 before>0）。
     this.finished=false;this.failReason='';this.refreshRuns();
-    this.selected=null;this.modal='none';this.lastErased=[];this.message='刚才那一步撤回了（步数不退，时间不退）。';this.save();this.revision++;return true;
+    this.selected=null;this.modal='none';this.lastErased=[];this.message=this.moveLimit?'已撤销，步数不退。':'已撤销。';this.save();this.revision++;return true;
   }
   shuffle():boolean{
     if(this.modal!=='none'||this.tip||!count(this.grid))return false;
-    if(this.shuffleBlocked){this.notice('这一关的牌洗不开：方言关只有一种解法，靠推不靠运气。');return false;}
+    if(this.shuffleBlocked){this.notice('位置目标关请用撤销或重开。');return false;}
     if(!this.shufflesLeft){this.notice('本关两次免费洗牌已用完，可以撤销或重开。');return false;}
     const deal=redeal(this.levelIndex,this.grid,(this.seed+this.revision*7919)>>>0);
     if(!deal){this.message='这次无法安全重排，原来的牌没有改动。';this.revision++;return false;}
@@ -787,6 +764,7 @@ export class Session {
       // 逐步骤验会踩「牌消掉后 runs 重算、下标指到别的轨」那个老坑（见 Rules.Run 的注释）。
       if(transition(this.grid,this.runs,this.solution[0],this.dialect).changed)return this.solution.slice(0,K);
     }
+    if(this.def.floors?.length||this.def.keyLocks?.length){return searchObjective(this.def,this.grid,this.mechanics,this.clearedPairs).slice(0,K);}
     const h=searchHint(this.grid,this.runs,{budget:1800,maxDepth:liveCount(this.grid,this.dialect)<=6?8:3},this.dialect);
     if(h.status==='found'&&h.actions.length)return h.actions;
     if(this.solution.length)return [this.solution[0]];
@@ -802,10 +780,10 @@ export class Session {
     if(this.modal!=='none'||this.tip||this.coach)return;
     this.lastErased=[];
     if(this.hint.length){this.message=this.describe(this.hint[0]);this.revision++;return;}
-    if(!this.hintsLeft){this.notice('本关三次提示已用完。重开不会恢复次数，明天会重置。');return;}
+    if(!this.hintsLeft){this.notice(this.def.energy?'提示已用完。消牌充能，或免费重开。':'提示已用完，可以撤销或免费重开。');return;}
     const plan=this.planHint();
     this.hint=plan;this.hintTotal=plan.length;
-    if(this.hint.length){this.hintsUsed++;this.used[this.levelIndex]={h:this.hintsUsed,s:this.shufflesUsed};this.save();}
+    if(this.hint.length){if(this.mechanics.charge>=4){this.mechanics.charge=0;this.energySpent++;}else this.hintsUsed++;this.used[this.levelIndex]={h:this.hintsUsed,s:this.shufflesUsed};this.save();}
     // 方言关本来就不给洗牌（`shuffleBlocked`），让玩家"试试洗牌"只会换来一句拒绝。
     const retry=this.shuffleBlocked?'可以撤销或重开':'可以撤销、洗牌或重开';
     const lead=this.hintLead();
@@ -834,7 +812,7 @@ export class Session {
           this.reset(i);
         }
         // 从首页“开始游戏/继续”进牌桌也算进入这一章：每次都给章首说明，右上角可跳过。
-        this.tip='ctip:'+(this.def.chapter??Math.floor(this.levelIndex/16));
+        const key='ctip:'+(this.def.chapter??Math.floor(this.levelIndex/CHAPTER_SIZE));this.tip=this.tipsSeen[key]?null:key;
         this.modal='none';this.save();this.revision++;return;
       }
       if(open==='home'&&['help','settings','levels'].includes(id)){this.returnModal='home';this.modal=id as Modal;this.levelPage=Math.floor(this.levelIndex/PAGE_SIZE);this.revision++;return;}
@@ -846,12 +824,12 @@ export class Session {
       if(open==='win'&&id==='replay'){this.reset();this.save();return;}
       if(open==='win'&&id==='levels'){this.returnModal='win';this.modal='levels';this.revision++;return;}
       // 失败（步数用尽 / 时间到 / 死局）：重开、复活、死局救援或回首页。
-      // **不提供「撤销一步」**：撤销不退步数，在步数用尽的盘上撤完立刻又判负，
-      // 它原本是免费无限续命的后门，那个位置现在归复活。
+      // 死局允许撤销；步数耗尽只能续局或重开。
       if(open==='lose'&&(id==='replay'||id==='restart')){this.reset();this.save();return;}
       if(open==='lose'&&id==='home'){this.modal='home';this.revision++;return;}
       if(open==='lose'&&id==='revive'){this.revive();return;}
       if(open==='lose'&&id==='rescue'){this.rescueShuffle();return;}
+      if((open==='win'||open==='lose')&&id==='undo'){this.undo();return;}
       if(open==='levels'&&(id==='page-prev'||id==='page-next')){this.levelPage=Math.max(0,Math.min(Math.ceil(this.levelCount/PAGE_SIZE)-1,this.levelPage+(id==='page-next'?1:-1)));this.revision++;return;}
       if(open==='levels'&&id.startsWith('level:')){const i=Number(id.slice(6));if(Number.isInteger(i)&&this.canEnter(i)){this.reset(i,true,true);this.save();}return;}
       return;

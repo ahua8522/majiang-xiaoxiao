@@ -67,22 +67,16 @@ export function drawGarden(ctx: Ctx2D, w: number, h: number): void {
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, w, h);
 
-  mountain(ctx, w, h, h * .52, h * .1, '#B6D6C9', .4);
-  mountain(ctx, w, h, h * .60, h * .08, '#9CC4B4', 2.1);
-  mountain(ctx, w, h, h * .68, h * .06, '#84B29A', 4.3);
+  mountain(ctx, w, h, h * .52, h * .1, '#D5E5D0', .4);
+  mountain(ctx, w, h, h * .60, h * .08, '#C6DBBC', 2.1);
+  mountain(ctx, w, h, h * .68, h * .06, '#B5D0A5', 4.3);
 
-  // 左侧亭子剪影（两层檐 + 柱 + 台基）
-  ctx.save();
-  ctx.translate(w * .12, h * .70);
-  const s = Math.min(w, h) * .11;
-  ctx.fillStyle = 'rgba(120,86,60,.42)';
-  ctx.beginPath(); ctx.moveTo(-s * 1.5, 0); ctx.lineTo(-s * .85, -s * .5); ctx.lineTo(s * .85, -s * .5); ctx.lineTo(s * 1.5, 0); ctx.closePath(); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(-s * 1.05, 0); ctx.lineTo(-s * .55, -s * .42); ctx.lineTo(s * .55, -s * .42); ctx.lineTo(s * 1.05, 0); ctx.closePath(); ctx.fill();
-  ctx.fillRect(-s * .72, 0, s * .14, s * .95); ctx.fillRect(s * .58, 0, s * .14, s * .95);
-  ctx.fillRect(-s * .6, s * .78, s * 1.2, s * .16);
-  ctx.beginPath(); ctx.moveTo(-s * .5, s * .95); ctx.lineTo(-s * .5, s * 1.5); ctx.lineTo(s * .5, s * 1.5); ctx.lineTo(s * .5, s * .95); ctx.closePath();
-  ctx.fillStyle = 'rgba(110,78,52,.32)'; ctx.fill();
-  ctx.restore();
+  // Sunlit flower beds stay at the edges so the mahjong remains the focal point.
+  for(let i=0;i<8;i++){
+    const x=i%2?w*.95:w*.05,y=h*(.18+i*.095);
+    ctx.save();ctx.globalAlpha=.65;
+    blossom(ctx,x,y,w*(.018+(i%3)*.005));ctx.restore();
+  }
 
   // 地面
   ctx.fillStyle = linear(ctx, 0, h * .82, 0, h, [
@@ -134,7 +128,7 @@ export function drawGarden(ctx: Ctx2D, w: number, h: number): void {
 export function drawTable(ctx: Ctx2D, w: number, y: number, h: number): void {
   const th = h - y + 20;
   ctx.fillStyle = linear(ctx, 0, y, 0, y + th, [
-    [0, '#C08B52'], [.16, '#A9723F'], [1, '#7B4C22']
+    [0, '#ECDDC1'], [.16, '#DDC79E'], [1, '#C2AA81']
   ]);
   ctx.fillRect(-20, y, w + 40, th);
 

@@ -110,7 +110,7 @@ export function partners(g: Grid, p: Pos, d?: Dialect): Pos[] {
   return [{r:p.r-1,c:p.c},{r:p.r,c:p.c+1},{r:p.r+1,c:p.c},{r:p.r,c:p.c-1}].filter(q => {
     const f = top(g,q);
     if (!f || !pairable(f, d)) return false;
-    return wild || isWild(f) || f === face;
+    return wild || isWild(f) || bare(f) === bare(face);
   });
 }
 /** 可消对子（含百搭）。生成器统计「白送对子」请用 sameFacePairs——百搭天然能配一切，不该算进去。 */
@@ -121,7 +121,7 @@ export function pairs(g: Grid, d?: Dialect): Pair[] {
     for (const b of [{r,c:c+1},{r:r+1,c}]) {
       const f = top(g,b);
       if (!f || !slideOk(f, d)) continue;
-      if (f === face || isWild(face) || isWild(f)) out.push({a,b,face,other:f});
+      if (bare(f) === bare(face) || isWild(face) || isWild(f)) out.push({a,b,face,other:f});
     }
   }));
   return out;
@@ -141,7 +141,7 @@ export function tapPairs(g: Grid, d?: Dialect): Pair[] {
     for (const b of [{r,c:c+1},{r:r+1,c}]) {
       const f = top(g,b);
       if (!f || !pairable(f, d)) continue;
-      if (f === face || isWild(face) || isWild(f)) out.push({a,b,face,other:f});
+      if (bare(f) === bare(face) || isWild(face) || isWild(f)) out.push({a,b,face,other:f});
     }
   }));
   return out;
@@ -193,6 +193,13 @@ function popOrReveal(g: Grid, p: Pos, face: string, revealed: Set<string>): void
   cell.pop();
   if (hasIce(face)) { cell.push(stripIce(face)); revealed.add(key(p)); }
 }
+function resolvePair(g:Grid,a:Pos,b:Pos,fa:string,fb:string,revealed:Set<string>):void{
+  if(hasIce(fa)||hasIce(fb)){
+    if(hasIce(fa))popOrReveal(g,a,fa,revealed);
+    if(hasIce(fb))popOrReveal(g,b,fb,revealed);
+    revealed.add(key(a));revealed.add(key(b));
+  }else{popOrReveal(g,a,fa,revealed);popOrReveal(g,b,fb,revealed);}
+}
 /**
  * 鞭炮：震碎「与它相邻的冰牌」以及**全场同面的冰牌**。
  *
@@ -220,8 +227,7 @@ export function transition(g: Grid, runs: Run[], action: Action, d?: Dialect): C
     next=clone(g);
     const fa=top(g,action.a)!, fb=top(g,action.b)!;
     const revealed=new Set<string>();
-    popOrReveal(next,action.a,fa,revealed);
-    popOrReveal(next,action.b,fb,revealed);
+    resolvePair(next,action.a,action.b,fa,fb,revealed);
     if(isBomb(fa)||isBomb(fb))shatterAround(next,[action.a,action.b],revealed);
     return {grid:next,changed:true,erased:[{a:action.a,b:action.b,face:fa,other:fb}],chain:1};
   }
@@ -243,8 +249,7 @@ export function transition(g: Grid, runs: Run[], action: Action, d?: Dialect): C
     for(const p of candidates) {
       if(used.has(key(p.a))||used.has(key(p.b)))continue;
       const fa=top(next,p.a)!, fb=top(next,p.b)!;
-      popOrReveal(next,p.a,fa,revealed);
-      popOrReveal(next,p.b,fb,revealed);
+      resolvePair(next,p.a,p.b,fa,fb,revealed);
       if(isBomb(fa)||isBomb(fb))shatterAround(next,[p.a,p.b],revealed);
       used.add(key(p.a));used.add(key(p.b));affected.add(key(p.a));affected.add(key(p.b));
       erased.push(p);round++;

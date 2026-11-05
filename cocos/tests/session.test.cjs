@@ -65,7 +65,7 @@ test('关卡分页、未解锁关卡点不动与终关不循环回第一关',()=
   const s=create();s.command('levels');s.command('page-next');assert.equal(s.levelPage,1);
   s.command('level:6');assert.equal(s.levelIndex,0);s.command('close');
   const last=s.levelCount-1;
-  s.reset(last);install(s,[[['1p'],['1p']]]);s.par=1;s.tap({r:0,c:0});
+  s.maxLevel=last;s.reset(last);s.def={...s.def,goal:undefined,floors:undefined};s.goalTarget=0;install(s,[[['1p'],['1p']]]);s.par=1;s.tap({r:0,c:0});
   assert.equal(s.maxLevel,last);s.command('next');assert.equal(s.levelIndex,last);assert.equal(s.modal,'win');
   s.command('home');assert.equal(s.modal,'home');s.command('settings');s.command('close');assert.equal(s.modal,'home');
 });
@@ -210,7 +210,7 @@ test('可靠死局判定：只剩一叠孤牌时 session.dead 为真',()=>{
   assert.equal(s.dead,false,'有对子不算死');
 });
 
-test('章首弹框：每次换章都弹；同章重开/下一关不重复',()=>{
+test('章首说明首次进入才弹，重开、选关和冷启动不重复',()=>{
   const s=new mod.Session(18);                        // 构造即停在第 1 关
   assert.equal(s.tip,'ctip:0','第 1 章进入要弹章首说明');
   s.command('continue');                              // 进牌桌（弹框仍在）
@@ -224,9 +224,9 @@ test('章首弹框：每次换章都弹；同章重开/下一关不重复',()=>{
   s.reset(0,false);                                   // 同一章重开
   assert.equal(s.tip,null,'同章重开不重复');
   s.reset(0,false,true);                              // 从选关重新进入同一章
-  assert.equal(s.tip,'ctip:0','从选关进入这一章也要弹');
+  assert.equal(s.tip,null,'已经看过的章不重复');
   s.command('tip-ok');
-  s.reset(16,false);                                  // 换到章 2
+  s.reset(20,false);                                  // 换到章 2
   assert.equal(s.tip,'ctip:1','换章要再弹');
   s.command('tip-ok');
   const before2=JSON.stringify(s.grid);
@@ -236,35 +236,35 @@ test('章首弹框：每次换章都弹；同章重开/下一关不重复',()=>{
   }
   s.tap(cell);
   assert.ok(s.selected||JSON.stringify(s.grid)!==before2,'关掉弹框后自由玩');
-  s.reset(17,false);                                  // 同一章下一关
+  s.reset(21,false);                                  // 同一章下一关
   assert.equal(s.tip,null,'同章下一关不重复');
-  s.reset(32,false);                                  // 换到章 3
+  s.reset(40,false);                                  // 换到章 3
   assert.equal(s.tip,'ctip:2','再换章再弹');
 });
 
-test('章 6 将将胡也弹章首说明，不再进小盘教学屏',()=>{
+test('章 6 灵感充能也弹章首说明，不再进小盘教学屏',()=>{
   const s=new mod.Session(18);s.tipsSeen={};
-  s.reset(80,false);                                  // 章 6 首关
+  s.reset(100,false);                                  // 章 6 首关
   assert.equal(s.tip,'ctip:5');
   assert.equal(s.introTutorial,null,'小盘教学不再作为入口');
   s.command('tip-ok');
-  s.reset(80,false);                                  // 同章重开
+  s.reset(100,false);                                  // 同章重开
   assert.equal(s.tip,null,'同章重开不重复');
-  s.reset(96,false);                                  // 换到章 7
+  s.reset(120,false);                                  // 换到章 7
   assert.equal(s.tip,'ctip:6','换章再弹');
 });
 
 test('没有小盘脚本的章同样弹章首说明',()=>{
   const s=new mod.Session(18);s.tipsSeen={};
-  s.reset(48,false);                                  // 换到章 4（冰封）
+  s.reset(60,false);                                  // 换到章 4（冰封）
   assert.equal(s.tip,'ctip:3');
   assert.equal(s.introTutorial,null);
 });
 
 test('终章也按章号弹说明，不靠旧 intro 键',()=>{
   const s=new mod.Session(18);s.tipsSeen={};
-  s.reset(223,false);                                 // 换到章 14
-  assert.equal(s.tip,'ctip:13');
+  s.reset(519,false);                                 // 换到章 14
+  assert.equal(s.tip,'ctip:25');
   assert.equal(s.introTutorial,null);
 });
 
@@ -359,8 +359,8 @@ test('老存档遇到新关卡表：进度保住、形状对不上的中盘牌�
     load(){return this.value;},save(v){this.value=typeof v==='string'?v:JSON.stringify(v);},feedback(){}};
   const s=new mod.Session(7,store);
   assert.equal(s.maxLevel,idx,'进度关号要保住');
-  assert.equal(s.stars['7'],3,'历史星级要保住');
-  assert.equal(s.tipsSeen.ice,true,'看过的说明卡不能重弹');
+  assert.deepEqual(s.stars,{},'旧牌局星级不能套在新牌局上');assert.equal(s.legacyProgress.stars['7'],3,'历史成绩保存在归档');
+  assert.equal(s.tipsSeen.ice,undefined,'新版机制说明重新学习');
   assert.equal(s.vibration,false,'设置项要保住');
   assert.equal(s.moves,0,'形状对不上的中盘牌桌必须丢掉，不能带着旧步数开局');
   assert.equal(R.signature(s.grid),R.signature(deal.grid),'回退到本关钉死的那一盘，而不是旧形状残局');

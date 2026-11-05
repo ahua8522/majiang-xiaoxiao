@@ -8,12 +8,12 @@
 /** 主色板。 */
 export const palette = {
   /** 天空 / 庭院背景 */
-  sky1: '#9FD6E8', sky2: '#CFE9E6', sky3: '#DCEFD2',
-  garden: '#8FB65F', gardenDeep: '#6A9548', gardenDark: '#3E6A31',
-  leaf: '#7FB04C', leafDark: '#4A7A31', leafLight: '#A8CE72',
+  sky1: '#DAEEE7', sky2: '#F1F4E6', sky3: '#E5EDCD',
+  garden: '#ACCAA0', gardenDeep: '#86AA78', gardenDark: '#72916C',
+  leaf: '#99BC7E', leafDark: '#77975F', leafLight: '#C3D9A6',
 
   /** 纸面 / 卡片 */
-  cream: '#FBF3DE', creamDeep: '#F3E6C6', creamEdge: '#E4D2A6',
+  cream: '#FFF9ED', creamDeep: '#F3E6C6', creamEdge: '#E4D2A6',
   gold: '#D8A94E', goldDeep: '#A87C2C', goldLight: '#F3DC9B',
   jade: '#2E7D4F', jadeDeep: '#1C5B37', jadeLight: '#4FA46A', jadeBright: '#43A860',
 
@@ -21,7 +21,7 @@ export const palette = {
   ink: '#2B3A28', inkSoft: '#5D6B52', inkFaint: '#8A957E',
 
   /** 木框 */
-  wood: '#8B5A2B', woodDeep: '#5A3714', woodLight: '#B58046', woodInner: '#4E6B33',
+  wood: '#C8AF7F', woodDeep: '#A18F6C', woodLight: '#E4D1A9', woodInner: '#A7C8AA',
 
   /** 牌面 */
   tile: '#FDF8E4', tileEdge: '#E8DCBC',

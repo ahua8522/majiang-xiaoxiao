@@ -28,7 +28,7 @@ const store = (value = null) => ({ value, load() { return this.value; }, save(v)
 
 /* ── A2 道具账本 ─────────────────────────────────────── */
 
-test('A2 道具额度跨重开继承：用完的提示重开不会复活', () => {
+test('重开恢复免费提示；同一局仍保存已用次数', () => {
   const s = create();
   install(s, [[['1p'], ['1p']]]);
   s.requestHint();
@@ -36,8 +36,8 @@ test('A2 道具额度跨重开继承：用完的提示重开不会复活', () =>
   const lv = s.levelIndex;
   assert.deepEqual(s.used[lv], { h: 1, s: 0 }, '账本要记账');
   s.reset(lv);
-  assert.equal(s.hintsUsed, 1, '重开继承已用次数（这是稀缺性的全部来源）');
-  assert.equal(s.hintsLeft, 2);
+  assert.equal(s.hintsUsed, 0, '重开恢复免费额度');
+  assert.equal(s.hintsLeft, 3);
 });
 
 test('A2 通关即结清本关账本：下一关是新的三次提示', () => {
@@ -147,17 +147,10 @@ test('B2 章节星数按章统计，未通关的关不贡献', () => {
   assert.equal(s.chapterStars(1), 0, '没通关的章是 0 星');
 });
 
-test('B2 章 1 门槛 22 星：21 星进不去第 2 章，22 星才开', () => {
-  const s = create();
-  s.maxLevel = 40;
-  for (let i = 0; i < 16; i++) s.stars[i] = 1;   // 全 1 星 = 16
-  for (let i = 0; i < 5; i++) s.stars[i] = 2;    // 21
-  assert.equal(s.chapterStars(0), 21);
-  assert.equal(s.gateGap(0), 1);
-  assert.equal(s.canEnter(16), false, '差 1 星就不许进下一章');
-  s.stars[5] = 2;                                 // 22
-  assert.equal(s.gateGap(0), 0);
-  assert.equal(s.canEnter(16), true);
+test('完成前章即可解锁下一章，不需要刷星',()=>{
+  const s=create();s.maxLevel=19;s.stars={};
+  assert.equal(s.canEnter(20),false);assert.equal(s.gateGap(0),0);
+  s.maxLevel=20;assert.equal(s.canEnter(20),true);assert.equal(s.canEnter(21),false);
 });
 
 test('B2 本章内部不设卡：章 1 的任意已解锁关都进得去', () => {
@@ -208,16 +201,16 @@ test('提示走偏即作废：留在屏上的指引必须和盘面对得上', ()
   assert.equal(s.hintTotal, 0);
 });
 
-test('提示额度用尽时给的是「重开不恢复」的真话', () => {
+test('提示用完仍能免费重开', () => {
   const s = create();
   install(s, [[['1p'], ['1p']]]);
   s.hintsUsed = 3;
   s.requestHint();
-  assert.match(s.message, /重开不会恢复/);
+  assert.match(s.message, /免费重开/);
   assert.equal(s.hint.length, 0);
 });
 
-test('体验版章节准入：unlockAll 全开，正式版仍看上一章星数', () => {
+test('体验版章节准入：unlockAll 全开，正式版按通关进度解锁', () => {
   const s = create();
   assert.equal(s.canEnterChapter(0), true, '第 1 章永远可进');
   assert.equal(s.canEnterChapter(1), false, '正式版默认第 2 章锁着');

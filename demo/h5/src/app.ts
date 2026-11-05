@@ -5,9 +5,12 @@
  * so this demo and the WeChat build share one source of truth.
  */
 import {Session, starLines, chapterOf} from '../../../cocos/assets/scripts/core/Session';
-import {count} from '../../../cocos/assets/scripts/core/Rules';
+import {count, bare} from '../../../cocos/assets/scripts/core/Rules';
 import {LEVELS, levelAt} from '../../../cocos/assets/scripts/core/Generator';
 import {CHAPTER_NAMES} from '../../../cocos/assets/scripts/core/levels';
+import {CHAPTER_LENGTH,CHAPTERS} from '../../../cocos/assets/scripts/core/Campaign';
+import {mechanicLocks} from '../../../cocos/assets/scripts/core/Mechanics';
+import {SoundStudy} from '../../../docs/redesign-2026-11/sound';
 import {gardenBg} from './bg';
 import {drawTile} from './tile';
 import {IconName, icon} from './icons';
@@ -16,7 +19,7 @@ import {Box, Hit, KIND, backChevron, button, chevron, fillRR, fit, panel, pill, 
 
 export const DW = 750;
 /** 应用版本号：与 upload-ci.cjs 上传时传的版本保持一致（提版时手动同步）。 */
-export const APP_VERSION = '0.4.0';
+export const APP_VERSION = '1.4.0';
 
 /**
  * 「新玩法」说明卡的内容（与 cocos GameRoot 的 TIP_CONTENT 同文案）：
@@ -45,6 +48,7 @@ export interface Ctx2D extends CanvasRenderingContext2D {}
 
 export class App {
   readonly session: Session;
+  readonly audio=new SoundStudy();
   screen: Screen = 'home';
   /** Screen the current overlay was opened from, so closing returns correctly. */
   private returnScreen: Screen = 'home';
@@ -76,8 +80,12 @@ export class App {
       save: (d) => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { /* quota */ } },
       feedback: () => { try { (navigator as any).vibrate?.(16); } catch { /* unsupported */ } }
     });
-    this.page = Math.floor(this.session.levelIndex / 16);
+    this.page = Math.floor(this.session.levelIndex / CHAPTER_LENGTH);
+    try{const p=JSON.parse(localStorage.getItem('majiang-xiaoxiao:h5:audio')||'{}');this.music=p.music!==false;this.sound=p.sound!==false;}catch{}
+    this.audio.configure(this.music,this.sound);
+    document.addEventListener('visibilitychange',()=>this.audio.visibility(document.hidden));
     const q = new URLSearchParams(location.search);
+    this.session.unlockAll=q.get('preview')==='1';
     const lv = Number(q.get('level'));
     if (Number.isFinite(lv) && q.has('level')) this.session.reset(lv, false);
     const scr = q.get('screen') as Screen | null;
@@ -123,7 +131,7 @@ export class App {
       return {x: (e.clientX - r.left) / this.s, y: (e.clientY - r.top) / this.s};
     };
     this.canvas.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
+      e.preventDefault();this.audio.unlock();
       const {x, y} = at(e);
       this.canvas.setPointerCapture(e.pointerId);
       this.onDown(x, y);
@@ -215,12 +223,13 @@ export class App {
 
   /** Runs a session mutation and refreshes derived demo state. */
   private act(fn: () => void): void {
-    const before = this.session.modal;
+    const before=this.session.modal,oldMoves=this.session.moves,oldMarks=this.session.mechanics.marks.join(),oldCharge=this.session.mechanics.charge;
     fn();
+    const S=this.session;if(S.moves>oldMoves){this.audio.play(S.lastErased.some(p=>p.face.includes('~')||p.other.includes('~'))?'ice':S.lastChain>1?'combo':S.lastErased.length?'match':'slide');if(S.mechanics.marks.join()!==oldMarks)this.audio.play('bloom');if(S.mechanics.charge>=4&&oldCharge<4)this.audio.play('charge');}
     // 提示统一走顶部横幅（drawBoard 里读 session.message），底部不再有第二条提示
     if (this.session.modal === 'win') this.setScreen('win');
     else if (this.session.modal === 'lose') { this.returnScreen = 'board'; this.setScreen('lose'); }   // 限步用尽
-    else if (this.session.modal === 'none' && before === 'none' && this.session.dead) { this.returnScreen = 'board'; this.setScreen('lose'); }  // 可靠死局判定
+    else if (this.session.modal === 'none' && before === 'none' && this.session.dead) { this.session.finishDead(); this.returnScreen = 'board'; this.setScreen('lose'); }  // 可靠死局判定
     this.invalidate();
   }
   /* ── actions ────────────────────────────────────────────── */
@@ -233,13 +242,15 @@ export class App {
 
   /** Keeps Session.modal aligned with the visible screen so Session.command() stays valid. */
   private setScreen(scr: Screen): void {
+    if(scr!==this.screen&&(scr==='win'||scr==='lose'))this.audio.play(scr);
+    this.audio.setScene(['board','win','lose','pause'].includes(scr)?'board':'home');this.audio.duck(['win','lose','pause'].includes(scr));
     this.screen = scr;
     // progress 弹框在 Session 侧复用 'settings' 弹窗态（Session 的 Modal 没有 progress）
-    const overlay: Partial<Record<Screen, string>> = {settings: 'settings', levels: 'levels', win: 'win', help: 'help', progress: 'settings'};
+    const overlay: Partial<Record<Screen, string>> = {settings: 'settings', levels: 'levels', win: 'win', help: 'help', progress: 'settings', pause:'pause', lose:'lose'};
     if (scr === 'board') this.session.modal = 'none';
     else if (scr === 'home') this.session.modal = 'home';
     else if (overlay[scr]) this.session.modal = overlay[scr] as any;
-    if (scr === 'levels') this.page = Math.floor(this.session.levelIndex / 16);
+    if (scr === 'levels') this.page = Math.floor(this.session.levelIndex / CHAPTER_LENGTH);
   }
 
   /** 弹框的固定父级：关闭时回哪一屏。选关/设置从首页打开，进度/玩法说明从设置打开。 */
@@ -251,9 +262,10 @@ export class App {
   }
 
   private activate(id: string): void {
+    this.audio.unlock();this.audio.play(id==='undo'?'undo':'ui');
     switch (id) {
       case 'home': this.go('home'); break;
-      case 'start': this.startLevel(this.session.maxLevel); break;
+      case 'start': this.session.command('continue'); this.setScreen('board'); break;
       case 'levels': this.go('levels'); break;
       case 'progress': this.go('progress'); break;
       case 'settings': this.go('settings'); break;
@@ -269,19 +281,19 @@ export class App {
       case 'next': this.startLevel(Math.min(this.session.levelIndex + 1, LEVELS.length - 1)); break;
       // 提示是分步计划：点一次给一段（K 步），推对一步自动前进。箭头流要逐帧亮起。
       case 'hint': this.act(() => {
-        this.session.command('hint');
+        this.session.command('hint');if(this.session.hint.length)this.audio.play('hint');
         this.pulseStart = performance.now();
         this.pulseUntil = Date.now() + 900;
       }); break;
-      case 'shuffle': this.act(() => this.session.command('shuffle')); break;
-      case 'undo': this.act(() => this.session.command('undo')); break;
+      case 'shuffle': this.setScreen('board'); this.act(() => this.session.command('shuffle')); break;
+      case 'undo': this.act(() => {if(this.session.undo())this.setScreen('board');}); break;
       case 'toggle-music': this.music = !this.music; this.persist(); break;
       case 'toggle-sound': this.sound = !this.sound; this.persist(); break;
       case 'toggle-vibration': this.act(() => this.session.command('toggle-vibration')); break;
       case 'page-prev': this.page = Math.max(0, this.page - 1); break;
       case 'page-next': {
         // 翻页按「全部章节」算，不按解锁进度：章节门槛要靠翻到下一页才看得见。
-        this.page = Math.min(Math.ceil(LEVELS.length / 16) - 1, this.page + 1);
+        this.page = Math.min(Math.ceil(LEVELS.length / CHAPTER_LENGTH) - 1, this.page + 1);
         break;
       }
       default:
@@ -301,7 +313,7 @@ export class App {
 
   private music = true;
   private sound = true;
-  private persist(): void { this.invalidate(); }
+  private persist(): void {this.audio.configure(this.music,this.sound);try{localStorage.setItem('majiang-xiaoxiao:h5:audio',JSON.stringify({music:this.music,sound:this.sound}));}catch{}this.invalidate();}
 
   /* ── board geometry ─────────────────────────────────────── */
 
@@ -343,7 +355,7 @@ export class App {
       case 'help': this.drawHome(ctx); this.drawHelp(ctx); break;
     }
     // 「新玩法」说明卡：进关时 Session 给出待展示的 tip，看完（tip-ok）才开局
-    if (this.session.introTip) this.drawTipCard(ctx);
+    if (this.screen==='board'&&this.session.introTip) this.drawTipCard(ctx);
   }
 
   /** 「新玩法」说明卡：遮罩 + 面板 + 匾额标题 + 文案 + 知道了。展示期间牌桌输入被 Session 屏蔽。 */
@@ -351,7 +363,8 @@ export class App {
     const W = this.W;
     this.veil(ctx);
     const tip = this.session.introTip!;
-    const content = TIP_CONTENT[tip] || {title: '新玩法', lines: ['这一关出现了新机制，注意观察棋盘上的标识。']};
+    const ch=CHAPTERS[Number(tip.split(':')[1])];
+    const content=tip.startsWith('ctip:')&&ch?{title:ch[0],lines:[ch[2],ch[3]]}:TIP_CONTENT[tip]||TIP_CONTENT.basic;
     const lineH = 54, padTop = 104;
     const ph = padTop + 36 + content.lines.length * lineH + 26 + 96 + 30;
     const py = this.centeredTop(ph);
@@ -450,7 +463,7 @@ export class App {
   private drawLevels(ctx: Ctx2D): void {
     const W = this.W;
     this.veil(ctx);
-    const PER = 16, COLS = 4, gap = 20;
+    const PER = CHAPTER_LENGTH, COLS = 4, gap = 20;
     // 一章一屏 4×4：与 cocos 选关页同构，也让章节门槛（B2）有地方落。
     const pages = Math.max(1, Math.ceil(LEVELS.length / PER));
     this.page = Math.max(0, Math.min(this.page, pages - 1));
@@ -469,13 +482,13 @@ export class App {
     this.push('__back', close); this.circleBtn(ctx, close, 'close');
 
     // 章名行：与 cocos 选关页同一套信息（第 N 章 · 章名（起-止）），否则两边看起来是两种设计
-    const full = this.session.chapterStars(this.page) >= 48;
+    const full = this.session.chapterStars(this.page) >= CHAPTER_LENGTH * 3;
     text(ctx, `第 ${this.page + 1} 章 · ${CHAPTER_NAMES[this.page] || ''}（${this.page * PER + 1}-${Math.min(LEVELS.length, (this.page + 1) * PER)}）`,
       b.x + 40, py + 30 + 72 + 24, 24, T.ink, 'left', true);
     if (full) text(ctx, '全三星', b.x + b.w - 44, py + 30 + 72 + 24, 21, '#B4442F', 'right', true);
 
     // 本章被上一章门槛挡住 → 整页灰化。**本章内部不设卡**，卡点只在跨章。
-    const gateBlocked = this.page > 0 && this.session.gateGap(this.page - 1) > 0;
+    const gateBlocked = !this.session.canEnterChapter(this.page);
     const gy = py + 30 + 72 + 24 + 40;
     for (let i = 0; i < count; i++) {
       const idx = this.page * PER + i;
@@ -512,7 +525,7 @@ export class App {
     }
     // 门槛提示：必须给具体数字，否则玩家以为是 bug
     if (gateBlocked) {
-      text(ctx, `上一章还差 ${this.session.gateGap(this.page - 1)} 星（${this.session.chapterStars(this.page - 1)} / ${this.session.gateOf(this.page - 1)}）才能解锁本章`,
+      text(ctx, '完成前面的关卡，即可来到这里',
         W / 2, py + ph - 92, 21, '#B4442F', 'center', true);
     }
     // pager
@@ -521,11 +534,8 @@ export class App {
     const next: Box = {x: b.x + b.w - 110, y: pyy - 26, w: 70, h: 52};
     if (this.page > 0) { this.push('page-prev', prev); backChevron(ctx, prev.x + 35, pyy, 30, T.ink, 5); }
     if (this.page < pages - 1) { this.push('page-next', next); chevron(ctx, next.x + 35, pyy, 30, T.ink, 5); }
-    for (let i = 0; i < pages; i++) {
-      const dotX = W / 2 + (i - (pages - 1) / 2) * 26;
-      ctx.beginPath(); ctx.arc(dotX, pyy, i === this.page ? 9 : 6, 0, Math.PI * 2);
-      ctx.fillStyle = i === this.page ? T.jade : 'rgba(90,110,80,.4)'; ctx.fill();
-    }
+    text(ctx, `${this.page+1} / ${pages}`, W/2, pyy, 24, T.ink, 'center', true);
+
   }
 
   private lockIcon(ctx: Ctx2D, cx: number, cy: number, r: number, col: string): void {
@@ -570,17 +580,15 @@ export class App {
     // stats：目标关把左侧换成目标进度；限步关把右侧换成剩余步数
     const left = S.total ? count(S.grid) : 0;
     const goal = S.goal;
-    const goalText = goal
-      ? (goal.kind === 'face' ? `目标 ${Session.faceName(goal.face!)} ×${S.goalDone}/${goal.count}` : `目标 碎冰 ×${S.goalDone}/${goal.count}`)
-      : null;
-    text(ctx, goalText || `剩余 ${left} / ${S.total} 张`, 40, 134, 25, goalText ? T.jadeDeep : T.ink, 'left', true);
-    const par = S.par || 0;
-    // 三星线是 par+8%，不是 par 本身——写 par 会让玩家照着打却拿不到三星
-    const moveText = S.moveLimit ? `步数 ${S.moves}/${S.moveLimit}` : `${S.moves} 步 · 三星 ≤ ${S.starLines.three} 步`;
-    text(ctx, moveText, W - 40, 134, 25, S.moveLimit && S.movesLeft <= 3 ? '#B4442F' : T.ink, 'right', true);
+    text(ctx, S.objectiveText, 40, 134, 25, goal ? T.jadeDeep : T.ink, 'left', true);
+    const moveText = S.moveLimit ? `剩 ${S.movesLeft} 步` : `${S.moves} 步`;
+    text(ctx, moveText, W-40,134,25,S.moveLimit&&S.movesLeft<=3?'#B4442F':T.ink,'right',true);
+    const targets=goal?.kind==='collect'?goal.faces||[]:goal?.kind==='face'?[goal.face!]:[];
+    targets.forEach((f,i)=>{const x=62+i*68;drawTile(ctx,x,193,{face:f,w:32,h:40});text(ctx,(S.mechanics.collected[bare(f)]||0)>=2?'✓':'2',x+22,191,17,T.jadeDeep,'left',true);});
+    if(S.def.energy)text(ctx,`灵感 ${S.mechanics.charge}/4`,W-40,193,19,T.jadeDeep,'right',true);
     const pbar: Box = {x: 40, y: 158, w: W - 80, h: 16};
     fillRR(ctx, pbar, 8, 'rgba(60,90,50,.3)');
-    const done = S.total ? (S.total - left) / S.total : 0;
+    const done = goal&&S.goalNeed?S.goalDone/S.goalNeed:S.total?(S.total-left)/S.total:0;
     if (done > 0) {
       const g = ctx.createLinearGradient(pbar.x, pbar.y, pbar.x + pbar.w, pbar.y);
       g.addColorStop(0, '#8FD98F'); g.addColorStop(1, '#4FA46A');
@@ -588,7 +596,7 @@ export class App {
     }
 
     // message banner
-    const msg: Box = {x: 34, y: 190, w: W - 68, h: 62};
+    const msg: Box = {x: 34, y: 218, w: W - 68, h: 62};
     const mg = ctx.createLinearGradient(msg.x, msg.y, msg.x, msg.y + msg.h);
     mg.addColorStop(0, '#FFF9E6'); mg.addColorStop(1, '#F6EBCB');
     fillRR(ctx, msg, 31, mg); strokeRR(ctx, msg, 31, T.creamEdge, 2);
@@ -601,15 +609,10 @@ export class App {
 
     // board frame
     const top = msg.y + msg.h + 18;
-    const hintY = H - 214;
-    const availW = W - 108, availH = hintY - 52 - top;
-    const rows = this.rows(), cols = this.cols();
-    const cellW = Math.min(availW / cols, availH / rows / 1.24, 116);
-    const cellH = cellW * 1.24;
-    const bw = cellW * cols, bh = cellH * rows;
-    const pad = Math.max(22, cellH * .2);
-    // 低关卡小棋盘贴着横幅往下排（不居中），多出的空间留给底部；大到放不下时才按居中收
-    const bx = (W - bw) / 2, by = top + Math.min(pad + 8, Math.max(0, (availH - bh) / 2));
+    const rows=this.rows(),cols=this.cols(),availH=H-154-top,sidePad=cols<=4?34:44;
+    const cellW=Math.min((W-sidePad*2)/cols,availH/(rows+.4)/1.24,156),cellH=cellW*1.24;
+    const bw=cellW*cols,bh=cellH*rows,pad=cellH*.2;
+    const bx=(W-bw)/2,by=top+Math.max(0,(availH-bh)/2);
     this.boardBox = {x: bx, y: by, w: bw, h: bh};
     const frame: Box = {x: bx - pad, y: by - pad, w: bw + pad * 2, h: bh + pad * 2};
     this.woodFrame(ctx, frame);
@@ -643,21 +646,22 @@ export class App {
       fillRR(ctx, {x, y, w, h}, 5, 'rgba(96,64,28,.30)');
       strokeRR(ctx, {x: x + 1, y: y + 1, w: w - 2, h: h - 2}, 5, 'rgba(60,38,14,.35)', 2);
     };
-    for (const r of def.lockR) {
+    const locks=mechanicLocks(def,S.clearedPairs,S.mechanics);
+    for (const r of locks.lockR) {
       if (r < 0 || r >= rows || !tileable(def.map[r])) continue;
       const cy = by + r * cellH + cellH / 2;
       railBar(bx, cy - cellH * .46, bw, cellH * .92);
       this.lockIcon(ctx, bx - pad * .45, cy, pad * .34, '#5A3F14');
     }
-    for (const c of def.lockC) {
+    for (const c of locks.lockC) {
       if (c < 0 || c >= cols || !def.map.some((row) => tileable(row[c] || ''))) continue;
       const cx = bx + c * cellW + cellW / 2;
       railBar(cx - cellW * .46, by, cellW * .92, bh);
       this.lockIcon(ctx, cx, by - pad * .45, pad * .34, '#5A3F14');
     }
     // 连锁解锁：仍锁着时画锁 + 数字徽标（消够 after 对自动解锁）
-    for (const u of def.unlock || []) {
-      if (u.after <= S.clearedPairs) continue;
+    for (const u of (def.unlock||[]).map(u=>({...u,after:u.after-S.clearedPairs})).concat((def.keyLocks||[]).map(k=>({axis:k.axis,index:k.index,after:k.count-(S.mechanics.collected[k.face]||0)})))) {
+      if (u.after <= 0) continue;
       if (u.axis === 'row') {
         if (u.index < 0 || u.index >= rows || !tileable(def.map[u.index])) continue;
         const cy = by + u.index * cellH + cellH / 2;
@@ -716,6 +720,19 @@ export class App {
         }
       }
     }
+    // Floor markers stay fixed while tiles slide; corner badges keep faces readable.
+    (def.floors||[]).forEach((f,i)=>{
+      const x=bx+f.c*cellW,y=by+f.r*cellH,n=S.mechanics.marks[i]||0,done=n>=f.need;
+      const color=done?'#4D9965':f.kind==='dew'?'#4B95B5':'#CE6D8A';
+      strokeRR(ctx,{x:x+2,y:y+2,w:cellW-4,h:cellH-4},8,color,3);
+      fillRR(ctx,{x:x+1,y:y+cellH-24,w:f.kind==='bud'?43:24,h:24},7,'#FFF9EA');
+      text(ctx,done?'✓':f.kind==='dew'?'滴':f.kind==='bud'?`${n}/2`:'花',x+12,y+cellH-12,17,color,'center',true);
+    });
+    const keys=(def.keyLocks||[]).filter(k=>(S.mechanics.collected[k.face]||0)<k.count).map(k=>k.face);
+    if(!this.drag)S.grid.forEach((row,r)=>row.forEach((cell,c)=>{if(Array.isArray(cell)&&cell.length&&keys.includes(bare(cell[cell.length-1]))){
+      const x=bx+(c+.14)*cellW,y=by+(r+.17)*cellH;
+      ctx.strokeStyle='#C89630';ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.moveTo(x+5,y);ctx.lineTo(x+18,y);ctx.lineTo(x+18,y+5);ctx.stroke();
+    }}));
     // highlights：选中（橙）+ 提示（蓝框 + 方向箭头流）
     const hl = (p: {r: number; c: number}, col: string) => {
       const x0 = bx + p.c * cellW, y0 = by + p.r * cellH;
@@ -762,20 +779,12 @@ export class App {
     }
     ctx.restore(); // 结束牌区裁剪
 
-    // toolbar：文案要诚实——额度跨重开不恢复（A2），写「免费 3 次」会让人以为重开就能刷
-    const tools: {id: string; icon: IconName; label: string; sub: string}[] = [
-      {id: 'hint', icon: 'hint', label: '提示', sub: S.hintsLeft ? `剩 ${S.hintsLeft} 次` : '已用完'},
-      {id: 'shuffle', icon: 'shuffle', label: '洗牌', sub: S.shuffleBlocked ? '方言洗不开' : (S.shufflesLeft ? `剩 ${S.shufflesLeft} 次` : '已用完')},
-      {id: 'undo', icon: 'undo', label: '撤销', sub: '步数不退'},
-      {id: 'restart', icon: 'restart', label: '重开', sub: '重新发牌'}
-    ];
-    const tw2 = (W - 68 - 3 * 16) / 4;
-    const ty2 = H - 168;
-    tools.forEach((t, i) => {
-      const bb: Box = {x: 34 + i * (tw2 + 16), y: ty2, w: tw2, h: 116};
-      this.push(t.id, bb);
-      this.toolButton(ctx, bb, t.icon, t.label, t.sub, this.isPressed(t.id));
-    });
+    const tools:{id:string;icon:IconName;label:string}[]=[{id:'hint',icon:'hint',label:'提示'},{id:'undo',icon:'undo',label:'撤销'},{id:'restart',icon:'restart',label:'重开'}];
+    const tw=(W-68)/3,ty=H-132;
+    fillRR(ctx,{x:34,y:ty,w:W-68,h:96},22,'#F9F3DF');
+    strokeRR(ctx,{x:34,y:ty,w:W-68,h:96},22,'#CCCFAD',2);
+    tools.forEach((t,i)=>{const b={x:34+i*tw,y:ty+4,w:tw,h:88};this.push(t.id,b);icon(ctx,t.icon,b.x+tw/2-40,ty+48,28,T.jadeDeep);text(ctx,t.label,b.x+tw/2+18,ty+48,26,T.jadeDeep,'center',true);});
+
   }
 
   private circleBtn(ctx: Ctx2D, b: Box, kind: 'back' | 'close'): void {
@@ -798,7 +807,7 @@ export class App {
     const h = H - y + 20;
     const b: Box = {x: -20, y, w: W + 40, h};
     const g = ctx.createLinearGradient(0, y, 0, y + h);
-    g.addColorStop(0, '#C08B52'); g.addColorStop(.16, '#A9723F'); g.addColorStop(1, '#7B4C22');
+    g.addColorStop(0, '#ECDDC1'); g.addColorStop(.16, '#DDC79E'); g.addColorStop(1, '#C2AA81');
     fillRR(ctx, b, 0, g);
     ctx.save();
     ctx.globalAlpha = .16; ctx.strokeStyle = '#5A3714'; ctx.lineWidth = 2;
@@ -816,9 +825,9 @@ export class App {
     const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
     g.addColorStop(0, T.woodLight); g.addColorStop(.5, T.wood); g.addColorStop(1, T.woodDeep);
     fillRR(ctx, b, 26, g);
-    strokeRR(ctx, b, 26, '#4A2C10', 5);
+    strokeRR(ctx, b, 26, '#A38F68', 5);
     const inner: Box = {x: b.x + 12, y: b.y + 12, w: b.w - 24, h: b.h - 24};
-    fillRR(ctx, inner, 18, '#4E6B33');
+    fillRR(ctx, inner, 18, '#A7C8AA');
     strokeRR(ctx, inner, 18, 'rgba(30,50,20,.5)', 3);
   }
 
@@ -901,9 +910,9 @@ export class App {
     const got = Object.values(starsMap).reduce((n, v) => n + v, 0);
     const cleared = Object.keys(starsMap).length;
 
-    const COLS = 10, gap = 8;
+    const COLS = 5, gap = 12;
     const cw = (W - 160 - gap * (COLS - 1)) / COLS;
-    const gridH = COLS * (cw + gap) - gap;
+    const gridH = Math.ceil(CHAPTERS.length/COLS) * (cw + gap) - gap;
     // 各段相对面板顶的偏移（顶部 94 给匾额行）；面板按内容定高再居中
     const oTitle = 124, oNum = 170, oBar = 214, oMap = 262, oGrid = 296;
     const oLegend = oGrid + gridH + 30;
@@ -930,13 +939,13 @@ export class App {
     fillRR(ctx, {x: bar.x, y: bar.y, w: Math.max(10, bar.w * Math.min(1, got / (total * 3))), h: bar.h}, 10, '#4FA46A');
 
     // 星图：100 关一格，颜色越深星越多；已解锁的格子点一下直接开这一关。
-    text(ctx, '星图', b.x + 40, b.y + oMap, 27, T.ink, 'left', true);
+    text(ctx, '章节进度', b.x + 40, b.y + oMap, 27, T.ink, 'left', true);
     const gy = b.y + oGrid;
-    for (let i = 0; i < total; i++) {
+    for (let i = 0; i < CHAPTERS.length; i++) {
       const col = i % COLS, row = Math.floor(i / COLS);
       const cell: Box = {x: b.x + 40 + col * (cw + gap), y: gy + row * (cw + gap), w: cw, h: cw};
-      const st = starsMap[String(i)] || 0;
-      const unlocked = i <= this.session.maxLevel;
+      const st = Math.min(3,Math.floor(this.session.chapterStars(i)/20));
+      const unlocked = this.session.canEnterChapter(i);
       const fill = !unlocked ? 'rgba(222,216,198,.6)'
         : st === 0 ? 'rgba(255,255,255,.66)'
         : st === 1 ? '#BFE3B6' : st === 2 ? '#7EC77F' : '#2E7D4F';
@@ -944,7 +953,7 @@ export class App {
       strokeRR(ctx, cell, 9, unlocked ? 'rgba(196,176,136,.65)' : 'rgba(190,180,158,.45)', 1.2);
       text(ctx, String(i + 1), cell.x + cw / 2, cell.y + cw / 2 + 1, Math.round(cw * .34),
         !unlocked ? '#B3A98F' : st >= 2 ? '#FFFFFF' : T.inkSoft, 'center', st >= 2);
-      if (unlocked) this.push('level:' + i, cell);
+      if (unlocked) this.push('level:' + i*CHAPTER_LENGTH, cell);
     }
 
     // 图例 + 汇总：每项要放得下「18 色块 + 8 间距 + 3 个字（19px ≈ 57）」，每项至少 100，否则文字会挤在一起
@@ -964,6 +973,7 @@ export class App {
   /* ══ OVERLAYS ══════════════════════════════════════════ */
 
   private veil(ctx: Ctx2D): void {
+    this.hits=[];
     ctx.fillStyle = 'rgba(18,40,22,.55)';
     ctx.fillRect(0, 0, this.W, this.H);
   }
@@ -1005,7 +1015,7 @@ export class App {
     if (blocked) {
       // 门槛没过时不许写「下一关」：点不动的按钮比不给按钮更糟
       this.push('levels', nb);
-      button(ctx, nb, `去刷星 · 差 ${S.gateGap(chapterOf(nextIdx) - 1)} 星`, {kind: 'jade', size: 30, pressed: this.isPressed('levels')});
+      button(ctx, nb, '选择关卡', {kind: 'jade', size: 30, pressed: this.isPressed('levels')});
     } else {
       this.push('next', nb);
       button(ctx, nb, last ? '再玩一次' : '下一关', {kind: 'jade', size: 36, icon: 'play', pressed: this.isPressed('next')});
@@ -1044,8 +1054,8 @@ export class App {
     const left = Math.max(0, 2 - S.revivesUsed);
     const primary: Box = {x: b.x + 58, y: py + oPrimary - 46, w: b.w - 116, h: 92};
     const primaryOk = dead || S.canRevive;
-    const primaryText = dead ? '重排这盘牌' : S.failReason === 'time' ? '补 30 秒' : `补 ${S.reviveBonus} 步`;
-    const pid = dead ? 'rescue' : 'revive';
+    const primaryText = dead ? (S.shuffleBlocked?(S.canUndo?'撤销一步':'重新开始'):'重排这盘牌') : S.failReason === 'time' ? '补 30 秒' : `补 ${S.reviveBonus} 步`;
+    const pid = dead ? (S.shuffleBlocked?(S.canUndo?'undo':'restart'):'rescue') : 'revive';
     if (primaryOk) {
       this.push(pid, primary);
       button(ctx, primary, primaryText, {kind: 'jade', size: 32, pressed: this.isPressed(pid)});
@@ -1061,7 +1071,7 @@ export class App {
     button(ctx, restart, '重新开始', {kind: 'cream', size: 28, pressed: this.isPressed('restart')});
     button(ctx, home, '返回首页', {kind: 'cream', size: 28, pressed: this.isPressed('home')});
     // 原来这句浮在暗遮罩上所以用奶白；现在移进了奶色面板，必须换成深色
-    text(ctx, dead ? '牌走死了不是你的错，重排一次多半能走通。' : '再接再厉，下一次一定！', W / 2, py + oFoot, 24, T.inkSoft, 'center', true);
+    text(ctx, dead ? (S.shuffleBlocked?'换一条路线，完成目标格。':'试试重排，或从头再来。') : '歇一会，再试试。', W / 2, py + oFoot, 24, T.inkSoft, 'center', true);
   }
 
   private drawPause(ctx: Ctx2D): void {
@@ -1072,6 +1082,7 @@ export class App {
       {id: 'restart', icon: 'restart', label: '重新开始', kind: 'cream'},
       {id: 'home', icon: 'home', label: '返回首页', kind: 'cream'}
     ];
+    if(!this.session.shuffleBlocked)items.splice(1,0,{id:'shuffle',icon:'shuffle',label:`洗牌 · ${this.session.shufflesLeft}`,kind:'cream'});
     const oStart = 83, step = 100;
     const ph = oStart + (items.length - 1) * step + 41 + 42;
     const py = this.centeredTop(ph);
@@ -1091,7 +1102,7 @@ export class App {
   private drawHelp(ctx: Ctx2D): void {
     const W = this.W;
     this.veil(ctx);
-    const lines = ['轻点两张相邻的同牌，即可消除。', '按住一行横拖、一列竖拖，整段循环滑动。', '滑动松手后会自动消除碰起的对子，可连消。', '木块与空洞会截断滑轨；锁住的行 / 列推不动。', '冰面牌要消两次：第一下碎冰，第二下收牌。', '提示 / 洗牌各有限量，用辅助最多两星。'];
+    const lines = ['轻点两张相邻的同牌，即可消除。', '按住一行横拖、一列竖拖，整段循环滑动。', '滑动松手后会自动消除碰起的对子，可连消。', '木块与空洞会截断滑轨；锁住的行 / 列推不动。', '冰面牌要消两次：第一下碎冰，第二下收牌。', '重开恢复免费道具；用提示也可拿三星。'];
     const oLines = 150, lstep = 54;
     const oBtn = oLines + (lines.length - 1) * lstep + 16 + 40 + 43;
     const ph = oBtn + 43 + 40;

@@ -118,9 +118,9 @@ test('露出的冰牌不得在同一事务里被顺手连消', () => {
   assert.equal(R.count(y.grid),4);
 });
 
-test('冰面只与同牌面的冰面相配', () => {
+test('同款冰面可以与普通牌或不同厚度的冰面配对', () => {
   assert.equal(R.partners([[['5s~'],['5s~']]],{r:0,c:0}).length,1);
-  assert.equal(R.partners([[['5s~'],['5s']]],{r:0,c:0}).length,0);
+  assert.equal(R.partners([[['5s~'],['5s']]],{r:0,c:0}).length,1);
 });
 
 /* ── 多层冰（厚冰）：`5s~~` 要碎两次冰 ── */

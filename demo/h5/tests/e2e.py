@@ -42,6 +42,8 @@ def main(url):
             page.goto(url + '?' + '&'.join(f'{k}={v}' for k, v in q.items()))
             page.wait_for_function('window.__mjReady === true', timeout=10000)
             page.wait_for_timeout(220)
+            if hit('tip-ok'):
+                tap('tip-ok')
 
         def state():
             return page.evaluate("""() => { const s = window.mj.session;
@@ -97,6 +99,8 @@ def main(url):
         load(screen='home', level=0)
         ok(state()['screen'] == 'home', 'loads on the home screen')
         tap('start')
+        if hit('tip-ok'):
+            tap('tip-ok')
         st = state()
         ok(st['screen'] == 'board', '开始游戏 enters the board')
         ok((st['rows'], st['cols']) == (3, 4), f"level 1 board is 3x4 (got {st['rows']}x{st['cols']})")
@@ -140,6 +144,7 @@ def main(url):
             ok(a6['grid'] == b4['grid'], '撤销 restores the board before the drag, including all cascades')
         ok(a6['hints'] == b6['hints'], '撤销 does not refund a spent hint')
         b7 = state()
+        tap('pause')
         tap('shuffle')
         a7 = state()
         ok(a7['shuffles'] == b7['shuffles'] - 1, f"洗牌 spends a charge ({b7['shuffles']} -> {a7['shuffles']})")
@@ -177,8 +182,9 @@ def main(url):
         # 8. clear a level with the certified solution, then 下一关
         load(screen='board', level=5)
         page.evaluate("""() => { const s = window.mj.session;
+          s.maxLevel=5;
           for (let i = 0; i < 300 && s.modal !== 'win'; i++) { const a = s.solution[0]; if (!a) break;
-            if (a.kind === 'match') s.tap(a.a); else s.slide(a.run, a.step); }
+            s.feed(a); }
           window.mj.act(() => {}); window.mj.invalidate(); }""")
         page.wait_for_timeout(250)
         won = state()

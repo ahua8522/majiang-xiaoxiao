@@ -22,7 +22,9 @@ async function build() {
     write: false,
     logLevel: 'warning'
   });
-  const js = result.outputFiles[0].text;
+  const audioDir=path.join(ROOT,'docs/redesign-2026-11/audio');
+  const assets={};for(const [key,v] of Object.entries(JSON.parse(fs.readFileSync(path.join(audioDir,'manifest.json'),'utf8'))))if(v.kind!=='study')assets[key]=fs.readFileSync(path.join(audioDir,v.file)).toString('base64');
+  const js = 'const AUDIO_ASSETS='+JSON.stringify(assets)+';\n'+result.outputFiles[0].text;
   const html = TEMPLATE.replace('/*__BUNDLE__*/', () => js);
   fs.writeFileSync(OUT, html);
   const kb = (Buffer.byteLength(html) / 1024).toFixed(1);

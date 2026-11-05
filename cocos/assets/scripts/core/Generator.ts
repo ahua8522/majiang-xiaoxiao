@@ -1,4 +1,4 @@
-import {Action,Dialect,Grid,Pos,Run,count,iceLayers,isWild,liveCount,pairs,pairable,runsFor,rotate,sameFacePairs,slidable,stripIce,suitOf,top,transition,unwild} from './Rules';
+import {Action,Dialect,Grid,Pos,Run,bare,count,iceLayers,isWild,liveCount,pairs,pairable,runsFor,rotate,sameFacePairs,slidable,stripIce,suitOf,top,transition,unwild} from './Rules';
 import {LevelDef,LEVELS,levelAt} from './levels';
 
 export {LEVELS,levelAt};
@@ -31,6 +31,7 @@ export function activeLocks(def:LevelDef,cleared:number):{lockR:number[];lockC:n
   for(const u of def.unlock||[]){
     if(u.after>cleared)(u.axis==='row'?lockR:lockC).push(u.index);
   }
+  for(const u of def.keyLocks||[])(u.axis==='row'?lockR:lockC).push(u.index);
   return {lockR,lockC};
 }
 /**
@@ -42,17 +43,18 @@ export function activeLocks(def:LevelDef,cleared:number):{lockR:number[];lockC:n
  */
 export function goalPairs(def:LevelDef,grid:Grid):number{
   const g=def.goal;if(!g)return 0;
+  if(g.kind==='garden')return (def.floors||[]).length;
   let avail=0;
   if(g.kind==='face'){
-    const base=unwild(g.face!);
-    grid.flat().forEach(cell=>{if(Array.isArray(cell))cell.forEach(f=>{if(unwild(stripIce(f))===base)avail++;});});
+    const base=bare(g.face!);
+    grid.flat().forEach(cell=>{if(Array.isArray(cell))cell.forEach(f=>{if(bare(f)===base)avail++;});});
     avail=Math.floor(avail/2);
   }else if(g.kind==='collect'){
     // 集组：目标是「这一组里有几种能凑成一对」。每种最多 4 张 = 2 对，但集组要的是
     // 这一种出现过，所以 ≥2 张算一种；不足 2 张的（被百搭收走、或开局就单张）够不着，不能算进分母。
     const tally=new Map<string,number>();
     grid.flat().forEach(cell=>{if(Array.isArray(cell))cell.forEach(f=>{
-      const b=unwild(stripIce(f));
+      const b=bare(f);
       if(g.faces&&g.faces.includes(b))tally.set(b,(tally.get(b)||0)+1);
     });});
     // Array.from 而不是 [...tally.values()]：构建器会把后者转译成 [].concat(迭代器)，
@@ -181,7 +183,8 @@ function constructOnce(def:LevelDef,seed:number,tokens?:Token[]):Deal|null{
   if(!tokens&&goalBase&&source.includes(goalBase)&&!pool.includes(goalBase))pool[pool.length-1]=goalBase;
   // 集组目标（八花齐/三元齐/清龙）：`goal.faces` 里每一种都必须上盘，至少给一对。
   // 少了这一步，"集齐三种"可能整局一种都见不到（实测第 169 关就是），HUD 会永远卡在 0/3。
-  const collectFaces=def.goal&&def.goal.kind==='collect'?(def.goal.faces||[]).map(f=>unwild(f)):[];
+  const collectFaces=(def.goal&&def.goal.kind==='collect'?(def.goal.faces||[]).map(f=>unwild(f)):[])
+    .concat((def.keyLocks||[]).map(k=>k.face));
   for(const f of collectFaces){
     if(!source.includes(f))continue;
     if(pool.includes(f))continue;
