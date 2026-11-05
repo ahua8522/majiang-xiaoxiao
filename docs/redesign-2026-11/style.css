@@ -133,16 +133,7 @@
 .floor-flower{position:absolute;inset:auto -1px -3px auto;z-index:2;font-size:19px;color:#e6bf71;line-height:1;text-shadow:0 1px #85551f;pointer-events:none}
 .cell.bloomed{background:radial-gradient(#bfa06199,#c9af782a)}
 .cell.bloomed .floor-flower{font-size:28px;inset:calc(50% - 14px) calc(50% - 14px) auto auto;color:#f3ca92;text-shadow:0 0 6px #f6d7ac}
-.tile-count{position:absolute;bottom:-28px;left:50%;transform:translateX(-50%);font-size:8px;letter-spacing:2px;color:#d7e3bc;background:#3d7258;border:1px solid #93a474;border-radius:0 0 8px 8px;padding:3px 10px;white-space:nowrap}
-.coach{display:flex;align-items:center;gap:10px;margin:29px 24px 11px;min-height:41px}
-.mini-mascot{flex-shrink:0;width:28px;height:35px;background:#fffae8;border:1px solid #c3b78e;border-radius:8px;box-shadow:0 3px #4e8a68;font:700 22px var(--serif);display:grid;place-items:center;transform:rotate(-6deg)}
-.coach p{font-size:10px;line-height:1.7;margin:0;color:#5c775c}
-.tools{display:flex;gap:12px;justify-content:center;margin:10px 22px 0}
-.tool{flex:1;max-width:90px;border:1px solid #b7b98d;border-radius:13px;background:linear-gradient(#fffdf5,#e7edda);box-shadow:0 4px #a4b28a,inset 0 1px white;display:flex;flex-direction:column;align-items:center;gap:6px;padding:11px 7px 9px;font-size:10px;position:relative}
-.tool .icon{width:24px;height:24px;color:#598364}
-.tool small{font-size:8px;color:#9b936b}
-.board-mode-label{text-align:center;margin:15px 0 0;font-size:9px;color:#849574}
-.board-mode-label button{font-size:9px;background:none;text-decoration:underline;color:#6f896b}
+
 .map-body{position:relative;margin:0 21px;padding:2px 0 24px;min-height:470px}
 .map-path{position:absolute;inset:0;width:100%;height:460px;pointer-events:none}
 .map-stop{position:relative;display:flex;align-items:center;gap:15px;margin:12px 0 24px 27px;text-align:left;background:none;z-index:2}
@@ -244,15 +235,12 @@
 .targets{min-height:60px;padding:8px 10px}
 .energy-bar{margin-top:12px}
 .table-wrap{padding-top:12px}
-.coach{margin-top:26px;margin-bottom:4px}
-.tools{margin-top:5px}
-.tool{padding:8px 6px}
-.board-mode-label{margin-top:12px}}
-.coach p{font-size:12px}
+
+}
+
 .target-text small{font-size:11px}
 .moves small{font-size:10px}
-.tool{font-size:12px}
-.tool small{font-size:9px}
+
 .energy-bar{font-size:10px}
 .board-heading small{font-size:10px}
 @media(max-height:750px) and (max-width:480px){.board-screen .backbar{padding-top:10px;padding-bottom:8px}
@@ -263,9 +251,15 @@
 .table-wrap{margin-top:6px;padding:12px 10px 13px}
 .table-inner{padding:9px 6px 10px}
 .board-grid{row-gap:6px}
-.coach{margin:26px 22px 7px;min-height:32px}
-.coach p{font-size:11px}
-.tool{gap:3px;padding:7px 4px}
-.tool .icon{width:21px;height:21px}
-.tool small{display:none}
-.board-mode-label{margin-top:10px}}
+
+}
+
+/* Compact board controls: the whole button stays touchable, labels stay short. */
+.coach{margin:24px 24px 8px;min-height:20px;display:flex;align-items:center}
+.coach p{font-size:11px;line-height:1.6;margin:0;color:#58745c}
+.tools{display:flex;gap:4px;height:54px;padding:4px;margin:9px 22px 0;border:1px solid #bdcdb2;border-radius:13px;background:#f7faec;box-shadow:0 2px #b2c5a4}
+.tool{flex:1;min-width:0;height:44px;padding:6px;border:0;border-radius:9px;background:transparent;box-shadow:none;display:flex;align-items:center;justify-content:center;gap:7px;font-size:12px;white-space:nowrap}
+.tool+.tool{border-left:1px solid #dbe4cf;border-radius:0 8px 8px 0}
+.tool .icon{width:18px;height:18px;color:#5a8062}
+.tool:hover:not(:disabled){background:#e9f0df}
+@media(max-height:750px) and (max-width:480px){.coach{margin:20px 22px 5px}.coach p{font-size:11px}.tools{margin-top:6px}}

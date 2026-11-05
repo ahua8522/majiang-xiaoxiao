@@ -28,6 +28,10 @@ with sync_playwright() as p:
     page.get_by_role('button', name='新设计 花圃初开').click()
     page.locator('.board-grid').wait_for()
     shot('garden.png')
+    coach, toolbar = page.locator('.coach').bounding_box(), page.locator('.tools').bounding_box()
+    page.screenshot(path=str(SHOTS / 'toolbar-compact.png'), clip={
+        'x':toolbar['x']-4, 'y':coach['y']-8, 'width':toolbar['width']+8,
+        'height':toolbar['y']+toolbar['height']-coach['y']+20})
     # Real touch-equivalent pointer drags and clicks follow the certified route.
     actions = 0
     while not page.evaluate('designStudy.game.won'):
@@ -82,8 +86,8 @@ with sync_playwright() as p:
     page.get_by_role('button', name='设置', exact=True).click()
     page.get_by_role('switch', name='减少动态效果').click()
     assert 'reduce-motion' in page.locator('#phone').get_attribute('class')
-    page.get_by_role('button', name='知道啦').click()
-    page.get_by_role('button', name='看提示').click()
+    page.get_by_role('button', name='完成', exact=True).click()
+    page.get_by_role('button', name='提示', exact=True).click()
     assert page.locator('.hinted').count() >= 2
     # Responsive bounds at three actual mobile sizes and a desktop review size.
     for width, height in [(320, 667), (390, 844), (430, 932), (1440, 1024)]:
@@ -100,6 +104,11 @@ with sync_playwright() as p:
                 assert bounds['x'] >= phone_bounds['x'] and bounds['x'] + bounds['width'] <= phone_bounds['x'] + phone_bounds['width'] + 1
                 tools = page.locator('.tools').bounding_box()
                 assert tools['y'] + tools['height'] <= phone_bounds['y'] + phone_bounds['height'], (width, height, 'tools clipped')
+                assert tools['height'] <= 56, 'tool area should remain compact'
+                assert page.locator('.tool small').count() == 0
+                assert page.locator('.tool').all_inner_texts() == ['提示', '撤销', '重开']
+                for button in page.locator('.tool').all():
+                    assert button.bounding_box()['height'] >= 44, 'small-looking tools still need a touch target'
                 if width == 320:
                     shot('short-screen.png')
         if width == 1440:

@@ -1,0 +1,152 @@
+{
+  "bgm-home": {
+    "title": "晴日小憩 · 首页",
+    "kind": "music",
+    "file": "bgm-home.mp3",
+    "duration": 48.0,
+    "loop": true,
+    "bytes": 481004,
+    "peakDbfs": -10.21,
+    "rmsDbfs": -25.0
+  },
+  "bgm-board": {
+    "title": "轻轻推一推 · 对局",
+    "kind": "music",
+    "file": "bgm-board.mp3",
+    "duration": 48.0,
+    "loop": true,
+    "bytes": 481004,
+    "peakDbfs": -11.26,
+    "rmsDbfs": -27.0
+  },
+  "tap": {
+    "title": "选牌",
+    "kind": "effect",
+    "file": "tap.mp3",
+    "duration": 0.16,
+    "loop": false,
+    "bytes": 3068,
+    "peakDbfs": -9.42,
+    "rmsDbfs": -27.78
+  },
+  "slide": {
+    "title": "推移落位",
+    "kind": "effect",
+    "file": "slide.mp3",
+    "duration": 0.23,
+    "loop": false,
+    "bytes": 3932,
+    "peakDbfs": -7.0,
+    "rmsDbfs": -26.8
+  },
+  "match": {
+    "title": "同牌消除",
+    "kind": "effect",
+    "file": "match.mp3",
+    "duration": 0.42,
+    "loop": false,
+    "bytes": 6092,
+    "peakDbfs": -7.0,
+    "rmsDbfs": -29.29
+  },
+  "combo": {
+    "title": "连续消除",
+    "kind": "effect",
+    "file": "combo.mp3",
+    "duration": 0.75,
+    "loop": false,
+    "bytes": 9980,
+    "peakDbfs": -7.0,
+    "rmsDbfs": -28.13
+  },
+  "ice": {
+    "title": "破冰",
+    "kind": "effect",
+    "file": "ice.mp3",
+    "duration": 0.42,
+    "loop": false,
+    "bytes": 6092,
+    "peakDbfs": -7.0,
+    "rmsDbfs": -26.21
+  },
+  "bloom": {
+    "title": "花圃开放",
+    "kind": "effect",
+    "file": "bloom.mp3",
+    "duration": 0.8,
+    "loop": false,
+    "bytes": 10844,
+    "peakDbfs": -11.88,
+    "rmsDbfs": -23.01
+  },
+  "charge": {
+    "title": "灵感充满",
+    "kind": "effect",
+    "file": "charge.mp3",
+    "duration": 0.85,
+    "loop": false,
+    "bytes": 11276,
+    "peakDbfs": -11.89,
+    "rmsDbfs": -23.01
+  },
+  "hint": {
+    "title": "提示",
+    "kind": "effect",
+    "file": "hint.mp3",
+    "duration": 0.65,
+    "loop": false,
+    "bytes": 9116,
+    "peakDbfs": -13.1,
+    "rmsDbfs": -23.02
+  },
+  "undo": {
+    "title": "撤销",
+    "kind": "effect",
+    "file": "undo.mp3",
+    "duration": 0.3,
+    "loop": false,
+    "bytes": 4796,
+    "peakDbfs": -7.0,
+    "rmsDbfs": -26.68
+  },
+  "win": {
+    "title": "通关",
+    "kind": "effect",
+    "file": "win.mp3",
+    "duration": 1.8,
+    "loop": false,
+    "bytes": 22508,
+    "peakDbfs": -11.72,
+    "rmsDbfs": -23.0
+  },
+  "lose": {
+    "title": "暂未完成",
+    "kind": "effect",
+    "file": "lose.mp3",
+    "duration": 1.25,
+    "loop": false,
+    "bytes": 16028,
+    "peakDbfs": -13.88,
+    "rmsDbfs": -23.0
+  },
+  "ui": {
+    "title": "界面轻点",
+    "kind": "effect",
+    "file": "ui.mp3",
+    "duration": 0.12,
+    "loop": false,
+    "bytes": 2636,
+    "peakDbfs": -10.54,
+    "rmsDbfs": -27.29
+  },
+  "listening-study": {
+    "title": "30 秒音乐与音效试听",
+    "kind": "study",
+    "file": "listening-study.mp3",
+    "duration": 30.0,
+    "loop": false,
+    "bytes": 361196,
+    "peakDbfs": -4.0,
+    "rmsDbfs": -24.0
+  }
+}

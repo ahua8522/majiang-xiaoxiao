@@ -5,11 +5,11 @@ import type {LevelDef} from '../../cocos/assets/scripts/core/levels';
 
 export type Mode = 'classic' | 'ice' | 'garden' | 'orders' | 'energy';
 export const MODES: {id: Mode; title: string; eyebrow: string; rule: string; isNew: boolean}[] = [
-  {id: 'classic', title: '清风入席', eyebrow: '第一站 · 同牌碰头', rule: '点两张相邻同牌，或拖动一行、一列，让同牌碰头。', isNew: false},
-  {id: 'ice', title: '冰晶花园', eyebrow: '经典机关 · 破冰', rule: '冰牌先配对碎冰，再配对收走。蓝色裂纹就是进度。', isNew: false},
-  {id: 'garden', title: '花圃初开', eyebrow: '新机制 · 开花', rule: '在金色花圃格上消掉牌，让四朵花全部开放。', isNew: true},
-  {id: 'orders', title: '心愿收集', eyebrow: '新组合 · 双份目标', rule: '各收集一对清单上的牌。其他同牌照常可以消。', isNew: true},
-  {id: 'energy', title: '灵感连消', eyebrow: '新机制 · 灵感充能', rule: '每收走一对点亮一格，满四格可免费用一次慧眼。', isNew: true}
+  {id: 'classic', title: '清风入席', eyebrow: '第一站 · 同牌碰头', rule: '点相邻同牌；拖动整行或整列。', isNew: false},
+  {id: 'ice', title: '冰晶花园', eyebrow: '经典机关 · 破冰', rule: '同层冰牌先破冰，再配对收走。', isNew: false},
+  {id: 'garden', title: '花圃初开', eyebrow: '新机制 · 开花', rule: '在花圃上消牌，点亮四朵花。', isNew: true},
+  {id: 'orders', title: '心愿收集', eyebrow: '新组合 · 双份目标', rule: '收齐目标牌，其他牌也能消。', isNew: true},
+  {id: 'energy', title: '灵感连消', eyebrow: '新机制 · 灵感充能', rule: '消四对，攒一次免费提示。', isNew: true}
 ];
 
 interface Snapshot {grid: Grid; solution: Action[]; moves: number; charge: number; streak: number; bestStreak: number; blooms: string[]; collected: Record<string, number>}
@@ -82,7 +82,7 @@ export class DesignSession {
   apply(action: Action): boolean {
     if (this.won || this.lost) return false;
     const out = transition(this.grid, this.runs, action); // No dialect: identical adjacent faces always pair.
-    if (!out.changed) {this.message = '先把两张同牌推到相邻的位置。'; return false;}
+    if (!out.changed) {this.message = '把同牌推到相邻位置。'; return false;}
     this.history.push({grid: clone(this.grid), solution: this.solution.slice(), moves: this.moves, charge: this.charge, streak: this.streak, bestStreak: this.bestStreak, blooms: [...this.blooms], collected: {...this.collected}});
     const expected = this.solution.length ? transition(this.grid, this.runs, this.solution[0]) : null;
     this.solution = expected?.changed && signature(expected.grid) === signature(out.grid) ? this.solution.slice(1) : [];
@@ -98,7 +98,7 @@ export class DesignSession {
     this.streak = removed ? this.streak + 1 : 0;
     this.bestStreak = Math.max(this.bestStreak, this.streak);
     this.grid = out.grid; this.moves++; this.selected = null; this.hint = null;
-    this.message = removed ? (out.chain > 1 ? `一推连消 ${out.chain} 层，漂亮！` : `收好 ${removed / 2} 对，继续碰个对！`) : out.erased.length ? '咔嚓！冰碎了，再配一次就能收走。' : '位置摆好了，找找新出现的对子。';
+    this.message = removed ? (out.chain > 1 ? `连消 ${out.chain} 层` : `消除 ${removed / 2} 对`) : out.erased.length ? '冰碎了，再配对收走。' : '找找新出现的对子。';
     if (this.won) this.message = '这一桌，收得漂亮！';
     return true;
   }
@@ -106,14 +106,14 @@ export class DesignSession {
     if (this.won || this.lost || !top(this.grid, p)) return false;
     if (this.selected && !equal(this.selected,p) && partners(this.grid, this.selected).some(q => equal(q,p))) return this.apply({kind: 'match', a: this.selected, b: p});
     this.selected = p; this.hint = null;
-    this.message = partners(this.grid,p).length ? '再点旁边发光的同牌，就能收走。' : '拖动这一行或一列，把同牌推到一起。';
+    this.message = partners(this.grid,p).length ? '点旁边亮起的同牌。' : '拖动行或列，让同牌碰头。';
     return false;
   }
   undo(): boolean {
     const s = this.history.pop(); if (!s) return false;
     this.grid = s.grid; this.solution = s.solution; this.moves = s.moves; this.charge = s.charge;
     this.streak = s.streak; this.bestStreak = s.bestStreak; this.blooms = new Set(s.blooms); this.collected = s.collected;
-    this.selected = null; this.hint = null; this.message = '退回一步，换个角度试试。'; return true;
+    this.selected = null; this.hint = null; this.message = '已撤销，换个走法。'; return true;
   }
   requestHint(): Action | null {
     if (this.won || this.lost) return null;
