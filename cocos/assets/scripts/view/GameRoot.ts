@@ -12,25 +12,32 @@
  * core/ 完全不感知 cc；本文件是唯一的引擎适配层。
  */
 import {_decorator, Component, Director, EventTouch, Game, game, Label, Node, Sprite, UIOpacity, UITransform, director, input, Input, sys, view} from 'cc';
-import {Modal, Session, Platform} from '../core/Session';
+import {Modal, Session, Platform, starLines, chapterOf} from '../core/Session';
 import {LEVELS, levelAt} from '../core/Generator';
 import {CHAPTER_NAMES} from '../core/levels';
-import {CHAPTER_TUTORIALS, Tutorial, tutorialFor} from '../core/tutorials';
+import {Tutorial, tutorialFor} from '../core/tutorials';
 import {TutorialRun} from '../core/Tutorial';
+import {coachFocusCells} from '../core/coach';
 import {Action, count, Run} from '../core/Rules';
+import {ChallengeSession, ChallengePlatform} from '../core/ChallengeSession';
+import {Axis, applyRotate, cellFace} from '../core/Challenge';
 import {SceneAtlas, TileAtlas, UiAtlas, UiName} from './assets';
 import {atlasReport, watchContext} from './atlas';
-import {Board, Pos} from './Board';
+import {Board, BoardModel, Pos} from './Board';
 import {palette} from './theme';
 import {bindPress, clearChildren, fadeIn, hex, makeButton, makeIconButton, makeLabel, makeNode, makePanel, makePlate, makeSprite, makeStars, makeToggle} from './widgets';
 
 const {ccclass, property} = _decorator;
 const STORAGE_KEY = 'majiang-xiaoxiao:v1';
+/** 挑战模式独立存档：不动主线的 224 关进度与道具账本。 */
+const CHALLENGE_KEY = 'majiang-xiaoxiao:challenge:v1';
 const SHARE_TITLE = '快乐推麻对对消：推一推，碰个对';
+/** 整线滑动的方向文案：行看左右、列看上下，符号跟 `Rotate.step` 一致。 */
+const dirLabel = (axis: Axis, step: number): string => axis === 'row' ? (step > 0 ? '右' : '左') : (step > 0 ? '下' : '上');
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 /** 应用版本号：与 cocos/package.json 的 version、upload-ci 上传版本保持一致（提版时三处一起改）。 */
-const APP_VERSION = '1.2.5';
+const APP_VERSION = '1.4.0';
 
 /**
  * 「新玩法」说明卡的内容：每关首次出现某机制时，进关先弹这张卡（看完才开局）。
@@ -60,6 +67,28 @@ const TIP_CONTENT: Record<string, {title: string; lines: string[]}> = {
   collect: {title: '集齐一组', lines: ['不用清台：把这一组各消掉一对就通关。', '顶栏显示已经集齐几种。']}
 };
 
+/**
+ * 章首说明框：每章第一次进入时弹一次，关掉即自由玩。
+ * 不再按机制首现弹卡、也不再进独立小盘教学；14 章各一段，标题由章号 + CHAPTER_NAMES 生成。
+ * 行数控制在 3~4 行、每行 ≤22 个汉字，面板高度才放得下（Label 不折行）。
+ */
+const CHAPTER_TIPS: string[][] = [
+  ['拖动一行或一列，整段牌循环滑动；松手同牌就消。', '也可以轻点两张相邻的同牌。', '清空牌桌就通关；卡住用下方的提示 / 洗牌。'],
+  ['带木条和锁标的行 / 列不能沿自身方向推。', '只能换另一个方向推，或直接点消。', '限步关的步数上限在右上角，用完就失败。'],
+  ['两端带箭头的单向轨只能顺箭头方向推。', '带数字的锁轨：消一对计数，够数自动解锁。'],
+  ['覆霜牌要消两次：先碎冰，再收走。', '双圈厚霜要碎两次冰、再消一次。', '鞭炮配对会震碎全场同款冰面。'],
+  ['不必清台：左上角目标先达成就算胡。', '花牌入池；带星号的花牌是百搭，能配任意牌。', '本章有限时关，注意右上角倒计时。'],
+  ['只有 2、5、8 能配成对。', '别的牌只能当滑块；剩下的哑弹不用管。'],
+  ['有一门的牌滑动带不走，只能轻点消除。', '别的门照旧可以连着消。'],
+  ['只有 1、9 和字牌能配成对。', '中间的牌只能当滑块，能消的消光就通关。'],
+  ['只有一门的牌能配对，其余三门全是滑块。', '把它们推到相邻位置再轻点。'],
+  ['不用清台：八种花牌各收一对。', '顶栏显示已经集齐几种。'],
+  ['目标是中、發、白三种各收一对。', '不同面之间不配对；顶栏显示已集齐几种。'],
+  ['目标是一筒到九筒各收一对。', '缺一张就不算龙；顶栏只数收到的种数。'],
+  ['本章只偶数关带方言；两套方言取交集。', '哑弹只能当滑块，不用管。'],
+  ['全机制混合：先看目标与预算，再看障碍。', '读盘顺序：目标 → 步数 / 时间 → 锁与冰。']
+];
+
 /** 微信小游戏全局；编辑器预览 / Web 构建里不存在。 */
 const wx: any = (globalThis as any).wx;
 function vibrate(kind: 'light' | 'medium'): void { try { wx?.vibrateShort?.({type: kind}); } catch { /* 可选 */ } }
@@ -88,6 +117,17 @@ function textWidth(s: string, px: number): number {
 /** 不能出现在行首的中文字符（避头点）：句号被甩到下一行行首，读起来就是"话没说完"。 */
 const NO_LINE_HEAD = new Set(['。', '，', '、', '：', '；', '！', '？', '）', '》', '」', '』', '…', '·']);
 
+/** 按估算字宽截断一行，尾部加省略号。横幅 overflow = NONE，宁可截也不能画到屏外。 */
+function clipText(s: string, px: number, maxW: number): string {
+  if (textWidth(s, px) <= maxW) return s;
+  let out = '';
+  for (const ch of s) {
+    if (textWidth(out + ch + '…', px) > maxW) break;
+    out += ch;
+  }
+  return out + '…';
+}
+
 function wrapText(s: string, px: number, maxW: number): string[] {
   const out: string[] = [];
   let line = '';
@@ -105,17 +145,6 @@ function wrapText(s: string, px: number, maxW: number): string[] {
     }
   }
   return out;
-}
-
-/**
- * 章目录的副标题：截到第一个句末标点为止。
- * 宁可短，也不要截成"…推这一…"那种读不通的半句——这一行就是玩家决定要不要点进去看的理由。
- */
-function helpSummary(t: Tutorial): string {
-  const src = t.steps.length ? t.steps[0].say : t.close;
-  const cut = src.search(/[。：；]/);
-  const head = cut > 0 ? src.slice(0, cut + 1) : src;
-  return head.length > 24 ? head.slice(0, 24) + '…' : head;
 }
 
 /**
@@ -143,8 +172,13 @@ const storage: Platform = {
   save: (data) => sys.localStorage.setItem(STORAGE_KEY, JSON.stringify(data)),
   feedback: () => vibrate('medium')
 };
+const challengeStorage: ChallengePlatform = {
+  load: () => sys.localStorage.getItem(CHALLENGE_KEY),
+  save: (data) => sys.localStorage.setItem(CHALLENGE_KEY, JSON.stringify(data)),
+  feedback: () => vibrate('medium')
+};
 
-type Screen = 'home' | 'levels' | 'board' | 'settings' | 'win' | 'lose' | 'pause' | 'help' | 'restart' | 'tutorial';
+type Screen = 'home' | 'levels' | 'board' | 'settings' | 'win' | 'lose' | 'pause' | 'help' | 'restart' | 'tutorial' | 'challenge';
 
 /**
  * 每一屏对应 Session 的哪一态。**必须穷举所有 Screen**（`Record` 少一行就编译不过）：
@@ -157,7 +191,9 @@ const SCREEN_MODAL: Record<Screen, Modal> = {
   help: 'help', pause: 'pause', restart: 'restart',
   // 教学屏也映射 'none'：停表与挡输入已经由 Session.tip 非空负责（tick/apply/tap/notice/command 五处）。
   // 这里再造一个 modal 只会让"到底谁停的表"变成两处逻辑——而 tip 那五处是真机验证过的。
-  tutorial: 'none'
+  tutorial: 'none',
+  // 挑战模式没有主线 Session 的弹窗态；它的清台/走死由 overlay 自己画。
+  challenge: 'none'
 };
 
 /**
@@ -175,6 +211,12 @@ export class GameRoot extends Component {
   seed = 0;
 
   private session!: Session;
+  /** 挑战模式会话：首次进入才创建，主线和它的存档互不影响。 */
+  private cs: ChallengeSession | null = null;
+  private chRevision = -1;
+  private chPress: {x: number; y: number; cell: Pos} | null = null;
+  private chDrag: {run: number; offset: number; axis: Axis; index: number; len: number} | null = null;
+  private chPeek: Pos[] = [];
   private ui!: UiAtlas;
   private tileAtlas: TileAtlas | null = null;
   private sceneAtlas: SceneAtlas | null = null;
@@ -232,7 +274,7 @@ export class GameRoot extends Component {
   private sound = true;
   private music = true;
 
-  private press: {x: number; y: number; cell: Pos | null; blocked: boolean; axis: 'row' | 'col' | null} | null = null;
+  private press: {x: number; y: number; cell: Pos | null; blocked: boolean; axis: 'row' | 'col' | null; coachRun?: number} | null = null;
   private drag: {run: number; offset: number} | null = null;
   private dragAxis: 'row' | 'col' = 'row';
   private lastStep = 0;
@@ -293,7 +335,13 @@ export class GameRoot extends Component {
 
       const q = this.queryParam('screen') as Screen | null;
       const lv = Number(this.queryParam('level'));
-      if (Number.isFinite(lv) && this.queryParam('level') !== null) this.session.reset(lv, false);
+      if (Number.isFinite(lv) && this.queryParam('level') !== null) this.session.reset(lv, false, true);
+      if (q === 'challenge') {
+        this.ensureChallenge();
+        // 取证/试玩用：?screen=challenge&clevel=50 直接开第 50 盘（后期 14×10 近满盘）
+        const cl = Number(this.queryParam('clevel'));
+        if (Number.isFinite(cl) && cl >= 1) this.cs?.startAt(cl);
+      }
       // 大厅保留，但**不再当入口**：真机反馈是"每次进来先是一张海报页，还要再点一次开始游戏"。
       // 没有 ?screen= 就直接开局（继续上一盘）；截图与调试仍可用 ?screen=home 回到大厅。
       this.setScreen(q && this.isScreen(q) ? q : 'board');
@@ -323,6 +371,10 @@ export class GameRoot extends Component {
         watch: this.tut.watchMode, cellW: this.tutCell ? this.tutCell.cellW : 0,
         runs: this.tut.runsText, hint: this.tutHint,
         rows: this.tutBoard.gridRows, cols: this.tutBoard.gridCols, origin: this.tutBoard.origin, tip: this.session.introTip} : null,
+      // 真盘机制引导的取证：跑到第几步、有没有做错、目标动作是哪一条。
+      coach: this.session.coach ? {key: this.session.coach.text.key, total: this.session.coach.total,
+        index: this.session.coach.index, hint: this.session.coach.hint,
+        want: this.session.solution[0] || null, bounceRun: this.session.coachBounceRun()} : null,
       model: this.session ? {levelIndex: this.session.levelIndex, grid: this.session.grid, runs: this.session.runs, modal: this.session.modal,
         total: this.session.total, moves: this.session.moves, hintsLeft: this.session.hintsLeft, shufflesLeft: this.session.shufflesLeft,
         stars: this.session.stars, maxLevel: this.session.maxLevel, par: this.session.par,
@@ -330,9 +382,22 @@ export class GameRoot extends Component {
         // dialect + liveTotal 证明「只剩哑弹也算过」的判据，timeLeft 证明倒计时在走。
         levels: LEVELS.length, px: this.pxProbe, seed: this.session.pinnedSeed, dialect: !!this.session.def.dialect,
         liveTotal: this.session.liveTotal, timeLeft: Math.round(this.session.timeLeft * 10) / 10,
-        atlas: atlasReport()} : null
+        atlas: atlasReport()} : null,
+      challenge: this.cs ? {level: this.cs.level, cleared: this.cs.cleared, rows: this.cs.rows, cols: this.cs.cols,
+        tiles: this.cs.remaining, total: this.cs.total, moves: this.cs.moves, won: this.cs.won, stuck: this.cs.stuck,
+        hintsLeft: this.cs.hintsLeft, shufflesLeft: this.cs.shufflesLeft,
+        hint: this.cs.hint, message: this.cs.message, solution: this.cs.solution.slice()} : null
     });
     (globalThis as any).__mjTap = (id: string) => this.activate(id);
+    /** 挑战模式的 headless 取证：直接喂一次整线滑动，绕开桌面构建里不发的全局触摸。 */
+    (globalThis as any).__mjChallenge = (axis: Axis, index: number, step: number) => {
+      const C = this.cs;
+      if (!C || this.screen !== 'challenge') return null;
+      const res = C.rotate(axis, index, step);
+      if (res) this.board.playErase(res.erased);
+      this.dirty = true;
+      return {ok: !!res, won: C.won, stuck: C.stuck, left: C.remaining, message: C.message};
+    };
     /**
      * 教学取证：把 `onTutorialTouch` 松手之后要提交的那个 Action 直接喂进状态机。
      *
@@ -349,6 +414,8 @@ export class GameRoot extends Component {
       return {step: t.index, done: t.done, failed: t.failed, screen: this.screen, tip: this.session.introTip};
     };
     (globalThis as any).__mjTutHit = (x: number, y: number) => this.tutBoard.cellAt(x, y);
+    /** 真盘引导取证：headless 推不动牌桌轨道，直接把目标 Action 喂给状态机。 */
+    (globalThis as any).__mjCoach = (action: any) => this.session.feed(action);
     input.on(Input.EventType.TOUCH_START, this.onTouch, this);
     input.on(Input.EventType.TOUCH_MOVE, this.onTouch, this);
     input.on(Input.EventType.TOUCH_END, this.onTouch, this);
@@ -393,7 +460,7 @@ export class GameRoot extends Component {
   private onAfterDraw(): void {
     if (this.pxProbe) return;
     this.frames++;
-    if (this.frames < 90 || this.screen !== 'board') return;
+    if (this.frames < 90 || (this.screen !== 'board' && this.screen !== 'challenge')) return;
     this.pxProbe = this.boardDiag();
     console.log('[mj] boardDiag "' + this.pxProbe + '" · atlas ' + JSON.stringify(atlasReport()));
   }
@@ -403,7 +470,8 @@ export class GameRoot extends Component {
     let why = '';
     // 倒计时必须每帧喂 dt，而且要在 `!dirty` 早退**之前**：跨过整秒时 session.revision 不变，
     // 放在早退之后就永远不会重绘，玩家看到的数字会停在原地。
-    if (this.session.tick(dt)) {
+    // 挑战模式没有主线 Session 的计时；这里不挡的话，主线限时盘会在后台继续走表。
+    if (this.screen !== 'challenge' && this.session.tick(dt)) {
       why = 'tick';
       this.dirty = true;
       // 时间到是 `tick()` 里判的，不会经过 `afterAction()`。以前这里只置 dirty：
@@ -425,6 +493,7 @@ export class GameRoot extends Component {
       this.dirty = true;
     }
     if (this.session.revision !== this.revision) { why += (why ? '+' : '') + 'rev'; this.dirty = true; }
+    if (this.cs && this.cs.revision !== this.chRevision) { why += (why ? '+' : '') + 'ch'; this.dirty = true; }
     /**
      * 教学屏的自动演示节拍：走 dt 累加，和限时关同一个 update 入口，不新增 cc.schedule。
      * 切后台掉帧时 dt 会很大，所以钳到 0.25——演示是给人看的，一次跳过三步就成了闪屏。
@@ -447,6 +516,7 @@ export class GameRoot extends Component {
     this.noteRender(why || 'act');
     this.dirty = false;
     this.revision = this.session.revision;
+    this.chRevision = this.cs ? this.cs.revision : -1;
     // 一帧画崩不能把整个游戏带走：以前 render() 里任何一处抛异常（最常见是图集缺帧），
     // 表现就是"屏幕上只剩文字"，而且下一帧继续抛，玩家什么也点不动。
     try {
@@ -479,7 +549,7 @@ export class GameRoot extends Component {
   /* ── 屏幕状态机 ───────────────────────────────────────── */
 
   private isScreen(s: string): s is Screen {
-    return ['home', 'levels', 'board', 'settings', 'win', 'lose', 'pause', 'help', 'restart'].includes(s);
+    return ['home', 'levels', 'board', 'settings', 'win', 'lose', 'pause', 'help', 'restart', 'challenge'].includes(s);
   }
 
   private setScreen(s: Screen): void {
@@ -551,6 +621,12 @@ export class GameRoot extends Component {
   private activate(id: string): void {
     switch (id) {
       case 'home': this.go('home'); break;
+      case 'challenge': this.startChallenge(); break;
+      case 'challenge-home': this.setScreen('home'); break;
+      case 'challenge-next': if (this.cs?.next()) this.dirty = true; break;
+      case 'challenge-hint': if (this.cs) { this.cs.requestHint(); this.dirty = true; } break;
+      case 'challenge-shuffle': if (this.cs) { this.cs.shuffle(); this.dirty = true; } break;
+      case 'challenge-restart': if (this.cs) { this.cs.restart(); this.dirty = true; } break;
       // 大厅「开始游戏」= 继续上一盘，而不是重开：以前无条件 `reset(maxLevel)`，
       // 从对局菜单回大厅再点开始，当前这一盘的进度就被悄悄丢掉了。
       case 'start': this.session.command('continue'); this.setScreen('board'); break;
@@ -567,8 +643,10 @@ export class GameRoot extends Component {
       case 'restart': this.setScreen('restart'); break;
       case 'confirm-restart': this.session.command('confirm-restart'); this.setScreen('board'); break;
       case 'replay': this.session.reset(); this.setScreen('board'); break;
-      case 'next': this.startLevel(Math.min(this.session.levelIndex + 1, LEVELS.length - 1)); break;
+      // 通关下一页：同章不重复弹章首说明，换章才弹。
+      case 'next': this.startLevel(Math.min(this.session.levelIndex + 1, LEVELS.length - 1), false); break;
       case 'hint': this.session.command('hint'); this.afterAction(); break;
+      case 'coach-skip': this.session.command('coach-skip'); break;
       case 'shuffle': this.session.command('shuffle'); this.afterAction(); break;
       case 'undo': this.session.command('undo'); this.afterAction(); break;
       case 'toggle-sound': this.sound = !this.sound; break;
@@ -580,7 +658,11 @@ export class GameRoot extends Component {
         this.page = Math.min(Math.ceil(shown / 16) - 1, this.page + 1);
         break;
       }
-      case 'undo-lose': if (this.session.undo()) this.setScreen('board'); break;
+      // 失败页的出路（A3）：复活回到牌桌 / 死局免费重排。
+      // 失败时 `revive()` 返回 false（次数用完或原因不符）就什么都不做——
+      // 按钮那时是 disabled，正常点不到，这里只是兜底。
+      case 'revive': if (this.session.revive()) this.setScreen('board'); break;
+      case 'rescue': if (this.session.rescueShuffle()) this.setScreen('board'); break;
       case 'restart-lose': this.session.reset(); this.setScreen('board'); break;
       // ── 教学屏 ──
       case 'tutorial-skip': this.session.command('tip-ok'); this.setScreen('board'); break;
@@ -603,9 +685,28 @@ export class GameRoot extends Component {
     this.dirty = true;
   }
 
-  private startLevel(i: number): void {
+  private ensureChallenge(): ChallengeSession {
+    if (!this.cs) this.cs = new ChallengeSession(this.seed || (Date.now() >>> 0), challengeStorage);
+    return this.cs;
+  }
+
+  private startChallenge(): void {
+    this.ensureChallenge();
+    // 切模式时把主线的拖动/选中状态清掉，避免回到牌桌时还挂着上一屏的手势。
+    this.drag = null;
+    this.press = null;
+    this.chDrag = null;
+    this.chPress = null;
+    this.chPeek = [];
+    this.setScreen('challenge');
+  }
+
+  private startLevel(i: number, chapterEntry = true): void {
     const idx = Math.max(0, Math.min(LEVELS.length - 1, i));
-    this.session.reset(idx);
+    // 章节门槛（B2）：进不去的关一律不开局。选关页本来就不给锁着的卡片挂点击，
+    // 这里兜的是「通关页的下一关」这类程序化入口——不兜就会绕过门槛。
+    if (!this.session.canEnter(idx)) return;
+    this.session.reset(idx, true, chapterEntry);
     this.setScreen('board');
   }
 
@@ -636,14 +737,16 @@ export class GameRoot extends Component {
     if (homeFlow) this.renderHome();
     const boardVisible = this.screen === 'board' || this.screen === 'win' || this.screen === 'lose' || this.screen === 'pause'
       || this.screen === 'restart' || (dialog && this.dialogBase === 'board');
-    show(this.screens.board, boardVisible);
-    if (boardVisible) this.renderBoard();
+    const challengeVisible = this.screen === 'challenge';
+    show(this.screens.board, boardVisible || challengeVisible);
+    if (challengeVisible) this.renderChallenge();
+    else if (boardVisible) this.renderBoard();
     // 教学屏与牌桌互斥：screen='tutorial' 时真牌桌整块不画（9×9 的盘白建一次池子不值）
     const tutVisible = this.screen === 'tutorial';
     show(this.screens.tutorial, tutVisible);
     if (tutVisible) this.renderTutorial();
     // 诊断行画在当前看得见的那块底图上（牌桌故障最需要它，而它偏偏不画在大厅）
-    this.atlasDiag(tutVisible ? this.tutChrome : boardVisible ? this.boardChrome : this.screens.home);
+    this.atlasDiag(challengeVisible ? this.boardChrome : tutVisible ? this.tutChrome : boardVisible ? this.boardChrome : this.screens.home);
 
     clearChildren(this.screens.overlay);
     switch (this.screen) {
@@ -655,8 +758,11 @@ export class GameRoot extends Component {
       case 'restart': this.renderRestart(); break;
       case 'help': this.renderHelp(); break;
     }
-    // 「新玩法」说明卡：进关时 Session 给出待展示的 tip，看完（tip-ok）才开局
-    if (this.session.introTip) this.renderTipCard();
+    if (challengeVisible && this.cs?.won) this.renderChallengeWin();
+    else if (challengeVisible && this.cs?.stuck) this.renderChallengeStuck();
+    // 「新玩法」说明卡：进关时 Session 给出待展示的 tip，看完（tip-ok）才开局。
+    // 挑战模式不显示主线遗留的说明卡（从牌桌切过来时 tip 可能还在）。
+    if (this.screen !== 'challenge' && this.session.introTip) this.renderTipCard();
     // 记下来这一屏已经画过：同一屏的下一次重绘不再重播入场动画（见 animateIn）
     this.overlayAnimated = this.screen;
   }
@@ -690,16 +796,28 @@ export class GameRoot extends Component {
     const root = this.screens.overlay;
     this.veil();
     const tip = this.session.introTip!;   // 只有 introTip 非空时才会走到这里（见 render()）
-    const content = TIP_CONTENT[tip] || {title: '新玩法', lines: ['这一关出现了新机制，注意观察棋盘上的标识。']};
+    // 章首说明：`ctip:<章号>`；旧的机制键仍保留兜底，但不再由 Session 调度。
+    const chapterMatch = /^ctip:(\d+)$/.exec(tip);
+    const chapter = chapterMatch ? Number(chapterMatch[1]) : -1;
+    const content = chapter >= 0
+      ? {title: `第 ${chapter + 1} 章 · ${CHAPTER_NAMES[chapter] || ''}`, lines: CHAPTER_TIPS[chapter] || []}
+      : (TIP_CONTENT[tip] || {title: '新玩法', lines: ['这一关出现了新机制，注意观察棋盘上的标识。']});
+    const isChapter = chapter >= 0;
     const W = this.size.w;
     const lineH = 54;
     const ph = 104 + 36 + content.lines.length * lineH + 26 + 96 + 30;
     const py = this.centeredTop(ph);
     makePanel(root, this.ui, W - 120, ph, 0, py - ph / 2);
-    const plate = makePlate(root, this.ui, 320, 72, 0, py - 30 - 36);
-    makeLabel(plate, content.title, {x: 0, y: 20, size: 34, color: '#FBF3DE', align: 'center', bold: true, serif: true});
+    const plate = makePlate(root, this.ui, isChapter ? 380 : 320, 72, 0, py - 30 - 36);
+    makeLabel(plate, content.title, {x: 0, y: 20, size: isChapter ? 30 : 34, color: '#FBF3DE', align: 'center', bold: true, serif: true});
+    if (isChapter) {
+      // 章首说明每次都弹，所以必须给一个随时能走的出口；和主按钮一样只清 tip。
+      const skip = makeNode(root, {w: 96, h: 44, x: (W - 120) / 2 - 52, y: py - 56, name: 'tip-skip'});
+      makeLabel(skip, '跳过 ›', {x: 44, y: 12, size: 22, color: palette.jadeDeep, align: 'right', bold: true});
+      bindPress(skip, () => this.session.command('tip-ok'));
+    }
     content.lines.forEach((ln, i) => {
-      makeLabel(root, ln, {x: -(W - 120) / 2 + 56, y: py - 104 - 36 - i * lineH, size: 25, color: palette.ink, align: 'left'});
+      makeLabel(root, ln, {x: -(W - 120) / 2 + 56, y: py - 104 - 36 - i * lineH, size: isChapter ? 24 : 25, color: palette.ink, align: 'left'});
     });
     makeButton(root, this.ui, {x: 0, y: py - ph + 30 + 48, w: 340, h: 92, text: '知道了，开始', style: 'jade', size: 30, onTap: () => this.session.command('tip-ok')});
   }
@@ -735,9 +853,20 @@ export class GameRoot extends Component {
     const bw = cellW * cols, bh = cellH * rows;
     this.tutCell = {cellW, cellH};
     const st = run.step;
+    // 教学与正式提示共用同一套视觉：整条轨标蓝 + 方向箭头流 / 两张牌金框脉冲。
+    // 以前教学只画蓝框，玩家看得出"动这一行"，看不出"往哪边推"——和旧提示是同一个毛病。
+    const tutAction: BoardModel['hintAction'] = (() => {
+      if (!st) return null;
+      if (st.on.tap) return {kind: 'match', a: st.on.tap[0], b: st.on.tap[1]};
+      const want = st.on.slide;
+      if (!want) return null;
+      const ri = run.runs.findIndex((r) => r.axis === want.axis && r.index === want.index && !r.locked);
+      return ri < 0 ? null : {kind: 'slide', run: ri, step: st.step ?? 1};
+    })();
     this.tutBoard.build({
       grid: run.grid, runs: run.runs, selected: this.tutSel,
-      hintCells: run.targetCells(), drag: this.tutDrag,
+      hintCells: run.targetCells().length && st?.on.slide ? run.targetCells() : [],
+      hintAction: tutAction, drag: this.tutDrag,
       lockedRows: [], lockedCols: [], oneWay: [], pendingUnlock: []
     }, this.ensureTileAtlas(), -bw / 2, top - Math.max(0, (availH - bh) / 2), cellW, cellH);
 
@@ -831,7 +960,10 @@ export class GameRoot extends Component {
     // 按钮：开始游戏（通栏）+ 关卡选择（通栏拉长）；「我的进度」收进设置弹框
     const bw = W - 168;
     makeButton(root, this.ui, {x: 0, y: R(-322), w: bw, h: 108, text: '开始游戏', style: 'jade', size: 42, icon: 'icon-play', onTap: () => this.activate('start')});
-    makeButton(root, this.ui, {x: 0, y: R(-452), w: bw, h: 92, text: '关卡选择', style: 'cream', size: 32, onTap: () => this.activate('levels')});
+    // 第二排两枚并排：关卡选择 / 挑战模式。挑战模式是独立入口，不塞进对局菜单。
+    const half = (bw - 20) / 2;
+    makeButton(root, this.ui, {x: -(half + 20) / 2, y: R(-452), w: half, h: 92, text: '关卡选择', style: 'cream', size: 30, onTap: () => this.activate('levels')});
+    makeButton(root, this.ui, {x: (half + 20) / 2, y: R(-452), w: half, h: 92, text: '挑战模式', style: 'jade', size: 30, onTap: () => this.activate('challenge')});
     makeIconButton(root, this.ui, W / 2 - 76, H / 2 - 96 - safe, 68, 'gear', () => this.activate('settings'));
   }
 
@@ -957,9 +1089,28 @@ export class GameRoot extends Component {
     makeSprite(banner, this.ui.frame('banner'), W - 68, 62, 0, 0, true, this.ui.inset('banner'));
     // 左侧一道玉色竖条即可，不再套「!」圆形徽标——圆徽标是这套界面里最模板化的一处
     makeSprite(banner, this.ui.frame('chip-dark'), 6, 30, -(W - 68) / 2 + 24, 0, true, this.ui.inset('chip-dark'));
-    // 提示统一走这一条横幅：拖动预览 > session.message > 默认文案。底部不再有第二条提示。
-    const bannerText = this.drag ? this.dragLine() : (S.message || '轻点配对 / 横竖拖动整段');
-    this.dragLabel = makeLabel(banner, bannerText, {x: -(W - 68) / 2 + 44, y: 12, size: 24, color: palette.ink, align: 'left'});
+    // 提示统一走这一条横幅：拖动预览 > 机制引导 > session.message > 默认文案。
+    // 引导期间横幅右侧留 96px 给“跳过”，文字按估算字宽截断，绝不画到屏外。
+    const coach = S.coach;
+    const coachLine = coach
+      ? (coach.hint || `${coach.text.title} · ${coach.text.say[Math.min(coach.index, coach.text.say.length - 1)]}${coach.total > 1 ? `  ${Math.min(coach.index + 1, coach.total)}/${coach.total}` : ''}`)
+      : '';
+    const bannerText = this.drag ? this.dragLine()
+      : coach ? coachLine
+      : (S.message || '轻点配对 / 横竖拖动整段');
+    const bannerW = W - 68;
+    const textW = bannerW - 44 - (coach ? 96 : 0);
+    // 引导文案比普通横幅长，字号收一号（24→22）换一行能多放 2~3 个汉字。
+    const bannerPx = coach ? 22 : 24;
+    this.dragLabel = makeLabel(banner, clipText(bannerText, bannerPx, textW), {
+      x: -bannerW / 2 + 44, y: coach ? 13 : 12, size: bannerPx,
+      color: coach && coach.hint ? palette.red : palette.ink, align: 'left'
+    });
+    if (coach) {
+      const skip = makeNode(banner, {w: 84, h: 44, x: bannerW / 2 - 52, y: 0, name: 'coach-skip'});
+      makeLabel(skip, '跳过 ›', {x: 42, y: 14, size: 22, color: palette.jadeDeep, align: 'right', bold: true});
+      bindPress(skip, () => this.activate('coach-skip'));
+    }
 
     const top = H / 2 - 270 - safe;
     const bottom = -H / 2 + 214;
@@ -997,6 +1148,8 @@ export class GameRoot extends Component {
       grid: S.grid, runs: S.runs,
       selected: S.selected,
       hintCells: this.hintCells(),
+      hintAction: this.hintAction(),
+      focusCells: this.focusCells(),
       drag: this.drag,
       lockedRows, lockedCols,
       oneWay: def.oneWay || [],
@@ -1004,9 +1157,11 @@ export class GameRoot extends Component {
     }, atlas, x, y, cellW, cellH);
 
     const tools: {id: string; icon: UiName; label: string; sub: string}[] = [
-      {id: 'hint', icon: 'icon-hint', label: '提示', sub: `免费 ${S.hintsLeft} 次`},
-      {id: 'shuffle', icon: 'icon-shuffle', label: '洗牌', sub: S.shuffleBlocked ? '方言洗不开' : `免费 ${S.shufflesLeft} 次`},
-      {id: 'undo', icon: 'icon-undo', label: '撤销', sub: '退回上一步'},
+      // 文案要诚实：额度跨重开不恢复（A2），写「免费 3 次」会让人以为重开就能刷
+      {id: 'hint', icon: 'icon-hint', label: '提示', sub: S.hintsLeft ? `剩 ${S.hintsLeft} 次` : '已用完'},
+      {id: 'shuffle', icon: 'icon-shuffle', label: '洗牌', sub: S.shuffleBlocked ? '方言洗不开' : (S.shufflesLeft ? `剩 ${S.shufflesLeft} 次` : '已用完')},
+      // 撤销不退步数（A1），这个代价必须写在按钮上，否则玩家会觉得"步数怎么没回来"
+      {id: 'undo', icon: 'icon-undo', label: '撤销', sub: '步数不退'},
       {id: 'restart', icon: 'icon-restart', label: '重开', sub: '重来这一盘'}
     ];
     const tw = (W - 68 - 3 * 16) / 4;
@@ -1027,6 +1182,146 @@ export class GameRoot extends Component {
     });
   }
 
+  /* ── 挑战模式牌桌 ─────────────────────────────────────── */
+
+  /**
+   * 挑战牌桌：单层盘、拖动一张牌推动整段、同线同牌自动消。
+   * 与主线共用 Board 实例和节点池，但不共用 Session / runs。
+   */
+  private renderChallenge(): void {
+    const C = this.cs;
+    if (!C) return;
+    const root = this.boardChrome;
+    clearChildren(root);
+    this.dragLabel = null;
+    const W = this.size.w, H = this.size.h, safe = this.safeTop;
+
+    makeIconButton(root, this.ui, -W / 2 + 60, H / 2 - 68 - safe, 68, 'back', () => this.activate('challenge-home'));
+    const plate = makePlate(root, this.ui, 360, 76, 0, H / 2 - 68 - safe);
+    makeLabel(plate, C.won ? '挑战 · 清台' : `挑战 · 第 ${C.level} 盘`, {x: 0, y: 22, size: 34, color: '#FBF3DE', align: 'center', bold: true, serif: true});
+
+    makeLabel(root, `剩余 ${C.remaining} / ${C.total} 张`, {x: -W / 2 + 40, y: H / 2 - 118 - safe, size: 25, color: palette.ink, align: 'left', bold: true});
+    makeLabel(root, `${C.moves} 步`, {x: W / 2 - 40, y: H / 2 - 118 - safe, size: 25, color: palette.ink, align: 'right', bold: true});
+
+    const barW = W - 80;
+    makeSprite(root, this.ui.frame('chip-light'), barW, 16, 0, H / 2 - 166 - safe, true, this.ui.inset('chip-light'));
+    if (C.progress > 0) {
+      const done = Math.max(12, barW * Math.min(1, C.progress));
+      makeSprite(root, this.ui.frame('chip-dark'), done, 16, -barW / 2 + done / 2, H / 2 - 166 - safe, true, this.ui.inset('chip-dark'));
+    }
+
+    const banner = makeNode(root, {w: W - 68, h: 62, x: 0, y: H / 2 - 221 - safe, name: 'banner'});
+    makeSprite(banner, this.ui.frame('banner'), W - 68, 62, 0, 0, true, this.ui.inset('banner'));
+    makeSprite(banner, this.ui.frame('chip-dark'), 6, 30, -(W - 68) / 2 + 24, 0, true, this.ui.inset('chip-dark'));
+    const bannerW = W - 68;
+    const line = this.chDrag
+      ? `把第 ${this.chDrag.index + 1} ${this.chDrag.axis === 'row' ? '行' : '列'}向${dirLabel(this.chDrag.axis, Math.round(this.chDrag.offset) || 1)}滑 ${Math.abs(Math.round(this.chDrag.offset))} 格`
+      : (C.message || '拖动一行或一列，整线循环滑动；同线同牌自动消');
+    this.dragLabel = makeLabel(banner, clipText(line, 24, bannerW - 44), {x: -bannerW / 2 + 44, y: 12, size: 24, color: palette.ink, align: 'left'});
+
+    const top = H / 2 - 270 - safe;
+    const bottom = -H / 2 + 214;
+    const availH = top - bottom;
+    const rows = C.rows, cols = C.cols;
+    const sidePad = cols <= 4 ? 34 : cols <= 6 ? 44 : 54;
+    const cellW = Math.min((W - sidePad * 2) / cols, availH / (rows + .4) / 1.24, 156);
+    const cellH = cellW * 1.24;
+    const atlas = this.ensureTileAtlas();
+    const bw = cellW * cols, bh = cellH * rows;
+    const x = -bw / 2, y = top - Math.max(0, (availH - bh) / 2);
+
+    const grid = C.grid;
+    const hint = C.hint;
+    const hintRun = hint ? C.runIndex(hint.axis, hint.index) : -1;
+    // 蓝框只框这条线上真实存在的牌；空格靠流向箭头表达「整条线都会走」。
+    const hintCells = hint && hintRun >= 0 ? C.runs[hintRun].cells.filter((p) => !!cellFace(C.grid, p)) : [];
+    let focus: Pos[] = this.chPeek.slice();
+    if (hint) {
+      const res = applyRotate(C.grid, hint);
+      // erased 是**滑完之后**的坐标；被滑走的那张牌在原盘上已经不在那个格子，
+      // 只给盘上真实存在的搭子画金框，被滑的牌由蓝色整线高亮 + 流向箭头负责。
+      if (res.changed) for (const p of res.erased) {
+        if (cellFace(C.grid, p.a)) focus.push(p.a);
+        if (cellFace(C.grid, p.b)) focus.push(p.b);
+      }
+    }
+    const seen = new Set<string>();
+    focus = focus.filter((p) => { const k = p.r + ',' + p.c; if (seen.has(k)) return false; seen.add(k); return true; });
+
+    this.board.build({
+      grid, runs: C.runs, selected: null, hintCells,
+      hintAction: hint ? {kind: 'slide', run: hintRun, step: hint.step} : null,
+      focusCells: focus,
+      drag: this.chDrag ? {run: this.chDrag.run, offset: this.chDrag.offset} : null,
+      showSlots: false,
+      lockedRows: [], lockedCols: [], oneWay: [], pendingUnlock: []
+    }, atlas, x, y, cellW, cellH);
+
+    const tools: {id: string; icon: UiName; label: string; sub: string}[] = [
+      {id: 'challenge-hint', icon: 'icon-hint', label: '提示', sub: C.hintsLeft ? `剩 ${C.hintsLeft} 次` : '已用完'},
+      {id: 'challenge-shuffle', icon: 'icon-shuffle', label: '洗牌', sub: C.shufflesLeft ? `剩 ${C.shufflesLeft} 次` : '已用完'},
+      {id: 'challenge-restart', icon: 'icon-restart', label: '重开', sub: '这一盘重来'}
+    ];
+    const tw = (W - 68 - 2 * 16) / 3;
+    tools.forEach((t, i) => {
+      const bx = -W / 2 + 34 + i * (tw + 16) + tw / 2;
+      const n = makeNode(root, {w: tw, h: 116, x: bx, y: -H / 2 + 110, name: 'tool:' + t.id});
+      makeSprite(n, this.ui.frame('btn-dark'), tw, 116, 0, 0, true, this.ui.inset('btn-dark'));
+      const ic = makeSprite(n, this.ui.frame(t.icon), 38, 38, 0, 34);
+      ic.color = hex('#F3EAD2');
+      makeLabel(n, t.label, {x: 0, y: 8, size: 26, color: '#FFFFFF', align: 'center', bold: true});
+      makeLabel(n, t.sub, {x: 0, y: -24, size: 18, color: '#F3EAD2BF', align: 'center'});
+      bindPress(n, () => this.activate(t.id));
+    });
+  }
+
+  private renderChallengeWin(): void {
+    const C = this.cs;
+    if (!C) return;
+    const root = this.screens.overlay;
+    this.veil();
+    const W = this.size.w;
+    const oHead = 76, oSub = 150, oR1 = 220, oR2 = 262, oNext = 352, oHome = 450;
+    const ph = oHome + 38 + 42;
+    const py = this.centeredTop(ph);
+    makePanel(root, this.ui, W - 156, ph, 0, py - ph / 2);
+    const ban = makeNode(root, {w: 464, h: 100, x: 0, y: py + 54, name: 'banner'});
+    makeSprite(ban, this.ui.frame('banner-win'), 464, 100, 0, 0, true, this.ui.inset('banner-win'));
+    makeLabel(ban, '清台', {x: 0, y: 30, size: 50, color: '#F7DFA0', align: 'center', bold: true, serif: true});
+    makeLabel(root, `第 ${C.cleared} 盘`, {x: 0, y: py - oHead, size: 38, color: palette.ink, align: 'center', bold: true, serif: true});
+    makeLabel(root, `${C.rows} × ${C.cols} 盘面 · 全部消完`, {x: 0, y: py - oSub, size: 25, color: palette.inkSoft, align: 'center'});
+    const lw = (W - 156) / 2 - 70;
+    const row = (yy: number, k: string, v: string) => {
+      makeLabel(root, k, {x: -lw, y: yy, size: 26, color: palette.inkSoft, align: 'left'});
+      makeLabel(root, v, {x: lw, y: yy, size: 26, color: palette.ink, align: 'right', bold: true});
+    };
+    row(py - oR1, '本盘步数', `${C.moves} 步`);
+    row(py - oR2, '提示 / 洗牌', `${C.hintsUsed} / ${C.shufflesUsed} 次`);
+    makeButton(root, this.ui, {x: 0, y: py - oNext, w: W - 248, h: 92, text: '下一盘', style: 'jade', size: 36, icon: 'icon-play', onTap: () => this.activate('challenge-next')});
+    makeButton(root, this.ui, {x: 0, y: py - oHome, w: W - 248, h: 76, text: '返回首页', style: 'cream', size: 30, onTap: () => this.activate('challenge-home')});
+    this.animateIn();
+  }
+
+  private renderChallengeStuck(): void {
+    const C = this.cs;
+    if (!C) return;
+    const root = this.screens.overlay;
+    this.veil();
+    const W = this.size.w;
+    const ph = 470;
+    const py = this.centeredTop(ph);
+    makePanel(root, this.ui, W - 168, ph, 0, py - ph / 2);
+    const ban = makeNode(root, {w: 428, h: 96, x: 0, y: py + 50, name: 'banner'});
+    makeSprite(ban, this.ui.frame('banner-lose'), 428, 96, 0, 0, true, this.ui.inset('banner-lose'));
+    makeLabel(ban, '走死了', {x: 0, y: 28, size: 48, color: '#F7DFA0', align: 'center', bold: true, serif: true});
+    makeLabel(root, `第 ${C.level} 盘 · 剩余 ${C.remaining} 张`, {x: 0, y: py - 92, size: 28, color: palette.ink, align: 'center', bold: true});
+    makeLabel(root, '这盘已经凑不出可消的组合。', {x: 0, y: py - 150, size: 24, color: palette.inkSoft, align: 'center'});
+    makeLabel(root, '重开这一盘，牌局会回到开局。', {x: 0, y: py - 188, size: 24, color: palette.inkSoft, align: 'center'});
+    makeButton(root, this.ui, {x: 0, y: py - 290, w: W - 248, h: 92, text: '重开这一盘', style: 'jade', size: 34, icon: 'icon-restart', onTap: () => this.activate('challenge-restart')});
+    makeButton(root, this.ui, {x: 0, y: py - 390, w: W - 248, h: 76, text: '返回首页', style: 'cream', size: 30, onTap: () => this.activate('challenge-home')});
+    this.animateIn();
+  }
+
   /** 牌桌横幅那行字：拖动中显示方向与格数。 */
   private dragLine(): string {
     const d = this.drag;
@@ -1039,11 +1334,58 @@ export class GameRoot extends Component {
 
   private hintCells(): Pos[] {
     const out: Pos[] = [];
-    for (const a of this.session.hint) {
-      if (a.kind === 'match') out.push(a.a, a.b);
-      else { const run = this.session.runs[a.run]; if (run) for (const p of run.cells) out.push(p); }
+    // 机制引导优先：试错步只亮目标锁轨/单向轨；正常步亮 solution[0] 的整条轨。
+    const coach = this.session.coach;
+    if (coach) {
+      const bounce = this.session.coachBounceRun();
+      const a = bounce >= 0 ? {kind: 'slide' as const, run: bounce} : this.session.solution[0];
+      if (a && a.kind === 'slide') {
+        const run = this.session.runs[a.run];
+        if (run) for (const p of run.cells) out.push(p);
+      }
+      return out;
+    }
+    // 只标**队首那一步**：整段计划（K 步）全标出来会让盘面糊成一片蓝，
+    // 反而看不出「先做哪一步」——分步提示的前提是每一步都有明确焦点。
+    const a = this.session.hint[0];
+    if (a && a.kind === 'slide') {
+      const run = this.session.runs[a.run];
+      if (run) for (const p of run.cells) out.push(p);
     }
     return out;
+  }
+
+  /** 机制引导的金色聚焦框：冰面 / 百搭 / 鞭炮 / 目标牌等；纯展示，不参与判定。 */
+  private focusCells(): Pos[] {
+    const coach = this.session.coach;
+    if (!coach) return [];
+    try {
+      return coachFocusCells(levelAt(this.session.levelIndex), this.session.grid, coach.text.key);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 提示的**方向信息**：推哪条轨往哪边、推几格；或者点哪两张。
+   *
+   * 与 `hintCells` 的分工：前者标「哪一条」，后者标「往哪去」。
+   * 只有前者时，玩家看得出该动哪一行，但看不出往左还是往右——这正是旧提示最差的地方。
+   */
+  private hintAction(): BoardModel['hintAction'] {
+    const coach = this.session.coach;
+    if (coach) {
+      // 试错步只亮轨，不画“能推”的箭头——反了会自相矛盾。
+      if (this.session.coachBounceRun() >= 0) return null;
+      const a = this.session.solution[0];
+      if (!a) return null;
+      if (a.kind === 'match') return {kind: 'match', a: a.a, b: a.b};
+      return {kind: 'slide', run: a.run, step: a.step};
+    }
+    const a = this.session.hint[0];
+    if (!a) return null;
+    if (a.kind === 'match') return {kind: 'match', a: a.a, b: a.b};
+    return {kind: 'slide', run: a.run, step: a.step};
   }
 
   /* ── 选关 / 设置 / 进度 ───────────────────────────────── */
@@ -1091,18 +1433,26 @@ export class GameRoot extends Component {
     makeIconButton(root, this.ui, pw / 2 - 52, py - 30 - 36, 58, 'close', () => this.activate('__back'));
 
     const ci = this.page;
+    const full = this.session.chapterStars(ci) >= 48;
     makeLabel(root, `第 ${ci + 1} 章 · ${CHAPTER_NAMES[ci] || ''}（${ci * CH + 1}-${Math.min(LEVELS.length, (ci + 1) * CH)}）`,
       {x: px + 40, y: py - oChapter, size: 26, color: palette.ink, align: 'left', bold: true});
+    // 全三星只给荣誉、不给任何实质奖励：一旦给奖励，它就变成了变相的全三星门槛。
+    if (full) makeLabel(root, '全三星', {x: px + pw - 118, y: py - oChapter, size: 22, color: '#B4442F', align: 'right', bold: true});
     makeLabel(root, `${ci + 1} / ${chapters}`, {x: px + pw - 40, y: py - oChapter + 2, size: 22, color: palette.inkSoft, align: 'right'});
 
     const gy = py - oGrid;
+    // 本章被上一章的门槛挡住时，整页灰化。**本章内部不设卡**：
+    // 只要进度到得了，章内的关就照常能进——卡点只在跨章（B2）。
+    // 整章灰化也走 Session 的唯一口径：体验版 unlockAll 下所有章节都可进。
+    // 以前这里自己另算 gateGap，体验版从第 2 章起整页灰、卡片不挂点击。
+    const gateBlocked = !this.session.canEnterChapter(ci);
     for (let j = 0; j < CH; j++) {
       const idx = ci * CH + j;
       if (idx >= LEVELS.length) break;
       const col = j % COLS, row = Math.floor(j / COLS);
       const bx = px + 40 + col * (cw + gap) + cw / 2;
       const by = gy - row * (chh + gap) - chh / 2;
-      const unlocked = idx <= this.session.maxLevel || this.session.unlockAll;
+      const unlocked = !gateBlocked && this.session.canEnter(idx);
       const st = this.session.stars[String(idx)] || 0;
       const n = makeNode(root, {w: cw, h: chh, x: bx, y: by, name: 'level:' + idx});
       makeSprite(n, this.ui.frame(unlocked ? 'card-on' : 'card-off'), cw, chh, 0, 0, true, this.ui.inset(unlocked ? 'card-on' : 'card-off'));
@@ -1110,6 +1460,17 @@ export class GameRoot extends Component {
       makeLabel(n, String(idx + 1), {x: 0, y: chh * .3, size: 34, color: unlocked ? '#FFFFFF' : palette.inkFaint, align: 'center', bold: true});
       if (unlocked) {
         makeStars(n, this.ui, 0, -chh * .24, 22, st, 3, 2);
+        // 刷星导航：只对「已通关、还没满星、且差得不远」的关显示「差 N 步」。
+        // 放在关号同一行的右端——放右上角会压住关号（大字号数字直接糊在一起）。
+        const bm = this.session.bestMoves[String(idx)] || 0;
+        const par = this.session.pars[String(idx)] || 0;
+        if (bm && par && st > 0 && st < 3) {
+          const line = starLines(par);
+          const gap = bm - (st === 1 ? line.two : line.three);
+          if (gap > 0 && gap <= 9) {
+            makeLabel(n, `差${gap}步`, {x: cw / 2 - 8, y: chh * .30, size: 13, color: '#8C3A2E', align: 'right', bold: true});
+          }
+        }
         bindPress(n, () => this.activate('level:' + idx));
       }
     }
@@ -1127,9 +1488,18 @@ export class GameRoot extends Component {
     const stars = this.session.stars;
     const got = Object.values(stars).reduce((n, v) => n + (Number(v) || 0), 0);
     const cleared = Object.keys(stars).length;
-    // 只报"拿到多少 / 打通几关"，不写 ★ x / 672 这种分母（真机反馈：分母只会让人焦虑）。
-    makeLabel(root, `★ ${got} · 已通关 ${cleared} / ${LEVELS.length} 关`,
-      {x: 0, y: py - oFoot + 16, size: 23, color: palette.ink, align: 'center', bold: true});
+    // 门槛挡住时，页脚必须给**具体数字**：只写「未解锁」玩家会以为是 bug。
+    // 页脚与整章灰化必须同一口径：体验版 unlockAll 下卡片已经能点，
+    // 页脚再写“还差 N 星”就是自相矛盾（截图实测踩到过）。
+    const needGate = gateBlocked;
+    if (needGate) {
+      makeLabel(root, `上一章还差 ${this.session.gateGap(ci - 1)} 星（${this.session.chapterStars(ci - 1)} / ${this.session.gateOf(ci - 1)}）才能解锁本章`,
+        {x: 0, y: py - oFoot + 16, size: 22, color: '#B4442F', align: 'center', bold: true});
+    } else {
+      // 只报"拿到多少 / 打通几关"，不写 ★ x / 672 这种分母（真机反馈：分母只会让人焦虑）。
+      makeLabel(root, `★ ${got} · 已通关 ${cleared} / ${LEVELS.length} 关`,
+        {x: 0, y: py - oFoot + 16, size: 23, color: palette.ink, align: 'center', bold: true});
+    }
     // 左右翻页必须是**同一颗按钮**：以前左边是圆形按钮、右边是一根裸箭头，
     // 看着像两种功能，玩家不敢确定右边那个能不能点。右侧用同一颗转 180°。
     const navY = py - oFoot;
@@ -1220,7 +1590,7 @@ export class GameRoot extends Component {
     this.veil();
     const W = this.size.w, S = this.session;
     // 面板按内容定高再居中；原来取 H*.56，屏一高中间就空一大块
-    const oLevel = 76, oStars = 182, oR1 = 272, oR2 = 326, oNext = 424, oHome = 522;
+    const oLevel = 76, oStars = 182, oR1 = 268, oR2 = 318, oR3 = 368, oR4 = 418, oNext = 512, oHome = 610;
     const ph = oHome + 38 + 42;
     const py = this.centeredTop(ph);
     makePanel(root, this.ui, W - 156, ph, 0, py - ph / 2);
@@ -1229,51 +1599,96 @@ export class GameRoot extends Component {
     makeLabel(ban, '恭喜通关', {x: 0, y: 30, size: 50, color: '#F7DFA0', align: 'center', bold: true, serif: true});
     makeLabel(root, `第 ${S.levelIndex + 1} 关`, {x: 0, y: py - oLevel, size: 34, color: palette.ink, align: 'center', bold: true, serif: true});
     makeStars(root, this.ui, 0, py - oStars, 88, S.rating, 3, 6);
-    // 两行数字都要「不撒谎」：Session 里没有历史最佳步数可用（stars 存的是 0-3 的星数，
-    // 以前这里把星数当步数显示，第 1 关三星就写着「最佳记录 3 步」）。改成同屏可见的两个真值，
-    // 与牌桌 HUD「N 步 · 三星 ≤ M 步」口径一致；面板布局与字号不动。
-    makeLabel(root, '本局步数', {x: -(W - 156) / 2 + 70, y: py - oR1, size: 26, color: palette.inkSoft, align: 'left'});
-    makeLabel(root, `${S.moves} 步`, {x: (W - 156) / 2 - 70, y: py - oR1, size: 26, color: palette.ink, align: 'right', bold: true});
-    makeLabel(root, '三星门槛', {x: -(W - 156) / 2 + 70, y: py - oR2, size: 26, color: palette.inkSoft, align: 'left'});
-    makeLabel(root, `${S.par} 步`, {x: (W - 156) / 2 - 70, y: py - oR2, size: 26, color: palette.ink, align: 'right', bold: true});
+    const lw = (W - 156) / 2 - 70;
+    const row = (y: number, k: string, v: string, strong = false) => {
+      makeLabel(root, k, {x: -lw, y, size: 26, color: palette.inkSoft, align: 'left'});
+      makeLabel(root, v, {x: lw, y, size: 26, color: strong ? '#8C3A2E' : palette.ink, align: 'right', bold: true});
+    };
+    // 四个数都必须是真值：`starLines.three` 是 3 星线（par+8%），不是 par——
+    // 旧版把 par 直接写成「三星门槛」，玩家照着 par 打反而拿不到三星。
+    row(py - oR1, '本局步数', `${S.moves} 步`);
+    row(py - oR2, '三星线', `${S.starLines.three} 步`);
+    row(py - oR3, '本局得分', `${S.score}`);
+    const bestNow = S.best[S.levelIndex] || 0;
+    row(py - oR4, '历史最高', `${bestNow}`);
+    // 刷新纪录：best 在 apply 里已经写成 max(旧值, 本局)，所以「相等」就是本局追平或打破。
+    if (S.score > 0 && S.score >= bestNow) {
+      makeLabel(root, '新纪录', {x: lw + 4, y: py - oR3 + 32, size: 20, color: '#B4442F', align: 'right', bold: true});
+    }
     const last = S.levelIndex >= LEVELS.length - 1;
     // 最后一关没有「下一关」：以前这颗按钮按下去会 `startLevel(levelIndex+1)`，
     // 被钳回同一关 → 玩家以为进了新关，实际把刚通关的这一盘重开了一遍。
-    makeButton(root, this.ui, {x: 0, y: py - oNext, w: W - 248, h: 92, text: last ? '再玩一次' : '下一关', style: 'jade', size: 36,
-      icon: 'icon-play', onTap: () => this.activate(last ? 'replay' : 'next')});
+    //
+    // 门槛没过时也必须换文案：写「下一关」却点不动，是典型的「点了没反应」。
+    // 这里直接说清差几星，并把玩家送到选关页——那里有「再快 N 步」告诉他打哪一关。
+    const nextIdx = S.levelIndex + 1;
+    const gateBlocked = !last && !S.canEnter(nextIdx);
+    const nextText = last ? '再玩一次' : gateBlocked ? `去刷星 · 差 ${S.gateGap(chapterOf(nextIdx) - 1)} 星` : '下一关';
+    makeButton(root, this.ui, {x: 0, y: py - oNext, w: W - 248, h: 92, text: nextText, style: 'jade', size: gateBlocked ? 30 : 36,
+      icon: 'icon-play', onTap: () => this.activate(last ? 'replay' : gateBlocked ? 'levels' : 'next')});
     makeButton(root, this.ui, {x: 0, y: py - oHome, w: W - 248, h: 76, text: '返回首页', style: 'cream', size: 30, onTap: () => this.activate('home')});
     this.animateIn();
   }
 
+  /**
+   * 失败页：**按失败原因给不同的出路**（`docs/玩法深度与变现设计.md` A3）。
+   *
+   * 旧版这里是一颗免费「撤销一步」。它有两个问题：撤销不退步数（A1）之后，
+   * 在步数用尽的盘上撤完立刻又判负；而且它是免费无限续命的后门，
+   * 把「复活」这个最值钱的点位直接占了。
+   *
+   * 现在：
+   * - 步数用尽 → 补步（每关 2 次，第一次 +3、第二次 +1）
+   * - 时间到   → 补 30 秒
+   * - 牌走死   → 免费重排（**刻意不给付费点位**：死局的痛点是「这盘无解」，
+   *              卖广告解决不了根本问题，只会让玩家觉得被敲诈）
+   *
+   * 广告还没接，所以按钮直接给奖励；次数上限（2 次）是当前的节流手段。
+   * 接 C1/C2 时把 `activate('revive')` 包进激励视频回调即可，界面不用动。
+   */
   private renderLose(): void {
     const root = this.screens.overlay;
     this.veil();
     const W = this.size.w, S = this.session;
-    const oSub = 76, oTile = 188, oLevel = 298, oLeft = 340, oMoves = 376, oBtn = 490, oFoot = 566;
+    const oSub = 76, oTile = 188, oLevel = 298, oLeft = 340, oMoves = 376, oPrimary = 486, oRow = 586, oFoot = 660;
     const ph = oFoot + 30 + 40;
     const py = this.centeredTop(ph);
     makePanel(root, this.ui, W - 168, ph, 0, py - ph / 2);
     const ban = makeNode(root, {w: 428, h: 96, x: 0, y: py + 50, name: 'banner'});
     makeSprite(ban, this.ui.frame('banner-lose'), 428, 96, 0, 0, true, this.ui.inset('banner-lose'));
     makeLabel(ban, '很遗憾', {x: 0, y: 28, size: 48, color: '#F7DFA0', align: 'center', bold: true, serif: true});
-    // 失败原因：限步用尽用 Session 的文案；死局用固定文案
-    const reason = S.modal === 'lose' ? S.message : '牌走死了：剩下的牌凑不出可消的组合。';
-    makeLabel(root, reason, {x: 0, y: py - oSub, size: 28, color: palette.inkSoft, align: 'center', bold: true, serif: true});
+    // 原因只写短语：横幅上已经有完整句子，弹窗里再抄一遍就是啰嗦
+    const reasonText = S.failReason === 'time' ? '时间到' : S.failReason === 'dead' ? '牌走死了' : '步数用尽';
+    makeLabel(root, reasonText, {x: 0, y: py - oSub, size: 28, color: palette.inkSoft, align: 'center', bold: true, serif: true});
     const atlas = this.ensureTileAtlas();
-    // 同样是 1:1.24，只是这里按失败页的版面缩小显示
     makeSprite(root, atlas.face('z5'), 116, 116 * 1.24, 0, py - oTile);
     makeLabel(root, `第 ${S.levelIndex + 1} 关`, {x: 0, y: py - oLevel, size: 30, color: palette.ink, align: 'center', bold: true});
     // 与顶栏同一口径：方言关的「剩余」要数还能消的牌，否则失败页写着"剩余 6 张"、
     // 实际上全是哑弹，玩家会以为是判错了。
     makeLabel(root, `剩余 ${S.remaining} / ${S.liveTotal} 张`, {x: 0, y: py - oLeft, size: 25, color: palette.inkSoft, align: 'center'});
-    makeLabel(root, `${S.moves} 步 · 三星 ≤ ${S.par} 步`, {x: 0, y: py - oMoves, size: 25, color: palette.inkSoft, align: 'center'});
+    makeLabel(root, `${S.moves} 步 · 三星 ≤ ${S.starLines.three} 步`, {x: 0, y: py - oMoves, size: 25, color: palette.inkSoft, align: 'center'});
+
+    // 主出路：按失败原因分岔。死局走免费重排，其余走复活。
+    const dead = S.failReason === 'dead';
+    const left = Math.max(0, 2 - S.revivesUsed);
+    const primary = dead
+      ? {text: '重排这盘牌', id: 'rescue', ok: true}
+      : {text: S.failReason === 'time' ? '补 30 秒' : `补 ${S.reviveBonus} 步`, id: 'revive', ok: S.canRevive};
+    makeButton(root, this.ui, {
+      x: 0, y: py - oPrimary, w: W - 168 - 116, h: 92,
+      text: primary.ok ? primary.text : '复活次数已用完',
+      style: primary.ok ? 'jade' : 'disabled', size: 32,
+      onTap: primary.ok ? () => this.activate(primary.id) : undefined
+    });
+    // 次数标注写在按钮**上方**：写在下方会被按钮的 3D 底边压住（实测文字正好落在按钮内）
+    if (!dead) {
+      makeLabel(root, `本关还剩 ${left} 次`, {x: 0, y: py - oPrimary + 72, size: 22, color: palette.inkSoft, align: 'center'});
+    }
+
     const half = (W - 168 - 116) / 2;
-    // 没有可撤销的操作时（比如开局就超时）不要给一颗按了没反应的按钮：
-    // 失败页在遮罩之上，横幅里的「还没有需要撤销的操作」玩家根本看不见。
-    makeButton(root, this.ui, {x: -(half + 46) / 2, y: py - oBtn, w: half, h: 84, text: '撤销一步',
-      style: S.canUndo ? 'cream' : 'disabled', size: 28, onTap: S.canUndo ? () => this.activate('undo-lose') : undefined});
-    makeButton(root, this.ui, {x: (half + 46) / 2, y: py - oBtn, w: half, h: 84, text: '重新开始', style: 'jade', size: 28, onTap: () => this.activate('restart-lose')});
-    makeLabel(root, '再接再厉，下一次一定！', {x: 0, y: py - oFoot, size: 26, color: palette.inkSoft, align: 'center', bold: true});
+    makeButton(root, this.ui, {x: -(half + 46) / 2, y: py - oRow, w: half, h: 80, text: '重新开始', style: 'cream', size: 28, onTap: () => this.activate('restart-lose')});
+    makeButton(root, this.ui, {x: (half + 46) / 2, y: py - oRow, w: half, h: 80, text: '返回首页', style: 'cream', size: 28, onTap: () => this.activate('home')});
+    makeLabel(root, dead ? '牌走死了不是你的错，重排一次多半能走通。' : '再接再厉，下一次一定！', {x: 0, y: py - oFoot, size: 24, color: palette.inkSoft, align: 'center', bold: true});
     this.animateIn();
   }
 
@@ -1330,13 +1745,11 @@ export class GameRoot extends Component {
   }
 
   /**
-   * 玩法说明 = 三条基础操作 + 章目录。
+   * 玩法说明 = 三条基础操作 + 章首弹框提示。
    *
-   * 点一条章目录就地重放那段教学（watch 模式：全部自动演示、不要求动手、不挡输入）——
-   * 这是"文字说明空洞"的永久解：玩家忘了清龙收什么，不用重推到章 12 再撞一次。
-   * 条目由 CHAPTER_TUTORIALS 生成，第一阶段只有章 6 一条就只列一条，补数据这里自动长，不改视图。
-   * 原来写死的 6 行里，讲冰/木块/锁行的那几条已经被章节教学接管，剩下的基础操作留三行短句
-   * （每行都控制在 23 号字一行放得下的长度，不靠折行，省得叠字）。
+   * 14 章说明在 `CHAPTER_TIPS`，每章第一次进入时由 `Session.tip` 触发；
+   * 这里只解释触发点，不再列小盘回放入口（章节教学已改成弹框）。
+   * 基础操作三行短句都控制在 23 号字一行放得下的长度，不靠折行，省得叠字。
    */
   private renderHelp(): void {
     const root = this.screens.overlay;
@@ -1345,28 +1758,16 @@ export class GameRoot extends Component {
     const basics = [
       '按住一行一列拖动，松手自动连消。',
       '轻点两张相邻的同牌，直接收走。',
-      '提示 / 洗牌有免费额度，用辅助最多两星。'
+      '提示 / 洗牌有次数额度，重开不恢复。'
     ];
-    const items = CHAPTER_TUTORIALS.filter((t) => !!tutorialFor(t.chapter));
-    const oBasics = 106, bStep = 44, oList = oBasics + basics.length * bStep + 40;
-    const lstep = 96;
-    const ph = oList + Math.max(1, items.length) * lstep + 34 + 126;
+    const oBasics = 106, bStep = 44, oNote = oBasics + basics.length * bStep + 28;
+    const ph = oNote + 70 + 126;
     const py = this.centeredTop(ph);
     makePanel(root, this.ui, pw, ph, 0, py - ph / 2);
     makeLabel(root, '玩法', {x: 0, y: py - 44, size: 42, color: palette.jadeDeep, align: 'center', bold: true, serif: true});
     basics.forEach((s, i) => makeLabel(root, s, {x: -pw / 2 + 50, y: py - oBasics - i * bStep, size: 23, color: palette.ink, align: 'left'}));
-    makeLabel(root, '章节玩法 · 点一下可以重看', {x: -pw / 2 + 50, y: py - oList + 26, size: 22, color: palette.jadeDeep, align: 'left', bold: true});
-    items.forEach((t, i) => {
-      const y = py - oList - i * lstep - (lstep - 14) / 2;
-      const n = makeNode(root, {w: pw - 50, h: lstep - 14, x: 0, y, name: 'help:' + t.chapter});
-      makeSprite(n, this.ui.frame('btn-cream'), pw - 50, lstep - 14, 0, 0, true, this.ui.inset('btn-cream'));
-      // 按钮脸只画到 ±41（92 高的节点里脸占 82）：Label 的 y 是文字顶部，
-      // 主行 [−14,14]、副行 [−40,−18] 才都在脸内——副行原来写 −24，正好把字压到脸下沿外面。
-      makeLabel(n, `第 ${t.chapter + 1} 章 · ${CHAPTER_NAMES[t.chapter] || t.title}`, {x: -(pw - 50) / 2 + 26, y: 14, size: 26, color: palette.ink, align: 'left', bold: true});
-      makeLabel(n, helpSummary(t), {x: -(pw - 50) / 2 + 26, y: -18, size: 20, color: palette.inkSoft, align: 'left'});
-      bindPress(n, () => this.activate('tutorial:' + t.chapter));
-    });
-    if (!items.length) makeLabel(root, '这一版还没有可回看的章节教学。', {x: -pw / 2 + 50, y: py - oList, size: 22, color: palette.inkSoft, align: 'left'});
+    makeLabel(root, '每次进入新的一章都会弹一次章首说明。', {x: -pw / 2 + 50, y: py - oNote, size: 22, color: palette.jadeDeep, align: 'left', bold: true});
+    makeLabel(root, '弹框可直接跳过；关掉即可自由玩。', {x: -pw / 2 + 50, y: py - oNote - 32, size: 22, color: palette.inkSoft, align: 'left'});
     makeButton(root, this.ui, {x: 0, y: py - ph + 63, w: 340, h: 86, text: '知道了', style: 'jade', size: 30, onTap: () => this.activate('back-home')});
     this.animateIn();
   }
@@ -1475,6 +1876,8 @@ export class GameRoot extends Component {
     const id = e.getID();
     // 教学屏的手势自成一套路（盘面、滑轨、提交判据都在 TutorialRun 里），别掉进牌桌那套
     if (this.screen === 'tutorial') { this.onTutorialTouch(e); return; }
+    // 挑战模式的动作是「拖一张牌推整段」，与主线的滑轨手势完全不同，必须分叉。
+    if (this.screen === 'challenge') { this.onChallengeTouch(e); return; }
     if (e.type === Input.EventType.TOUCH_START) {
       if (this.touchId !== null) return; // 多指：不抢占已在进行的手势
       if (this.screen !== 'board') return; // 弹窗 / 其它屏的按钮各自处理
@@ -1522,6 +1925,22 @@ export class GameRoot extends Component {
         this.session.notice(this.blockedLine(p.cell, p.axis));
         return;
       }
+      if (this.session.coach) {
+        const bounce = this.session.coachBounceRun();
+        if (bounce >= 0 && run === bounce) {
+          // 试错步不生成拖动预览：手指还没松，牌不该先动起来。
+          // 只记下“推过”，松手时交给 Session 播一句“推不动”并进入下一步。
+          p.blocked = true;
+          p.coachRun = run;
+          this.dirty = true;
+          return;
+        }
+        if (!this.session.coachAllowsSlide(run)) {
+          p.blocked = true;
+          this.session.coachNote(this.session.coachDragHint());
+          return;
+        }
+      }
       this.drag = {run, offset: 0};
       this.dragAxis = p.axis;
     }
@@ -1552,6 +1971,14 @@ export class GameRoot extends Component {
     this.drag = null;
     this.press = null;
     if (!p) { this.dirty = true; return; }
+    // 引导的试错步：玩家在锁轨/单向轨上拖了一下，牌不动；提交一次“推不动”让状态机前进。
+    if (typeof p.coachRun === 'number') {
+      const r = this.session.runs[p.coachRun];
+      const step = r && r.dir ? -r.dir : 1;
+      if (this.session.slide(p.coachRun, step)) this.afterAction();
+      this.dirty = true;
+      return;
+    }
     if (drag) {
       // 同 onMove：轨道拿不到就当作这一下没推动，绝不能抛（一帧异常会让牌桌停在半张状态）
       const run = this.session.runs[drag.run];
@@ -1559,9 +1986,8 @@ export class GameRoot extends Component {
       if (!run || !len) { this.dirty = true; return; }
       const k = ((Math.round(drag.offset) % len) + len) % len;
       if (k) {
-        const before = this.session.revision;
-        this.session.slide(drag.run, k > len / 2 ? k - len : k);
-        if (this.session.revision !== before) { this.afterAction(); return; }
+        const applied = this.session.slide(drag.run, k > len / 2 ? k - len : k);
+        if (applied) { this.afterAction(); return; }
       }
       this.dirty = true;
       return;
@@ -1569,11 +1995,111 @@ export class GameRoot extends Component {
     if (p.cell && !p.blocked && !p.axis) {
       const end = this.board.cellAt(x, y);
       if (end && end.r === p.cell.r && end.c === p.cell.c) {
-        const before = this.session.revision;
-        this.session.tap(p.cell);
-        if (this.session.revision !== before) { this.afterAction(); return; }
+        const applied = this.session.tap(p.cell);
+        if (applied) { this.afterAction(); return; }
       }
     }
+    this.dirty = true;
+  }
+
+  /**
+   * 挑战手势：按住牌拖动 → 整行/整列循环滑动跟手预览 → 松手提交。
+   * 轻点不拖 = 看同款（免费，不消耗提示）。
+   */
+  private onChallengeTouch(e: EventTouch): void {
+    const C = this.cs;
+    if (!C) return;
+    const id = e.getID();
+    if (e.type === Input.EventType.TOUCH_START) {
+      if (this.touchId !== null) return;
+      if (C.won || C.stuck) return;
+      const {x, y} = this.toDesign(e);
+      const cell = this.board.cellAt(x, y);
+      if (!cell) return;
+      if (!cellFace(C.grid, cell)) { this.chPeek = []; this.dirty = true; return; }
+      this.touchId = id;
+      this.chPress = {x, y, cell};
+      this.chDrag = null;
+      this.chPeek = [];
+      this.lastStep = 0;
+      this.board.setDrag(null);
+      this.dirty = true;
+      return;
+    }
+    if (id !== this.touchId) return;
+    if (e.type === Input.EventType.TOUCH_MOVE) {
+      const {x, y} = this.toDesign(e);
+      this.onChallengeMove(x, y);
+      return;
+    }
+    this.touchId = null;
+    if (!this.chPress) return;
+    if (e.type === Input.EventType.TOUCH_CANCEL) {
+      this.chPress = null;
+      this.chDrag = null;
+      this.board.setDrag(null);
+      this.dirty = true;
+      return;
+    }
+    const {x, y} = this.toDesign(e);
+    this.onChallengeUp(x, y);
+  }
+
+  private onChallengeMove(x: number, y: number): void {
+    const C = this.cs, p = this.chPress;
+    if (!C || !p) return;
+    const cw = this.board.cellW, chh = this.board.cellH;
+    if (!this.chDrag) {
+      const dx = x - p.x, dy = y - p.y;
+      const slop = Math.max(8, Math.min(cw, chh) * .22);
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < slop) return;
+      const axis: Axis = Math.abs(dx) >= Math.abs(dy) ? 'row' : 'col';
+      const index = axis === 'row' ? p.cell.r : p.cell.c;
+      this.chDrag = {run: C.runIndex(axis, index), offset: 0, axis, index, len: axis === 'row' ? C.cols : C.rows};
+    }
+    const d = this.chDrag;
+    if (!d) return;
+    // cc 的 +y 向上，而 `step>0` 是向右/向下：列方向必须取负，否则预览跟手、松手却滑到反方向。
+    const raw = d.axis === 'row' ? (x - p.x) / cw : (p.y - y) / chh;
+    d.offset = Math.max(-d.len, Math.min(d.len, raw));
+    this.board.setDrag({run: d.run, offset: d.offset});
+    const step = Math.round(d.offset);
+    if (step !== this.lastStep) {
+      this.lastStep = step;
+      if (this.session.vibration) vibrate('light');
+    }
+    if (this.dragLabel) {
+      this.dragLabel.string = step
+        ? `把第 ${d.index + 1} ${d.axis === 'row' ? '行' : '列'}向${dirLabel(d.axis, step)}滑 ${Math.abs(step)} 格 · 松手`
+        : '继续拖，松手才提交';
+    }
+  }
+
+  private onChallengeUp(x: number, y: number): void {
+    const C = this.cs, p = this.chPress, d = this.chDrag;
+    this.chPress = null;
+    this.chDrag = null;
+    this.board.setDrag(null);
+    if (!C || !p) { this.dirty = true; return; }
+    if (d) {
+      const k = ((Math.round(d.offset) % d.len) + d.len) % d.len;
+      const step = k > d.len / 2 ? k - d.len : k;
+      if (step) {
+        const res = C.rotate(d.axis, d.index, step);
+        if (res) {
+          this.chPeek = [];
+          this.board.playErase(res.erased);
+        }
+        this.dirty = true;
+        return;
+      }
+    }
+    const end = this.board.cellAt(x, y);
+    if (end && (end.r !== p.cell.r || end.c !== p.cell.c)) { this.dirty = true; return; }
+    const cells = C.peek(p.cell);
+    this.chPeek = cells.length > 1 ? cells : [];
+    C.message = cells.length > 1 ? `同款 ${cells.length} 张，金框标出来了。` : '这张牌没有同款。';
+    C.revision++;
     this.dirty = true;
   }
 
@@ -1670,9 +2196,13 @@ export class GameRoot extends Component {
    */
   private runAt(cell: Pos, axis: 'row' | 'col'): number {
     const runs = this.session.runs;
+    // 引导的“试错步”需要让玩家真的去按一次锁轨/单向轨：只有那一条允许命中，
+    // 其余锁轨照旧跳过，避免把“推不动”误判成可拖。
+    const allowLocked = this.session.coach ? this.session.coachBounceRun() : -1;
     for (let i = 0; i < runs.length; i++) {
       const r = runs[i];
-      if (r.axis !== axis || runLocked(r)) continue;
+      if (r.axis !== axis) continue;
+      if (runLocked(r) && i !== allowLocked) continue;
       if (r.cells.some((q) => q.r === cell.r && q.c === cell.c)) return i;
     }
     return -1;

@@ -33,34 +33,86 @@
   };
   var signature = (g) => JSON.stringify(g);
   var hasIce = (face) => face.endsWith("~");
+  var iceLayers = (face) => {
+    let n = 0;
+    while (face.endsWith("~")) {
+      face = face.slice(0, -1);
+      n++;
+    }
+    return n;
+  };
   var stripIce = (face) => hasIce(face) ? face.slice(0, -1) : face;
   var isWild = (face) => face.endsWith("*");
+  var unwild = (face) => isWild(face) ? face.slice(0, -1) : face;
   var isBomb = (face) => face.startsWith("b");
-  function partners(g, p) {
+  var bare = (f) => {
+    let b = f;
+    while (b.endsWith("~")) b = b.slice(0, -1);
+    if (b.endsWith("*")) b = b.slice(0, -1);
+    return b;
+  };
+  var suitOf = (f) => {
+    const m = /^(\d)([psm])$/.exec(bare(f));
+    return m ? m[2] : bare(f)[0];
+  };
+  var rankOf = (f) => {
+    const m = /^(\d)[psm]$/.exec(bare(f));
+    return m ? Number(m[1]) : 0;
+  };
+  function pairable(face, d) {
+    if (!d) return true;
+    if (isWild(face)) return true;
+    const s = suitOf(face);
+    if (s !== "p" && s !== "s" && s !== "m") {
+      if (s === "z" && d.honors) return true;
+      return !d.ranks && !d.suit;
+    }
+    if (d.suit && s !== d.suit) return false;
+    if (d.ranks && !d.ranks.includes(rankOf(face))) return false;
+    return true;
+  }
+  function slideOk(face, d) {
+    return pairable(face, d) && !(d && d.noSlideSuit && suitOf(face) === d.noSlideSuit);
+  }
+  var liveCount = (g, d) => g.reduce((n, row) => n + row.reduce((m, c) => m + (Array.isArray(c) ? c.filter((f) => pairable(f, d)).length : 0), 0), 0);
+  function partners(g, p, d) {
     const face = top(g, p);
-    if (!face) return [];
+    if (!face || !pairable(face, d)) return [];
     const wild = isWild(face);
     return [{ r: p.r - 1, c: p.c }, { r: p.r, c: p.c + 1 }, { r: p.r + 1, c: p.c }, { r: p.r, c: p.c - 1 }].filter((q) => {
       const f = top(g, q);
-      if (!f) return false;
+      if (!f || !pairable(f, d)) return false;
       return wild || isWild(f) || f === face;
     });
   }
-  function pairs(g) {
+  function pairs(g, d) {
     const out = [];
     g.forEach((row, r) => row.forEach((_, c) => {
       const a = { r, c }, face = top(g, a);
-      if (!face) return;
+      if (!face || !slideOk(face, d)) return;
       for (const b of [{ r, c: c + 1 }, { r: r + 1, c }]) {
         const f = top(g, b);
-        if (!f) continue;
-        if (f === face || isWild(face) || isWild(f)) out.push({ a, b, face });
+        if (!f || !slideOk(f, d)) continue;
+        if (f === face || isWild(face) || isWild(f)) out.push({ a, b, face, other: f });
       }
     }));
     return out;
   }
-  function sameFacePairs(g) {
-    return pairs(g).filter((pr) => !isWild(pr.face) && top(g, pr.b) === pr.face);
+  function tapPairs(g, d) {
+    const out = [];
+    g.forEach((row, r) => row.forEach((_, c) => {
+      const a = { r, c }, face = top(g, a);
+      if (!face || !pairable(face, d)) return;
+      for (const b of [{ r, c: c + 1 }, { r: r + 1, c }]) {
+        const f = top(g, b);
+        if (!f || !pairable(f, d)) continue;
+        if (f === face || isWild(face) || isWild(f)) out.push({ a, b, face, other: f });
+      }
+    }));
+    return out;
+  }
+  function sameFacePairs(g, d) {
+    return pairs(g, d).filter((pr) => !isWild(pr.face) && top(g, pr.b) === pr.face);
   }
   function runsFor(g, lockR, lockC, oneWay) {
     const out = [];
@@ -68,13 +120,14 @@
     for (const axis of ["row", "col"]) {
       const n = axis === "row" ? g.length : g[0].length, len = axis === "row" ? g[0].length : g.length;
       for (let i = 0; i < n; i++) {
-        if ((axis === "row" ? lockR : lockC).includes(i)) continue;
+        const locked = (axis === "row" ? lockR : lockC).includes(i);
         let cells = [];
         const flush = () => {
           if (cells.length > 1) {
             const run = { axis, index: i, cells };
             const dir = dirOf(axis, i);
             if (dir) run.dir = dir;
+            if (locked) run.locked = true;
             out.push(run);
           }
           cells = [];
@@ -89,6 +142,7 @@
     }
     return out;
   }
+  var slidable = (runs) => runs.map((_, i) => i).filter((i) => !runs[i].locked);
   function rotate(g, run, step) {
     const out = clone(g), len = run.cells.length, k = (step % len + len) % len;
     for (let i = 0; i < len; i++) {
@@ -117,21 +171,21 @@
       if (f && faces.has(f)) popOrReveal(g, { r, c }, f, revealed);
     }
   }
-  function transition(g, runs, action) {
+  function transition(g, runs, action, d) {
     const none = () => ({ grid: g, changed: false, erased: [], chain: 0 });
     let next, affected;
     if (action.kind === "match") {
-      if (!partners(g, action.a).some((p) => equal(p, action.b))) return none();
+      if (!partners(g, action.a, d).some((p) => equal(p, action.b))) return none();
       next = clone(g);
       const fa = top(g, action.a), fb = top(g, action.b);
       const revealed2 = /* @__PURE__ */ new Set();
       popOrReveal(next, action.a, fa, revealed2);
       popOrReveal(next, action.b, fb, revealed2);
       if (isBomb(fa) || isBomb(fb)) shatterAround(next, [action.a, action.b], revealed2);
-      return { grid: next, changed: true, erased: [{ a: action.a, b: action.b, face: fa }], chain: 1 };
+      return { grid: next, changed: true, erased: [{ a: action.a, b: action.b, face: fa, other: fb }], chain: 1 };
     }
     const run = runs[action.run];
-    if (!run || !Number.isInteger(action.step) || action.step % run.cells.length === 0) return none();
+    if (!run || run.locked || !Number.isInteger(action.step) || action.step % run.cells.length === 0) return none();
     if (run.dir && action.step * run.dir < 0) return none();
     next = rotate(g, run, action.step);
     if (signature(next) === signature(g)) return none();
@@ -140,7 +194,7 @@
     const erased = [];
     let chain = 0;
     for (; ; ) {
-      const candidates = pairs(next).filter((p) => !revealed.has(key(p.a)) && !revealed.has(key(p.b)) && (affected.has(key(p.a)) || affected.has(key(p.b))));
+      const candidates = pairs(next, d).filter((p) => !revealed.has(key(p.a)) && !revealed.has(key(p.b)) && (affected.has(key(p.a)) || affected.has(key(p.b))));
       if (!candidates.length) break;
       const used = /* @__PURE__ */ new Set();
       let round = 0;
@@ -162,27 +216,28 @@
     }
     return { grid: next, changed: true, erased, chain };
   }
-  function isDead(g, makeRuns, budget = 2e3) {
-    const total = count(g);
+  function isDead(g, makeRuns, budget = 2e3, timeMs = 60, d) {
+    const total = liveCount(g, d);
     if (!total) return false;
-    if (pairs(g).length) return false;
+    if (tapPairs(g, d).length) return false;
+    const deadline = Date.now() + timeMs;
     const seen = /* @__PURE__ */ new Set([signature(g)]);
     const queue = [g];
     let visited = 0;
     for (let qi = 0; qi < queue.length; qi++) {
       const cur = queue[qi];
       const runs = makeRuns(cur);
-      for (let ri = 0; ri < runs.length; ri++) {
+      for (const ri of slidable(runs)) {
         const len = runs[ri].cells.length;
         for (let k = 1; k < len; k++) {
-          if (visited >= budget) return false;
+          if (visited >= budget || Date.now() > deadline) return false;
           visited++;
           let step = k > len / 2 ? k - len : k;
           const dir = runs[ri].dir;
           if (dir && step * dir < 0) step += dir * len;
-          const next = transition(cur, runs, { kind: "slide", run: ri, step });
+          const next = transition(cur, runs, { kind: "slide", run: ri, step }, d);
           if (!next.changed) continue;
-          if (count(next.grid) < total) return false;
+          if (liveCount(next.grid, d) < total) return false;
           const sig = signature(next.grid);
           if (seen.has(sig)) continue;
           seen.add(sig);
@@ -192,9 +247,9 @@
     }
     return true;
   }
-  function searchHint(g, runs, options = {}) {
+  function searchHint(g, runs, options = {}, d) {
     const budget = options.budget ?? 2400, maxDepth = options.maxDepth ?? 3;
-    const total = count(g), direct = pairs(g);
+    const total = liveCount(g, d), direct = tapPairs(g, d);
     if (!total) return { status: "solved", actions: [], visited: 0 };
     if (direct.length) return { status: "found", actions: [{ kind: "match", a: direct[0].a, b: direct[0].b }], visited: 0 };
     const queue = [{ grid: g, path: [] }];
@@ -206,16 +261,16 @@
         limited = true;
         continue;
       }
-      for (let ri = 0; ri < runs.length; ri++) for (let k = 1; k < runs[ri].cells.length; k++) {
+      for (const ri of slidable(runs)) for (let k = 1; k < runs[ri].cells.length; k++) {
         if (visited >= budget) return { status: "unknown", actions: [], visited };
         visited++;
         let step = k > runs[ri].cells.length / 2 ? k - runs[ri].cells.length : k;
         const dir = runs[ri].dir;
         if (dir && step * dir < 0) step += dir * runs[ri].cells.length;
-        const action = { kind: "slide", run: ri, step }, next = transition(cur.grid, runs, action);
+        const action = { kind: "slide", run: ri, step }, next = transition(cur.grid, runs, action, d);
         if (!next.changed) continue;
         const path = cur.path.concat(action);
-        if (count(next.grid) < total) return { status: "found", actions: path, visited };
+        if (liveCount(next.grid, d) < total) return { status: "found", actions: path, visited };
         const sig = signature(next.grid);
         if (seen.has(sig)) continue;
         seen.add(sig);
@@ -227,247 +282,456 @@
 
   // cocos/assets/scripts/core/levels.ts
   var LEVELS = [
-    // 第 1 关 · 3x4 · 12 个牌位 · 4 种花色 · 参考解 4 步
-    { map: ["1111", "1111", "1111"], lockR: [], lockC: [], faces: 4, scramble: 2, intro: "basic" },
-    // 第 2 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 3 步
-    { map: ["1111", "..11", "1111"], lockR: [], lockC: [], faces: 4, scramble: 2 },
-    // 第 3 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 2 步
-    { map: [".111", "11#1", "1111"], lockR: [], lockC: [], faces: 4, scramble: 3 },
-    // 第 4 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 3 步
-    { map: ["1111", ".#11", "1111"], lockR: [], lockC: [], faces: 4, scramble: 3 },
-    // 第 5 关 · 3x4 · 8 个牌位 · 4 种花色 · 参考解 2 步
-    { map: ["1111", ".1#1", ".1.1"], lockR: [], lockC: [], faces: 4, scramble: 4 },
-    // 第 6 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 5 步
-    { map: ["1111", "11#1", ".111"], lockR: [], lockC: [], faces: 4, scramble: 4 },
-    // 第 7 关 · 3x4 · 8 个牌位 · 4 种花色 · 参考解 4 步
-    { map: ["1111", "..#1", "11.1"], lockR: [], lockC: [], faces: 4, scramble: 5 },
-    // 第 8 关 · 3x4 · 8 个牌位 · 4 种花色 · 参考解 5 步
-    { map: ["1111", "11#.", "11.."], lockR: [], lockC: [], faces: 4, scramble: 5 },
-    // 第 9 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 5 步
-    { map: ["1.11", "1#11", "1111"], lockR: [], lockC: [], faces: 4, scramble: 6 },
-    // 第 10 关 · 4x4 · 12 个牌位 · 4 种花色 · 参考解 4 步
-    { map: ["1111", ".#11", ".11.", "1111"], lockR: [], lockC: [], faces: 4, scramble: 6 },
-    // 第 11 关 · 4x4 · 14 个牌位 · 4 种花色 · 参考解 3 步
-    { map: ["11.1", "11#1", "1111", "1111"], lockR: [], lockC: [], faces: 4, scramble: 7 },
-    // 第 12 关 · 4x4 · 12 个牌位 · 4 种花色 · 参考解 6 步
-    { map: ["1111", ".#11", "1.11", "1.11"], lockR: [], lockC: [], faces: 4, scramble: 8 },
-    // 第 13 关 · 4x5 · 16 个牌位 · 4 种花色 · 参考解 5 步
-    { map: [".1111", ".##11", "11111", "11111"], lockR: [], lockC: [], faces: 4, scramble: 8 },
-    // 第 14 关 · 4x5 · 14 个牌位 · 4 种花色 · 参考解 7 步
-    { map: ["11111", "11.#1", "1.#..", "11111"], lockR: [], lockC: [], faces: 4, scramble: 9 },
-    // 第 15 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 9 步
-    { map: ["1.11.", "11#21", "12111", "111.1"], lockR: [], lockC: [], faces: 5, scramble: 9, intro: "stack" },
-    // 第 16 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 5 步
-    { map: ["11111", "12##1", ".1111", "11111"], lockR: [], lockC: [], faces: 5, scramble: 10 },
-    // 第 17 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 6 步
-    { map: ["2.11.", "21##1", "11111", "11111"], lockR: [], lockC: [], faces: 5, scramble: 10 },
-    // 第 18 关 · 4x5 · 16 个牌位 · 4 种花色 · 参考解 10 步
-    { map: ["111.1", ".#111", ".#22.", "11111"], lockR: [], lockC: [], faces: 4, scramble: 11 },
-    // 第 19 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 6 步
-    { map: ["1111.", "11#11", ".22#1", "11111"], lockR: [], lockC: [], faces: 5, scramble: 11 },
-    // 第 20 关 · 4x5 · 16 个牌位 · 4 种花色 · 参考解 6 步
-    { map: ["111..", "11#21", "11#11", "1.111"], lockR: [], lockC: [], faces: 4, scramble: 12 },
-    // 第 21 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 11 步
-    { map: ["11111", ".2111", "11111", "1.1.1"], lockR: [], lockC: [], faces: 5, scramble: 13 },
-    // 第 22 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 12 步
-    { map: ["111.11", "111#21", "111111", "1#11.1", "1.1111"], lockR: [], lockC: [], faces: 7, scramble: 13 },
-    // 第 23 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 11 步
-    { map: ["111111", "11#221", "111111", "11#.11", ".1.11."], lockR: [], lockC: [], faces: 7, scramble: 14 },
-    // 第 24 关 · 5x6 · 32 个牌位 · 8 种花色 · 参考解 13 步
-    { map: ["111111", "112211", "121##1", "122121", "1.1.11"], lockR: [], lockC: [], faces: 8, scramble: 14 },
-    // 第 25 关 · 5x6 · 28 个牌位 · 7 种花色 · 参考解 11 步
-    { map: ["111111", "1.#211", "1212#1", "121#11", "1.111."], lockR: [1], lockC: [], faces: 7, scramble: 15, intro: "lockRow" },
-    // 第 26 关 · 5x6 · 24 个牌位 · 6 种花色 · 参考解 11 步
-    { map: [".111.1", "1#1211", "111#11", "11#111", "1111.."], lockR: [1], lockC: [], faces: 6, scramble: 15 },
-    // 第 27 关 · 5x6 · 28 个牌位 · 7 种花色 · 参考解 13 步
-    { map: [".1.111", "121111", "1##211", "121111", "11111."], lockR: [1], lockC: [], faces: 7, scramble: 16 },
-    // 第 28 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 16 步
-    { map: ["11111.", "111211", ".1#121", "11##11", ".11111"], lockR: [1], lockC: [], faces: 7, scramble: 16 },
-    // 第 29 关 · 5x6 · 28 个牌位 · 7 种花色 · 参考解 13 步
-    { map: ["111111", ".#1211", "1#1121", "112#21", ".1111."], lockR: [1], lockC: [], faces: 7, scramble: 17 },
-    // 第 30 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 17 步
-    { map: [".1.111", ".21111", "11.211", "1221#1", "1..11."], lockR: [1], lockC: [], faces: 7, scramble: 17 },
-    // 第 31 关 · 5x6 · 28 个牌位 · 7 种花色 · 限 27 步 · 参考解 18 步
-    { map: ["11111.", "112121", "11#111", "11#111", "1.1111"], lockR: [1], lockC: [], faces: 7, scramble: 18, moveLimit: 27, intro: "moveLimit" },
-    // 第 32 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 14 步
-    { map: ["1111.1", "11#1.1", "1112#1", "12#111", ".11111"], lockR: [1], lockC: [], faces: 7, scramble: 19 },
-    // 第 33 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 15 步
-    { map: [".11111", "11#211", "11#111", ".#1111", "111111"], lockR: [1], lockC: [], faces: 7, scramble: 19 },
-    // 第 34 关 · 5x6 · 24 个牌位 · 6 种花色 · 限 26 步 · 参考解 14 步
-    { map: ["1.1111", "1##121", "111111", "1#1111", "11..1."], lockR: [1], lockC: [], faces: 6, scramble: 20, moveLimit: 26 },
-    // 第 35 关 · 5x6 · 28 个牌位 · 7 种花色 · 参考解 19 步
-    { map: ["111111", "111121", "111.1.", "1.1211", ".11111"], lockR: [1], lockC: [], faces: 7, scramble: 20 },
-    // 第 36 关 · 5x6 · 26 个牌位 · 7 种花色 · 参考解 19 步
-    { map: ["111111", "1.1#11", ".11111", "1112.1", "1.1111"], lockR: [1], lockC: [], faces: 7, scramble: 21 },
-    // 第 37 关 · 6x7 · 36 个牌位 · 9 种花色 · 限 32 步 · 参考解 19 步
-    { map: ["1111.11", "111112.", ".1#.#11", "12#1211", "1111111", "11111.."], lockR: [2], lockC: [], faces: 9, scramble: 21, moveLimit: 32 },
-    // 第 38 关 · 6x7 · 40 个牌位 · 10 种花色 · 单向轨 · 参考解 22 步
-    { map: ["1...111", "111#111", ".121211", "1121121", "1111111", "1.11111"], lockR: [2], lockC: [], faces: 10, scramble: 22, oneWay: [{ axis: "col", index: 4, dir: 1 }], intro: "oneWay" },
-    // 第 39 关 · 6x7 · 42 个牌位 · 11 种花色 · 参考解 21 步
-    { map: ["111.111", "1121111", "1122#21", "1##2#21", ".111121", "111111."], lockR: [2], lockC: [], faces: 11, scramble: 22 },
-    // 第 40 关 · 6x7 · 32 个牌位 · 8 种花色 · 限 32 步 · 参考解 21 步
-    { map: ["1111111", ".1111.1", "112#.#1", "11111#1", ".1#111.", ".111.11"], lockR: [2], lockC: [2], faces: 8, scramble: 23, moveLimit: 32, intro: "lockCol" },
-    // 第 41 关 · 6x7 · 36 个牌位 · 9 种花色 · 参考解 19 步
-    { map: ["111.111", "11#11#1", "11111#1", "1112221", ".111#1.", "111.11."], lockR: [2], lockC: [2], faces: 9, scramble: 24 },
-    // 第 42 关 · 6x7 · 36 个牌位 · 9 种花色 · 单向轨 · 参考解 17 步
-    { map: [".1111..", "1122111", ".11##11", "..#2111", "11.1211", "1111111"], lockR: [2], lockC: [2], faces: 9, scramble: 24, oneWay: [{ axis: "col", index: 3, dir: 1 }] },
-    // 第 43 关 · 6x7 · 42 个牌位 · 11 种花色 · 限 36 步 · 参考解 21 步
-    { map: ["111111.", ".1121#1", "11#2221", "12##111", "1122211", "1.1111."], lockR: [2], lockC: [2], faces: 11, scramble: 25, moveLimit: 36 },
-    // 第 44 关 · 6x7 · 38 个牌位 · 10 种花色 · 参考解 21 步
-    { map: ["111.111", "1111111", "1#11#21", "1##1211", "1111221", "11..11."], lockR: [2], lockC: [2], faces: 10, scramble: 25 },
-    // 第 45 关 · 6x7 · 38 个牌位 · 10 种花色 · 参考解 20 步
-    { map: ["1111111", ".211#11", ".2##11.", "1111211", "11111#1", "1111111"], lockR: [2], lockC: [2], faces: 10, scramble: 26 },
-    // 第 46 关 · 6x7 · 40 个牌位 · 10 种花色 · 单向轨 · 限 102 步 · 参考解 20 步
-    { map: ["1111.11", "1##1111", "111#11.", "1222#11", "122111.", "1111111"], lockR: [2], lockC: [2], faces: 10, scramble: 26, oneWay: [{ axis: "col", index: 1, dir: -1 }], moveLimit: 102 },
-    // 第 47 关 · 6x7 · 40 个牌位 · 10 种花色 · 参考解 21 步
-    { map: ["1111111", "1122111", ".112111", "1#11#1.", "122##11", "11.1111"], lockR: [2], lockC: [2], faces: 10, scramble: 27 },
-    // 第 48 关 · 6x7 · 38 个牌位 · 10 种花色 · 目标 3s×5 · 参考解 21 步
-    { map: ["11111.1", "1112111", "1111#11", "111#111", "1#11121", "1.11.11"], lockR: [2], lockC: [2], faces: 10, scramble: 27, goal: { kind: "face", face: "3s", count: 5 }, intro: "goal" },
-    // 第 49 关 · 6x7 · 38 个牌位 · 10 种花色 · 限 41 步 · 参考解 27 步
-    { map: ["1111111", "1#21#11", "1#.2221", "1121111", ".#2#111", "1111..."], lockR: [2], lockC: [2], faces: 10, scramble: 28, moveLimit: 41 },
-    // 第 50 关 · 6x7 · 38 个牌位 · 10 种花色 · 单向轨 · 参考解 14 步
-    { map: ["1.11111", "112#1#1", "11#12.1", "11#1211", ".#21111", "1111111"], lockR: [2], lockC: [2], faces: 10, scramble: 28, oneWay: [{ axis: "row", index: 4, dir: -1 }] },
-    // 第 51 关 · 6x7 · 36 个牌位 · 9 种花色 · 1 对冰 · 参考解 74 步
-    { map: [".11.1.1", ".2111#1", "1211211", "1#1#111", "11##21.", "1111111"], lockR: [2, 3], lockC: [2], faces: 9, scramble: 29, ice: 1, intro: "ice" },
-    // 第 52 关 · 7x8 · 52 个牌位 · 13 种花色 · 2 对冰 · 限 44 步 · 参考解 28 步
-    { map: [".1111111", "11221121", "111#1.11", "11#11111", "12#1#111", "112#12.1", "1.111.11"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 30, ice: 2, moveLimit: 44 },
-    // 第 53 关 · 7x8 · 48 个牌位 · 12 种花色 · 1 对冰 · 目标 8s×5 · 参考解 29 步
-    { map: ["11111111", ".11122..", ".2.1111.", ".1111##1", "11111#11", "111#2121", "1.11111."], lockR: [2, 4], lockC: [2], faces: 12, scramble: 30, ice: 1, goal: { kind: "face", face: "8s", count: 5 } },
-    // 第 54 关 · 7x8 · 52 个牌位 · 13 种花色 · 2 对冰 · 单向轨 · 参考解 34 步
-    { map: ["1.111111", "11111121", "11212#1.", "111#1111", ".221#1#1", "11#1.121", ".1111111"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 31, ice: 2, oneWay: [{ axis: "col", index: 6, dir: 1 }] },
-    // 第 55 关 · 7x8 · 50 个牌位 · 13 种花色 · 1 对冰 · 限 48 步 · 参考解 24 步
-    { map: ["1111.111", "11#.121.", "1211.#1.", "12211211", "1112.111", "11#111#1", "1..11111"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 31, ice: 1, flowers: true, moveLimit: 48, intro: "flower" },
-    // 第 56 关 · 7x8 · 54 个牌位 · 14 种花色 · 2 对冰 · 参考解 33 步
-    { map: [".1111111", "121##111", "1#111211", "1#112111", "1212111.", "12#1121.", "1.111111"], lockR: [2, 4], lockC: [2], faces: 14, scramble: 32, ice: 2, flowers: true },
-    // 第 57 关 · 7x8 · 58 个牌位 · 15 种花色 · 1 对冰 · 参考解 29 步
-    { map: ["11111111", "11##221.", "11#1#22.", "1211221.", "111#1121", "11221221", "1..11111"], lockR: [2, 4], lockC: [2], faces: 15, scramble: 32, ice: 1, flowers: true },
-    // 第 58 关 · 7x8 · 52 个牌位 · 13 种花色 · 2 对冰 · 单向轨 · 限 44 步 · 目标 f4×5 · 参考解 28 步
-    { map: ["..111111", ".2221#11", "11#1111.", "111#2111", "12#22#11", "121111.1", "..111111"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 33, ice: 2, flowers: true, oneWay: [{ axis: "col", index: 5, dir: 1 }], moveLimit: 44, goal: { kind: "face", face: "f4", count: 5 } },
-    // 第 59 关 · 7x8 · 56 个牌位 · 14 种花色 · 1 对冰 · 参考解 26 步
-    { map: ["11.11111", "11111211", ".1221111", "1111##1.", ".12#2121", "11111221", ".1111111"], lockR: [2, 4], lockC: [2], faces: 14, scramble: 33, ice: 1, flowers: true },
-    // 第 60 关 · 7x8 · 56 个牌位 · 14 种花色 · 2 对冰 · 花牌百搭 · 参考解 19 步
-    { map: ["111.1111", "1121..11", "131.1211", ".1111121", "1121211.", "11111111", "11.11111"], lockR: [2, 4], lockC: [2], faces: 14, scramble: 34, ice: 2, flowers: true, wild: true, intro: "wild" },
-    // 第 61 关 · 7x8 · 50 个牌位 · 13 种花色 · 1 对冰 · 限 83 步 · 参考解 56 步
-    { map: ["11111.11", "11111211", "1.111111", "122.121.", ".11111.1", ".11.1111", "1111..11"], lockR: [2, 4], lockC: [2], faces: 13, scramble: 35, ice: 1, flowers: true, moveLimit: 83 },
-    // 第 62 关 · 7x8 · 62 个牌位 · 16 种花色 · 2 对冰 · 单向轨 · 参考解 38 步
-    { map: ["1.1.1111", "1.111111", "11231121", "11121111", "1223#.1.", ".1213221", "111.1111"], lockR: [2, 4], lockC: [2], faces: 16, scramble: 35, ice: 2, flowers: true, oneWay: [{ axis: "row", index: 1, dir: -1 }], intro: "stack3" },
-    // 第 63 关 · 7x8 · 56 个牌位 · 14 种花色 · 1 对冰 · 目标 z7×6 · 参考解 67 步
-    { map: [".1.11111", "12112111", "1.11112.", "11311.11", "11111121", "111121#1", "111.1111"], lockR: [2, 4], lockC: [2], faces: 14, scramble: 36, ice: 1, flowers: true, goal: { kind: "face", face: "z7", count: 6 } },
-    // 第 64 关 · 7x8 · 60 个牌位 · 15 种花色 · 2 对冰 · 限 52 步 · 参考解 38 步
-    { map: [".1111.11", ".122#111", "11121121", "11311211", "11131111", "1#.32111", "1.11.111"], lockR: [2, 4], lockC: [2], faces: 15, scramble: 36, ice: 2, flowers: true, moveLimit: 52 },
-    // 第 65 关 · 7x8 · 60 个牌位 · 15 种花色 · 1 对冰 · 参考解 36 步
-    { map: [".1111111", "1##21121", "11311.1.", "12122211", "12.312.1", "1111331.", "..1.1.11"], lockR: [2, 4], lockC: [2], faces: 15, scramble: 37, ice: 1, flowers: true },
-    // 第 66 关 · 7x8 · 56 个牌位 · 14 种花色 · 2 对厚冰 · 单向轨 · 参考解 58 步
-    { map: ["11111111", "12#221#.", "11#2#121", "111111#1", ".1211231", "11221#1.", "11.1111."], lockR: [2, 4], lockC: [2], faces: 14, scramble: 37, ice: 4, ice2: 2, flowers: true, oneWay: [{ axis: "col", index: 6, dir: -1 }], intro: "ice2" },
-    // 第 67 关 · 8x9 · 88 个牌位 · 22 种花色 · 2 对冰 · 限 94 步 · 参考解 69 步
-    { map: [".1111111.", ".21121131", "1221211..", "1#213#131", "112232321", "122.3213.", "11111.131", "11..111.1"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 38, ice: 2, flowers: true, moveLimit: 94 },
-    // 第 68 关 · 8x9 · 86 个牌位 · 22 种花色 · 3 对冰 · 花牌百搭 · 目标 3m×5 · 参考解 34 步
-    { map: ["111.11111", "121221221", "11#221121", "12221#211", "111#32221", "11311#21.", "11##13321", "1111.1.1."], lockR: [3, 5], lockC: [2], faces: 22, scramble: 38, ice: 3, flowers: true, wild: true, goal: { kind: "face", face: "3m", count: 5 } },
-    // 第 69 关 · 8x9 · 84 个牌位 · 21 种花色 · 4 对冰 · 参考解 44 步
-    { map: ["1111.111.", "1221#123.", "12#.2211.", "11#121111", "1211213..", "131221121", "121212121", "111111111"], lockR: [3, 5], lockC: [2], faces: 21, scramble: 39, ice: 4, flowers: true },
-    // 第 70 关 · 8x9 · 90 个牌位 · 23 种花色 · 2 对冰 · 2 对鞭炮 · 单向轨 · 限 99 步 · 参考解 40 步
-    { map: ["11111111.", "111122221", "12131.321", "122321121", "111112221", "111121111", "111111311", "11111..11"], lockR: [3, 5], lockC: [2], faces: 23, scramble: 39, ice: 2, bombs: 2, flowers: true, oneWay: [{ axis: "row", index: 1, dir: -1 }], moveLimit: 99, intro: "bomb" },
-    // 第 71 关 · 8x9 · 84 个牌位 · 21 种花色 · 1 对厚冰 · 参考解 42 步
-    { map: ["1111111.1", "131122231", "111111131", "121121111", "11111.111", "1121..121", "112211131", "1.1111111"], lockR: [3, 5], lockC: [2], faces: 21, scramble: 40, ice: 3, ice2: 1, flowers: true },
-    // 第 72 关 · 8x9 · 84 个牌位 · 21 种花色 · 4 对冰 · 参考解 40 步
-    { map: ["1111.1111", "111131121", "111.11311", ".2111.221", "111312111", "111133.11", "112212211", ".1111.111"], lockR: [3, 5], lockC: [2], faces: 21, scramble: 41, ice: 4, flowers: true },
-    // 第 73 关 · 8x9 · 76 个牌位 · 19 种花色 · 2 对冰 · 限 63 步 · 目标 3m×7 · 参考解 46 步
-    { map: ["111..111.", ".11##3211", "12.2111..", "112112221", "111122.11", "121111131", "112213311", "1..1..1.."], lockR: [3, 5], lockC: [2], faces: 19, scramble: 41, ice: 2, flowers: true, moveLimit: 63, goal: { kind: "face", face: "3m", count: 7 } },
-    // 第 74 关 · 8x9 · 88 个牌位 · 22 种花色 · 3 对冰 · 单向轨 · 参考解 26 步
-    { map: ["..1111111", ".1.1323#1", "111211221", "1.1#13.21", "121121221", "121133111", "11#331321", "1111111.."], lockR: [3, 5], lockC: [2], faces: 22, scramble: 42, ice: 3, flowers: true, oneWay: [{ axis: "row", index: 4, dir: -1 }] },
-    // 第 75 关 · 8x9 · 78 个牌位 · 20 种花色 · 4 对冰 · 1 对鞭炮 · 连锁解锁(消5对) · 参考解 36 步
-    { map: ["11.111.11", "11112#11.", "11122.121", "1231111#1", "123111111", "12..12.11", "112122111", "111111111"], lockR: [3, 5], lockC: [2], faces: 20, scramble: 42, ice: 4, bombs: 1, flowers: true, unlock: [{ axis: "row", index: 2, after: 5 }], intro: "unlock" },
-    // 第 76 关 · 8x9 · 82 个牌位 · 21 种花色 · 2 对厚冰 · 花牌百搭 · 限 50 步 · 参考解 37 步
-    { map: ["1111.1111", "13112111.", "121#12311", "121111121", ".1#212#11", ".1#132221", "13321#121", ".111111.."], lockR: [3, 5], lockC: [2], faces: 21, scramble: 43, ice: 2, ice2: 2, flowers: true, wild: true, moveLimit: 50 },
-    // 第 77 关 · 8x9 · 86 个牌位 · 22 种花色 · 3 对冰 · 参考解 45 步
-    { map: ["111.111.1", "122.21221", "13112.111", ".12321.21", "12121113.", "121.11111", "112133211", "11111..11"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 43, ice: 3, flowers: true },
-    // 第 78 关 · 8x9 · 86 个牌位 · 22 种花色 · 4 对冰 · 单向轨 · 目标 9s×5 · 参考解 45 步
-    { map: ["111111111", "11131.111", "131121111", "112113111", "112111111", "113211111", "111321111", "111111111"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 44, ice: 4, flowers: true, oneWay: [{ axis: "col", index: 4, dir: -1 }], goal: { kind: "face", face: "9s", count: 5 } },
-    // 第 79 关 · 8x9 · 92 个牌位 · 23 种花色 · 2 对冰 · 限 59 步 · 参考解 43 步
-    { map: ["1111111..", "1##1232#1", "121111131", "133113321", "1#1223211", "11#221#21", "12#23232.", "11.11111."], lockR: [3, 5], lockC: [2], faces: 23, scramble: 44, ice: 2, flowers: true, moveLimit: 59 },
-    // 第 80 关 · 8x9 · 86 个牌位 · 22 种花色 · 3 对冰 · 2 对鞭炮 · 参考解 47 步
-    { map: ["111111111", "111312111", "131132111", "131133111", "111111111", "1111211.1", "111231111", "1.1.111.1"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 45, ice: 3, bombs: 2, flowers: true },
-    // 第 81 关 · 8x9 · 88 个牌位 · 22 种花色 · 1 对厚冰 · 连锁解锁(消3对) · 参考解 53 步
-    { map: ["111111111", "111311311", "111321121", "121.11211", "11.111121", "121212131", "111121121", "111111111"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 46, ice: 4, ice2: 1, flowers: true, unlock: [{ axis: "row", index: 2, after: 3 }] },
-    // 第 82 关 · 8x9 · 82 个牌位 · 21 种花色 · 2 对冰 · 单向轨 · 限 90 步 · 参考解 29 步
-    { map: ["11.1..111", "121111221", "12111131.", "12211221.", "121111111", ".2231.111", "13212113.", "1.11.111."], lockR: [3, 5], lockC: [2], faces: 21, scramble: 46, ice: 2, flowers: true, oneWay: [{ axis: "col", index: 5, dir: -1 }], moveLimit: 90 },
-    // 第 83 关 · 8x9 · 82 个牌位 · 21 种花色 · 5 对冰 · 目标 6s×5 · 参考解 48 步
-    { map: [".111.11.1", "1111132.1", "112131121", "1212132.1", "121111121", "111121111", "111112111", "11111111."], lockR: [3, 5], lockC: [2], faces: 21, scramble: 47, ice: 5, flowers: true, goal: { kind: "face", face: "6s", count: 5 } },
-    // 第 84 关 · 8x9 · 88 个牌位 · 22 种花色 · 6 对冰 · 花牌百搭 · 参考解 42 步
-    { map: [".1.11111.", "11212#131", "1#11221..", "11#112321", "122111231", ".23112331", "11223#211", "1.111.111"], lockR: [3, 5], lockC: [2], faces: 22, scramble: 47, ice: 6, flowers: true, wild: true },
-    // 第 85 关 · 8x9 · 102 个牌位 · 26 种花色 · 4 对冰 · 1 对鞭炮 · 限 127 步 · 参考解 51 步
-    { map: ["111111.11", "1212#2221", "132#32111", "123112321", "11.221131", "1121#3331", "1.1223231", "111111111"], lockR: [3, 5], lockC: [2], faces: 26, scramble: 48, ice: 4, bombs: 1, flowers: true, moveLimit: 127 },
-    // 第 86 关 · 8x9 · 76 个牌位 · 19 种花色 · 2 对厚冰 · 单向轨 · 参考解 40 步
-    { map: ["11..11111", ".12221131", "121.12111", "1#.1221#1", "112222111", "11321.111", "1#.1111.1", "1111.1111"], lockR: [3, 5], lockC: [2], faces: 19, scramble: 48, ice: 5, ice2: 2, flowers: true, oneWay: [{ axis: "col", index: 1, dir: 1 }] },
-    // 第 87 关 · 8x9 · 94 个牌位 · 24 种花色 · 6 对冰 · 连锁解锁(消5对) · 参考解 50 步
-    { map: ["1..111111", "123213#21", "121#.211.", "1223333#1", ".232#2331", ".#1#32#11", "1#2232221", "1111.1.11"], lockR: [3, 5], lockC: [2, 6], faces: 24, scramble: 49, ice: 6, flowers: true, unlock: [{ axis: "col", index: 3, after: 5 }] },
-    // 第 88 关 · 8x9 · 78 个牌位 · 20 种花色 · 4 对冰 · 限 108 步 · 目标 f2×4 · 参考解 36 步
-    { map: ["111111111", "111313311", "1111.12#1", "1211321#1", "13111.111", "1221121..", "111111.11", "1.1.11.11"], lockR: [3, 5], lockC: [2, 6], faces: 20, scramble: 49, ice: 4, flowers: true, moveLimit: 108, goal: { kind: "face", face: "f2", count: 4 } },
-    // 第 89 关 · 8x9 · 88 个牌位 · 22 种花色 · 5 对冰 · 参考解 48 步
-    { map: [".1111111.", "1#2322331", "122#1#22.", "1311322..", "1#132#121", ".13222#21", "12#112111", "1111.111."], lockR: [3, 5], lockC: [2, 6], faces: 22, scramble: 50, ice: 5, flowers: true },
-    // 第 90 关 · 8x9 · 82 个牌位 · 21 种花色 · 6 对冰 · 2 对鞭炮 · 单向轨 · 参考解 47 步
-    { map: ["11111...1", "12223#221", "122#1#121", "111222.11", "12#21121.", ".12331211", "11211#121", "11.11..11"], lockR: [3, 5], lockC: [2, 6], faces: 21, scramble: 50, ice: 6, bombs: 2, flowers: true, oneWay: [{ axis: "row", index: 4, dir: -1 }] },
-    // 第 91 关 · 8x9 · 92 个牌位 · 23 种花色 · 1 对厚冰 · 限 77 步 · 参考解 48 步
-    { map: ["11111111.", "132112221", "1#2233.21", "132#11#21", "122111211", "112#1#331", "121221211", "11..11111"], lockR: [3, 5], lockC: [2, 6], faces: 23, scramble: 51, ice: 4, ice2: 1, flowers: true, moveLimit: 77 },
-    // 第 92 关 · 8x9 · 98 个牌位 · 25 种花色 · 5 对冰 · 花牌百搭 · 参考解 46 步
-    { map: ["111111111", "111222211", "13.221211", "113212231", "133122211", "113211111", "1122211.1", "1111111.1"], lockR: [3, 5], lockC: [2, 6], faces: 25, scramble: 52, ice: 5, flowers: true, wild: true },
-    // 第 93 关 · 8x9 · 98 个牌位 · 25 种花色 · 6 对冰 · 连锁解锁(消3对) · 目标 z2×4 · 参考解 49 步
-    { map: ["111111.11", "11231212.", "133112311", ".12121111", ".11132131", "112223111", "112223121", "111111111"], lockR: [3, 5], lockC: [2, 6], faces: 25, scramble: 52, ice: 6, flowers: true, unlock: [{ axis: "col", index: 4, after: 3 }], goal: { kind: "face", face: "z2", count: 4 } },
-    // 第 94 关 · 8x9 · 92 个牌位 · 23 种花色 · 4 对冰 · 单向轨 · 限 76 步 · 参考解 51 步
-    { map: ["111111111", "122.12211", ".22322121", "131111.1.", "112111321", "12311122.", "111121231", "1.1111111"], lockR: [3, 5], lockC: [2, 6], faces: 23, scramble: 53, ice: 4, flowers: true, oneWay: [{ axis: "col", index: 4, dir: -1 }], moveLimit: 76 },
-    // 第 95 关 · 8x9 · 94 个牌位 · 24 种花色 · 5 对冰 · 1 对鞭炮 · 参考解 55 步
-    { map: ["11..111.1", "112#33#21", "1222#1#31", "132122211", ".12223121", "132322111", "1133311#1", "1....1.11"], lockR: [3, 5], lockC: [2, 6], faces: 24, scramble: 53, ice: 5, bombs: 1, flowers: true },
-    // 第 96 关 · 8x9 · 98 个牌位 · 25 种花色 · 2 对厚冰 · 参考解 53 步
-    { map: ["111.11111", "123223131", "12.112111", "112112211", "112121121", "112222221", "122323111", "11.11111."], lockR: [3, 5], lockC: [2, 6], faces: 25, scramble: 54, ice: 6, ice2: 2, flowers: true },
-    // 第 97 关 · 8x9 · 102 个牌位 · 26 种花色 · 4 对冰 · 限 83 步 · 参考解 53 步
-    { map: ["111111111", "1.2222121", "112121311", "113221231", "121332.31", "122122131", "11233111.", "111..1111"], lockR: [3, 5], lockC: [2, 6], faces: 26, scramble: 54, ice: 4, flowers: true, moveLimit: 83 },
-    // 第 98 关 · 8x9 · 92 个牌位 · 23 种花色 · 5 对冰 · 单向轨 · 目标 z1×8 · 参考解 54 步
-    { map: ["11111.1.1", ".3213#311", "133#2332.", "1232###3.", "12332222.", "11#121111", "1212##221", "1..1.1111"], lockR: [3, 5], lockC: [2, 6], faces: 23, scramble: 55, ice: 5, flowers: true, oneWay: [{ axis: "row", index: 2, dir: 1 }], goal: { kind: "face", face: "z1", count: 8 } },
-    // 第 99 关 · 8x9 · 98 个牌位 · 25 种花色 · 6 对冰 · 连锁解锁(消5对) · 参考解 57 步
-    { map: ["1.111.111", "132332211", "121312#1.", "13#21.#31", "13322221.", "112#22211", "131#33221", "11.111.11"], lockR: [3, 5], lockC: [2, 6], faces: 25, scramble: 55, ice: 6, flowers: true, unlock: [{ axis: "col", index: 1, after: 5 }] },
-    // 第 100 关 · 8x9 · 90 个牌位 · 23 种花色 · 4 对冰 · 2 对鞭炮 · 花牌百搭 · 限 52 步 · 参考解 34 步
-    { map: ["1111..1.1", "122323121", "112121121", "1#23213#1", "1133#.211", "1#222#21.", "1#232#221", "111.111.1"], lockR: [3, 5], lockC: [2, 6], faces: 23, scramble: 56, ice: 4, bombs: 2, flowers: true, wild: true, moveLimit: 52 },
-    // 第 101 关 · 8x5 · 40 个牌位 · 10 种花色 · 1 对厚冰 · 参考解 62 步
-    { map: [".1..1", "12311", "11111", "1312.", "11#31", ".221.", ".2#11", ".1.11"], lockR: [3, 5], lockC: [2], faces: 10, scramble: 57, ice: 5, ice2: 1, flowers: true },
-    // 第 102 关 · 8x5 · 40 个牌位 · 10 种花色 · 6 对冰 · 单向轨 · 参考解 153 步
-    { map: ["11111", "13111", "11111", "11111", "12111", "1..11", "11111", "111.1"], lockR: [3, 5], lockC: [2], faces: 10, scramble: 57, ice: 6, flowers: true, oneWay: [{ axis: "row", index: 4, dir: 1 }] },
-    // 第 103 关 · 8x5 · 32 个牌位 · 8 种花色 · 7 对冰 · 限 59 步 · 目标 f4×5 · 参考解 47 步
-    { map: ["11..1", "111.1", "1..1.", "1111.", "12131", "11.2.", "11.11", ".111."], lockR: [3, 5], lockC: [2], faces: 8, scramble: 58, ice: 7, flowers: true, moveLimit: 59, goal: { kind: "face", face: "f4", count: 5 } },
-    // 第 104 关 · 8x5 · 42 个牌位 · 11 种花色 · 8 对冰 · 参考解 55 步
-    { map: [".1111", "32121", "1111.", ".1111", "12123", ".1211", "11.11", "11.1."], lockR: [3, 5], lockC: [2], faces: 11, scramble: 58, ice: 8, flowers: true },
-    // 第 105 关 · 8x5 · 40 个牌位 · 10 种花色 · 5 对冰 · 1 对鞭炮 · 连锁解锁(消3对) · 参考解 39 步
-    { map: ["1.111", "1.311", ".1111", "12121", "1##21", "11211", "112#1", "1111."], lockR: [3, 5], lockC: [2], faces: 10, scramble: 59, ice: 5, bombs: 1, flowers: true, unlock: [{ axis: "row", index: 4, after: 3 }] },
-    // 第 106 关 · 8x5 · 38 个牌位 · 10 种花色 · 2 对厚冰 · 单向轨 · 限 114 步 · 参考解 23 步
-    { map: ["1...1", "11211", "..111", "11311", "11221", "11#11", "11311", "1.1.."], lockR: [3, 5], lockC: [2], faces: 10, scramble: 59, ice: 6, ice2: 2, flowers: true, oneWay: [{ axis: "col", index: 1, dir: -1 }], moveLimit: 114 },
-    // 第 107 关 · 8x5 · 40 个牌位 · 10 种花色 · 7 对冰 · 参考解 53 步
-    { map: ["11111", "11113", "1.211", "11131", "11111", "1.111", "11.21", "..11."], lockR: [3, 5], lockC: [2], faces: 10, scramble: 60, ice: 7, flowers: true },
-    // 第 108 关 · 8x5 · 32 个牌位 · 8 种花色 · 8 对冰 · 花牌百搭 · 目标 f7*×12 · 参考解 39 步
-    { map: ["1.1.1", "1#1#1", "11##.", ".#31.", "12311", ".2311", ".1#11", ".1.1."], lockR: [3, 5], lockC: [2], faces: 8, scramble: 60, ice: 8, flowers: true, wild: true, goal: { kind: "face", face: "f7*", count: 12 } },
-    // 第 109 关 · 8x5 · 40 个牌位 · 10 种花色 · 5 对冰 · 限 74 步 · 参考解 51 步
-    { map: ["11.11", "12111", "11211", "1.111", "12311", "1..11", "11.11", "11111"], lockR: [3, 5], lockC: [2], faces: 10, scramble: 61, ice: 5, flowers: true, moveLimit: 74 },
-    // 第 110 关 · 8x5 · 38 个牌位 · 10 种花色 · 6 对冰 · 2 对鞭炮 · 单向轨 · 参考解 64 步
-    { map: ["11.11", "111.1", "11111", "13111", "1.22.", "11211", "11#11", "11.1."], lockR: [3, 5], lockC: [2], faces: 10, scramble: 61, ice: 6, bombs: 2, flowers: true, oneWay: [{ axis: "col", index: 1, dir: -1 }] },
-    // 第 111 关 · 9x5 · 48 个牌位 · 12 种花色 · 1 对厚冰 · 连锁解锁(消5对) · 参考解 58 步
-    { map: [".1111", "11211", "12111", "12#21", "1111.", "1121.", "11131", "12111", "1.111"], lockR: [3, 6], lockC: [2], faces: 12, scramble: 62, ice: 7, ice2: 1, flowers: true, unlock: [{ axis: "row", index: 4, after: 5 }] },
-    // 第 112 关 · 9x5 · 48 个牌位 · 12 种花色 · 8 对冰 · 限 123 步 · 参考解 102 步
-    { map: [".1111", "11231", ".1111", "12#11", "11131", "11211", "11121", "12.1.", "11.11"], lockR: [3, 6], lockC: [2], faces: 12, scramble: 62, ice: 8, flowers: true, moveLimit: 123 },
-    // 第 113 关 · 9x5 · 48 个牌位 · 12 种花色 · 5 对冰 · 目标 5s×3 · 参考解 53 步
-    { map: ["111.1", "11211", ".1221", "..131", "1211.", "12111", "13111", "1121.", "1.111"], lockR: [3, 6], lockC: [2], faces: 12, scramble: 62, ice: 5, flowers: true, goal: { kind: "face", face: "5s", count: 3 } },
-    // 第 114 关 · 9x5 · 42 个牌位 · 11 种花色 · 6 对冰 · 单向轨 · 参考解 58 步
-    { map: ["11111", "111#.", ".122.", ".##2.", "1##11", "1#221", "12331", "1121.", "..111"], lockR: [3, 6], lockC: [2], faces: 11, scramble: 62, ice: 6, flowers: true, oneWay: [{ axis: "col", index: 3, dir: -1 }] },
-    // 第 115 关 · 9x5 · 46 个牌位 · 12 种花色 · 7 对冰 · 1 对鞭炮 · 限 65 步 · 参考解 40 步
-    { map: ["11.1.", ".332.", ".#12.", ".12#1", "122#1", "1#32.", "1331.", ".2##1", "11111"], lockR: [3, 6], lockC: [2], faces: 12, scramble: 62, ice: 7, bombs: 1, flowers: true, moveLimit: 65 },
-    // 第 116 关 · 10x6 · 74 个牌位 · 19 种花色 · 2 对厚冰 · 花牌百搭 · 参考解 42 步
-    { map: [".1.111", "132131", ".###31", "122231", "132221", "132221", ".1#321", ".1#3#1", "1#22#.", "1.1111"], lockR: [4, 7], lockC: [2], faces: 19, scramble: 62, ice: 8, ice2: 2, flowers: true, wild: true },
-    // 第 117 关 · 10x6 · 68 个牌位 · 17 种花色 · 5 对冰 · 连锁解锁(消3对) · 参考解 68 步
-    { map: ["111..1", "111231", "11223.", "12123.", ".2332.", "113121", "1#1.11", "1#.#21", "121#21", ".11..1"], lockR: [4, 7], lockC: [2], faces: 17, scramble: 62, ice: 5, flowers: true, unlock: [{ axis: "col", index: 3, after: 3 }] },
-    // 第 118 关 · 10x6 · 74 个牌位 · 19 种花色 · 6 对冰 · 单向轨 · 限 78 步 · 目标 9p×3 · 参考解 29 步
-    { map: ["111111", "113221", ".13121", "1.2111", "112331", "11.311", "11231.", "1111..", ".31221", ".11111"], lockR: [4, 7], lockC: [2], faces: 19, scramble: 62, ice: 6, flowers: true, oneWay: [{ axis: "col", index: 4, dir: -1 }], moveLimit: 78, goal: { kind: "face", face: "9p", count: 3 } },
-    // 第 119 关 · 10x6 · 66 个牌位 · 17 种花色 · 7 对冰 · 参考解 61 步
-    { map: ["..1.11", "11232.", ".21221", "131##1", "112.21", "122121", "1.33.1", "12211.", "13.#1.", ".11.11"], lockR: [4, 7], lockC: [2], faces: 17, scramble: 62, ice: 7, flowers: true },
-    // 第 120 关 · 10x6 · 70 个牌位 · 18 种花色 · 8 对冰 · 2 对鞭炮 · 参考解 65 步
-    { map: ["111111", ".11131", "121#21", "122111", "113#31", "121131", "1322#1", ".#2#11", ".12111", ".11111"], lockR: [4, 7], lockC: [2], faces: 18, scramble: 62, ice: 8, bombs: 2, flowers: true }
+    // 第 1 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 4 步
+    { seed: 1, hash: "be1f9e7b", map: ["1111", "1111", "11.."], lockR: [], lockC: [], faces: 4, scramble: 4, chapter: 0, intro: "basic" },
+    // 第 2 关 · 3x4 · 8 个牌位 · 4 种花色 · 参考解 5 步
+    { seed: 1, hash: "331c5691", map: ["1111", "...1", ".111"], lockR: [], lockC: [], faces: 4, scramble: 4, chapter: 0 },
+    // 第 3 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 4 步
+    { seed: 20261013, hash: "9f273bed", map: [".111", "11#1", "1111"], lockR: [], lockC: [], faces: 4, scramble: 4, chapter: 0 },
+    // 第 4 关 · 3x4 · 10 个牌位 · 4 种花色 · 参考解 4 步
+    { seed: 20261013, hash: "19dbabab", map: ["1111", ".#11", "1111"], lockR: [], lockC: [], faces: 4, scramble: 4, chapter: 0 },
+    // 第 5 关 · 4x5 · 12 个牌位 · 5 种花色 · 参考解 4 步
+    { seed: 1, hash: "91c3a437", map: ["1111.", "11111", "1.#.1", "....1"], lockR: [], lockC: [], faces: 5, scramble: 4, chapter: 0 },
+    // 第 6 关 · 4x5 · 12 个牌位 · 5 种花色 · 参考解 5 步
+    { seed: 1, hash: "c10520b3", map: ["11111", "111.1", ".1.#1", ".1..."], lockR: [], lockC: [], faces: 5, scramble: 4, chapter: 0 },
+    // 第 7 关 · 4x5 · 12 个牌位 · 5 种花色 · 参考解 4 步
+    { seed: 1, hash: "ef49e167", map: ["11111", "1.1.1", "1#1.1", "1...."], lockR: [], lockC: [], faces: 5, scramble: 4, chapter: 0 },
+    // 第 8 关 · 4x5 · 14 个牌位 · 5 种花色 · 参考解 4 步
+    { seed: 1, hash: "c0532b75", map: ["11111", "11#.1", "...11", ".1111"], lockR: [], lockC: [], faces: 5, scramble: 5, chapter: 0 },
+    // 第 9 关 · 4x5 · 14 个牌位 · 5 种花色 · 参考解 5 步
+    { seed: 1, hash: "0fe348eb", map: ["11111", "1.111", "1#111", "1...."], lockR: [], lockC: [], faces: 5, scramble: 5, chapter: 0 },
+    // 第 10 关 · 4x5 · 16 个牌位 · 5 种花色 · 参考解 5 步
+    { seed: 1, hash: "5a7ac20b", map: ["11111", "111#.", "111..", "11111"], lockR: [], lockC: [], faces: 5, scramble: 5, chapter: 0 },
+    // 第 11 关 · 4x5 · 16 个牌位 · 5 种花色 · 参考解 6 步
+    { seed: 1, hash: "33664ced", map: ["1111.", "1#11.", "11111", "1111."], lockR: [], lockC: [], faces: 5, scramble: 5, chapter: 0 },
+    // 第 12 关 · 4x5 · 18 个牌位 · 5 种花色 · 参考解 4 步
+    { seed: 1, hash: "1628db9a", map: ["11111", "1.121", "111#1", "1.111"], lockR: [], lockC: [], faces: 5, scramble: 5, chapter: 0, intro: "stack" },
+    // 第 13 关 · 5x6 · 18 个牌位 · 6 种花色 · 参考解 6 步
+    { seed: 1, hash: "66cce48b", map: ["11.111", "111111", ".#.11.", "...11.", ".11.1."], lockR: [], lockC: [], faces: 6, scramble: 5, chapter: 0 },
+    // 第 14 关 · 5x6 · 18 个牌位 · 6 种花色 · 参考解 7 步
+    { seed: 1, hash: "64ea504d", map: ["111111", "11.111", "11...1", ".#.111", ".....1"], lockR: [], lockC: [], faces: 6, scramble: 6, chapter: 0 },
+    // 第 15 关 · 5x6 · 20 个牌位 · 6 种花色 · 参考解 6 步
+    { seed: 1, hash: "9161d329", map: ["111.11", "111111", "11#111", "11.11.", "......"], lockR: [], lockC: [], faces: 6, scramble: 6, chapter: 0 },
+    // 第 16 关 · 5x6 · 20 个牌位 · 6 种花色 · 参考解 7 步
+    { seed: 1, hash: "8a182775", map: ["11.1..", ".111..", "111111", "11.#.1", "1111.1"], lockR: [], lockC: [], faces: 6, scramble: 6, chapter: 0 },
+    // 第 17 关 · 5x6 · 20 个牌位 · 6 种花色 · 参考解 6 步
+    { seed: 1, hash: "a32da1d5", map: [".11111", "111111", "111.11", "11##..", "11...."], lockR: [1], lockC: [2], faces: 6, scramble: 6, chapter: 1, intro: "lockRow" },
+    // 第 18 关 · 5x6 · 20 个牌位 · 6 种花色 · 参考解 5 步
+    { seed: 2371471066, hash: "b6f12d19", map: ["1...11", "1.1.11", ".11111", "111.11", "1.1.1."], lockR: [1], lockC: [2], faces: 6, scramble: 6, chapter: 1, intro: "lockCol" },
+    // 第 19 关 · 5x6 · 22 个牌位 · 6 种花色 · 参考解 7 步
+    { seed: 7, hash: "30dc6951", map: ["111111", "11111.", "11.111", ".1.1#1", "11.1.."], lockR: [1], lockC: [2], faces: 6, scramble: 6, chapter: 1 },
+    // 第 20 关 · 5x6 · 22 个牌位 · 7 种花色 · 参考解 8 步
+    { seed: 3898386925, hash: "8dd7bcc7", map: ["111111", "1.1111", ".11111", ".111#1", "..1..1"], lockR: [1], lockC: [2], faces: 7, scramble: 7, chapter: 1 },
+    // 第 21 关 · 5x6 · 24 个牌位 · 7 种花色 · 限 24 步 · 参考解 9 步
+    { seed: 1, hash: "2bd43c2d", map: ["11.1.1", "1111#1", "111111", ".#1111", "11111."], lockR: [1], lockC: [2], faces: 7, scramble: 7, chapter: 1, moveLimit: 24, intro: "moveLimit" },
+    // 第 22 关 · 5x6 · 22 个牌位 · 7 种花色 · 限 17 步 · 参考解 8 步
+    { seed: 7, hash: "5e04d43b", map: ["111111", "111#11", "1..11.", "1#.11.", "1.1111"], lockR: [1], lockC: [2], faces: 7, scramble: 7, chapter: 1, moveLimit: 17 },
+    // 第 23 关 · 5x6 · 24 个牌位 · 7 种花色 · 限 17 步 · 参考解 6 步
+    { seed: 20261013, hash: "0f76985b", map: ["111111", "11#111", "111111", "11#.11", ".1.11."], lockR: [1], lockC: [2], faces: 7, scramble: 7, chapter: 1, moveLimit: 17 },
+    // 第 24 关 · 5x6 · 24 个牌位 · 7 种花色 · 限 33 步 · 参考解 7 步
+    { seed: 7, hash: "dc6680c5", map: ["111111", "111.11", ".11##1", "111111", "1.1.11"], lockR: [1], lockC: [2], faces: 7, scramble: 7, chapter: 1, moveLimit: 33 },
+    // 第 25 关 · 6x7 · 24 个牌位 · 8 种花色 · 限 38 步 · 参考解 10 步
+    { seed: 3303905834, hash: "c838929f", map: ["1.11111", "1#111.1", "1111..1", "11111#.", "1.....1", "......1"], lockR: [2, 3], lockC: [2], faces: 8, scramble: 7, chapter: 1, moveLimit: 38 },
+    // 第 26 关 · 6x7 · 32 个牌位 · 8 种花色 · 限 51 步 · 参考解 14 步
+    { seed: 395724890, hash: "89a19bd5", map: ["11.1.11", "11.1111", ".111111", ".111111", "111111.", "11...1."], lockR: [2, 3], lockC: [2], faces: 8, scramble: 8, chapter: 1, moveLimit: 51 },
+    // 第 27 关 · 6x7 · 28 个牌位 · 8 种花色 · 限 56 步 · 参考解 16 步
+    { seed: 1452254367, hash: "459096cd", map: ["1111111", "1#11111", "1111111", "11.1111", "1.#....", "1......"], lockR: [2, 3], lockC: [2, 4], faces: 8, scramble: 8, chapter: 1, moveLimit: 56 },
+    // 第 28 关 · 6x7 · 26 个牌位 · 8 种花色 · 限 42 步 · 参考解 8 步
+    { seed: 7, hash: "bd1344cd", map: ["111111.", "...11..", "..#.11.", "11.#111", "111.11.", "111111."], lockR: [2, 3], lockC: [2, 4], faces: 8, scramble: 8, chapter: 1, moveLimit: 42 },
+    // 第 29 关 · 6x7 · 30 个牌位 · 8 种花色 · 限 54 步 · 参考解 13 步
+    { seed: 1, hash: "db6918db", map: ["1111111", "11111#1", "11111.1", "1111#.1", "..11..1", "...11.1"], lockR: [2, 3], lockC: [2, 4], faces: 8, scramble: 8, chapter: 1, moveLimit: 54 },
+    // 第 30 关 · 6x7 · 28 个牌位 · 9 种花色 · 限 34 步 · 参考解 11 步
+    { seed: 1, hash: "062513e3", map: ["11.11.1", "11#1111", "1..111.", "1111111", ".111#..", "11.1..."], lockR: [2, 3], lockC: [2, 4], faces: 9, scramble: 8, chapter: 1, moveLimit: 34 },
+    // 第 31 关 · 6x7 · 30 个牌位 · 9 种花色 · 限 38 步 · 参考解 8 步
+    { seed: 3988242634, hash: "9c3f7549", map: ["1111111", ".11.111", ".11.111", ".111111", "..11.11", ".11...1"], lockR: [2, 3], lockC: [2, 4], faces: 9, scramble: 8, chapter: 1, moveLimit: 38 },
+    // 第 32 关 · 6x7 · 30 个牌位 · 9 种花色 · 限 46 步 · 参考解 9 步
+    { seed: 2591692089, hash: "770f779b", map: ["11111..", "1.11111", "111.111", "111.111", "111....", "1111..."], lockR: [2, 3], lockC: [2, 4], faces: 9, scramble: 8, chapter: 1, moveLimit: 46 },
+    // 第 33 关 · 6x7 · 28 个牌位 · 9 种花色 · 参考解 9 步
+    { seed: 3889210289, hash: "ff412d3d", map: ["1.11.11", "111..11", "11.#.11", "111#.#1", "11111.1", "11.11.."], lockR: [2], lockC: [2], faces: 9, scramble: 9, chapter: 2 },
+    // 第 34 关 · 6x7 · 30 个牌位 · 9 种花色 · 单向轨 · 参考解 10 步
+    { seed: 20261013, hash: "bb583b1b", map: [".1111..", "111111.", "11111.1", ".11.111", ".1#1111", "11.11.."], lockR: [2], lockC: [2], faces: 9, scramble: 9, oneWay: [{ axis: "col", index: 5, dir: 1 }], chapter: 2, intro: "oneWay" },
+    // 第 35 关 · 6x7 · 30 个牌位 · 9 种花色 · 连锁解锁(消5对) · 参考解 9 步
+    { seed: 2086807283, hash: "f5d97e0f", map: ["1111111", ".111111", ".1.11..", ".1111#.", "1111...", "11.1111"], lockR: [2], lockC: [2], faces: 9, scramble: 9, unlock: [{ axis: "row", index: 3, after: 5 }], chapter: 2, intro: "unlock" },
+    // 第 36 关 · 6x7 · 30 个牌位 · 10 种花色 · 参考解 8 步
+    { seed: 2293979218, hash: "1b2b1ff9", map: ["111..11", "1111.11", ".11#11.", ".11#111", "11#11.1", "11111.."], lockR: [2], lockC: [2], faces: 10, scramble: 9, chapter: 2 },
+    // 第 37 关 · 6x7 · 32 个牌位 · 10 种花色 · 限 21 步 · 参考解 9 步
+    { seed: 3572866357, hash: "252a7417", map: ["1111.1.", "11#..11", "1111111", "1111111", "1#11111", "..11..1"], lockR: [2], lockC: [2], faces: 10, scramble: 9, chapter: 2, moveLimit: 21 },
+    // 第 38 关 · 6x7 · 34 个牌位 · 10 种花色 · 单向轨 · 限 19 步 · 参考解 9 步
+    { seed: 3118682811, hash: "ed8d58ed", map: ["11111..", "11111.1", ".11.111", "1111111", "1111..1", "1111.11"], lockR: [2], lockC: [2], faces: 10, scramble: 9, oneWay: [{ axis: "row", index: 1, dir: 1 }], chapter: 2, moveLimit: 19 },
+    // 第 39 关 · 6x7 · 34 个牌位 · 10 种花色 · 限 55 步 · 参考解 8 步
+    { seed: 647473062, hash: "bed28c79", map: ["11.1111", "1#11111", "11111#1", "1111111", "1#11111", "11....1"], lockR: [2], lockC: [2], faces: 10, scramble: 10, chapter: 2, moveLimit: 55 },
+    // 第 40 关 · 6x7 · 36 个牌位 · 10 种花色 · 限 21 步 · 参考解 11 步
+    { seed: 2953589310, hash: "6b56191f", map: ["1111111", "11#1111", "111111.", "11#11#1", "1111111", "..11111"], lockR: [2], lockC: [2], faces: 10, scramble: 10, chapter: 2, moveLimit: 21 },
+    // 第 41 关 · 6x7 · 34 个牌位 · 11 种花色 · 连锁解锁(消3对) · 限 63 步 · 参考解 19 步
+    { seed: 3975418514, hash: "d0cbf3b6", map: ["111111.", "12111.1", ".11#1#1", "11#1111", "11.1111", "..11111"], lockR: [2, 3], lockC: [2], faces: 11, scramble: 10, unlock: [{ axis: "col", index: 5, after: 3 }], chapter: 2, moveLimit: 63 },
+    // 第 42 关 · 6x7 · 34 个牌位 · 11 种花色 · 单向轨 · 限 38 步 · 参考解 8 步
+    { seed: 1721257023, hash: "017da36f", map: ["..11..1", "1121211", "1#1.121", "111211.", "11.##11", "11..111"], lockR: [2, 3], lockC: [2], faces: 11, scramble: 10, oneWay: [{ axis: "row", index: 1, dir: -1 }], chapter: 2, moveLimit: 38 },
+    // 第 43 关 · 6x7 · 34 个牌位 · 11 种花色 · 限 63 步 · 参考解 15 步
+    { seed: 1, hash: "2bb64eb4", map: ["11.111.", "12.1111", "11#.111", "11##111", "1111111", "1.1111."], lockR: [2, 3], lockC: [2, 4], faces: 11, scramble: 10, chapter: 2, moveLimit: 63 },
+    // 第 44 关 · 6x7 · 36 个牌位 · 11 种花色 · 限 58 步 · 参考解 20 步
+    { seed: 7, hash: "e5502bfa", map: ["111.11.", "1111111", "11.112.", "11.111.", "1111111", "11.1111"], lockR: [2, 3], lockC: [2, 4], faces: 11, scramble: 10, chapter: 2, moveLimit: 58 },
+    // 第 45 关 · 6x7 · 36 个牌位 · 11 种花色 · 限 65 步 · 参考解 11 步
+    { seed: 3826667117, hash: "2ea1c89d", map: ["1111111", ".111#11", ".21#12.", "11.1111", "11111#.", "1111111"], lockR: [2, 3], lockC: [2, 4], faces: 11, scramble: 11, chapter: 2, moveLimit: 65 },
+    // 第 46 关 · 6x7 · 38 个牌位 · 12 种花色 · 单向轨 · 限 34 步 · 参考解 9 步
+    { seed: 919666589, hash: "9b74809c", map: ["111111.", "1#22#21", ".111111", "11#1111", "1111111", "11.11.1"], lockR: [2, 3], lockC: [2, 4], faces: 12, scramble: 11, oneWay: [{ axis: "row", index: 4, dir: 1 }], chapter: 2, moveLimit: 34 },
+    // 第 47 关 · 6x7 · 36 个牌位 · 12 种花色 · 连锁解锁(消5对) · 限 61 步 · 参考解 9 步
+    { seed: 2810396808, hash: "5f0152fd", map: [".111111", "11.22#1", "122111.", "1111#1.", "11.#11.", "111111."], lockR: [2, 3], lockC: [2, 4], faces: 12, scramble: 11, unlock: [{ axis: "row", index: 1, after: 5 }], chapter: 2, moveLimit: 61 },
+    // 第 48 关 · 6x7 · 40 个牌位 · 12 种花色 · 限 63 步 · 参考解 20 步
+    { seed: 1, hash: "ee6457ad", map: [".111111", "1211121", "11#2111", "12.11#1", "11.1111", "1111.11"], lockR: [2, 3], lockC: [2, 4], faces: 12, scramble: 11, chapter: 2, moveLimit: 63 },
+    // 第 49 关 · 6x7 · 36 个牌位 · 12 种花色 · 1 对厚冰 · 参考解 11 步
+    { seed: 308843654, hash: "cbfa9ed2", map: ["11..111", ".1111.1", "1#1#111", "1111111", "11#1121", "1111111"], lockR: [2], lockC: [2], faces: 12, scramble: 11, ice: 1, ice2: 1, chapter: 3, intro: "ice" },
+    // 第 50 关 · 6x7 · 36 个牌位 · 12 种花色 · 2 对冰 · 单向轨 · 参考解 12 步
+    { seed: 2464955104, hash: "fd65c6aa", map: ["111111.", "12111..", "1111#11", "1.#1221", ".11#111", "11.1111"], lockR: [2], lockC: [2], faces: 12, scramble: 11, ice: 2, oneWay: [{ axis: "col", index: 3, dir: 1 }], chapter: 3 },
+    // 第 51 关 · 6x7 · 34 个牌位 · 12 种花色 · 1 对冰 · 参考解 12 步
+    { seed: 1794771912, hash: "48e707a8", map: [".111111", ".11111.", "1111111", "1#1##11", "112#111", "1.111.1"], lockR: [2], lockC: [2], faces: 12, scramble: 12, ice: 1, chapter: 3 },
+    // 第 52 关 · 6x7 · 34 个牌位 · 13 种花色 · 2 对冰 · 参考解 14 步
+    { seed: 1, hash: "1bc5a843", map: ["11111..", "1.2111.", "11.1111", "11..221", "11.12#.", ".111.11"], lockR: [2], lockC: [2], faces: 13, scramble: 12, ice: 2, chapter: 3 },
+    // 第 53 关 · 6x7 · 34 个牌位 · 13 种花色 · 1 对冰 · 1 对鞭炮 · 限 24 步 · 参考解 10 步
+    { seed: 2552365585, hash: "dd7c4b9a", map: ["1.11..1", "1111111", "1111121", "11.1.#1", "1111#.1", "111.111"], lockR: [2], lockC: [2], faces: 13, scramble: 12, ice: 1, bombs: 1, chapter: 3, moveLimit: 24, intro: "bomb" },
+    // 第 54 关 · 6x7 · 34 个牌位 · 13 种花色 · 2 对厚冰 · 单向轨 · 限 28 步 · 参考解 15 步
+    { seed: 7, hash: "e9adf4a6", map: ["1111..1", "111#221", "1111111", ".111111", "121##.1", "1....11"], lockR: [2], lockC: [2], faces: 13, scramble: 12, ice: 2, ice2: 2, oneWay: [{ axis: "col", index: 4, dir: -1 }], chapter: 3, moveLimit: 28, intro: "ice2" },
+    // 第 55 关 · 6x7 · 34 个牌位 · 13 种花色 · 1 对冰 · 限 29 步 · 参考解 14 步
+    { seed: 619769322, hash: "c5dc132b", map: ["1..1111", "1111111", "1#111#1", "111##.1", ".112211", "11111.."], lockR: [2], lockC: [2], faces: 13, scramble: 12, ice: 1, chapter: 3, moveLimit: 29 },
+    // 第 56 关 · 6x7 · 40 个牌位 · 13 种花色 · 2 对冰 · 限 28 步 · 参考解 12 步
+    { seed: 7, hash: "4703950f", map: ["1.1.111", "122#1#1", "121#121", "111#.2.", "1111121", "1111111"], lockR: [2], lockC: [2], faces: 13, scramble: 12, ice: 2, chapter: 3, moveLimit: 28 },
+    // 第 57 关 · 7x8 · 40 个牌位 · 14 种花色 · 1 对冰 · 限 24 步 · 参考解 12 步
+    { seed: 1, hash: "f7d779c9", map: ["111.1111", "1.111111", "1.111111", "...11111", "1..111.1", "11111..1", "...111.."], lockR: [2, 4], lockC: [2], faces: 14, scramble: 12, ice: 1, chapter: 3, moveLimit: 24 },
+    // 第 58 关 · 7x8 · 44 个牌位 · 14 种花色 · 2 对冰 · 2 对鞭炮 · 单向轨 · 限 26 步 · 参考解 16 步
+    { seed: 3486260828, hash: "8ec47d6d", map: [".111111.", "11111111", "1.#1111.", "11.#1111", "11#11#11", "11111..1", ".1111111"], lockR: [2, 4], lockC: [2], faces: 14, scramble: 13, ice: 2, bombs: 2, oneWay: [{ axis: "col", index: 6, dir: -1 }], chapter: 3, moveLimit: 26 },
+    // 第 59 关 · 7x8 · 44 个牌位 · 14 种花色 · 1 对厚冰 · 限 74 步 · 参考解 22 步
+    { seed: 2156668977, hash: "424d0d0b", map: ["1111.11.", "11#1111.", "111.#11.", "111.#111", "111111#1", "11111111", "1111..11"], lockR: [2, 4], lockC: [2, 5], faces: 14, scramble: 13, ice: 1, ice2: 1, chapter: 3, moveLimit: 74 },
+    // 第 60 关 · 7x8 · 44 个牌位 · 14 种花色 · 2 对冰 · 限 24 步 · 参考解 12 步
+    { seed: 982540890, hash: "120ea241", map: [".11.111.", "11111121", "1.12111.", "1111111.", "1##11.#1", "111111.1", "11...111"], lockR: [2, 4], lockC: [2, 5], faces: 14, scramble: 13, ice: 2, chapter: 3, moveLimit: 24 },
+    // 第 61 关 · 7x8 · 44 个牌位 · 14 种花色 · 1 对冰 · 限 55 步 · 参考解 18 步
+    { seed: 1189783357, hash: "e5f8919d", map: ["1111111.", "11111111", ".1111111", ".##111.1", "..111111", "111#111.", "111..111"], lockR: [2, 4], lockC: [2, 5], faces: 14, scramble: 13, ice: 1, chapter: 3, moveLimit: 55 },
+    // 第 62 关 · 7x8 · 46 个牌位 · 15 种花色 · 2 对冰 · 单向轨 · 限 61 步 · 参考解 23 步
+    { seed: 1592226821, hash: "d3a12753", map: ["111...11", "11111#11", "1111111.", "1.11#111", "1111#111", "1#111111", "1111111."], lockR: [2, 4], lockC: [2, 5], faces: 15, scramble: 13, ice: 2, oneWay: [{ axis: "col", index: 6, dir: -1 }], chapter: 3, moveLimit: 61 },
+    // 第 63 关 · 7x8 · 46 个牌位 · 15 种花色 · 1 对冰 · 1 对鞭炮 · 限 40 步 · 参考解 23 步
+    { seed: 20261013, hash: "868283e3", map: [".111111.", ".1111111", "11111111", "11111.11", "1111..11", "1.111111", "111...11"], lockR: [2, 4], lockC: [2, 5], faces: 15, scramble: 13, ice: 1, bombs: 1, chapter: 3, moveLimit: 40 },
+    // 第 64 关 · 7x8 · 48 个牌位 · 15 种花色 · 2 对厚冰 · 限 50 步 · 参考解 17 步
+    { seed: 1385225019, hash: "cf2c07b5", map: ["11111111", ".1111111", "11111111", "11.11111", "11111111", "1#111111", "..11...1"], lockR: [2, 4], lockC: [2, 5], faces: 15, scramble: 14, ice: 2, ice2: 2, chapter: 3, moveLimit: 50 },
+    // 第 65 关 · 7x8 · 48 个牌位 · 15 种花色 · 1 对冰 · 参考解 14 步
+    { seed: 981404942, hash: "296f38ab", map: ["11111.11", "1112121.", ".1111.11", "11111#11", "11111111", "1#.11111", "11.1.11."], lockR: [2], lockC: [2], faces: 15, scramble: 14, ice: 1, flowers: true, chapter: 4, intro: "flower" },
+    // 第 66 关 · 7x8 · 48 个牌位 · 15 种花色 · 3 对冰 · 花牌百搭 · 参考解 30 步
+    { seed: 3136598888, hash: "428c1859", map: ["11..1.1.", "11111#11", "111.1211", "11111111", "1112#1#1", "111111.1", "1.111111"], lockR: [2], lockC: [2], faces: 15, scramble: 14, ice: 3, flowers: true, wild: true, chapter: 4, intro: "wild" },
+    // 第 67 关 · 7x8 · 48 个牌位 · 15 种花色 · 2 对冰 · 连锁解锁(消5对) · 目标 8s×2 · 参考解 17 步
+    { seed: 3708798343, hash: "a2401d6d", map: ["1111111.", "11111#11", "11#11111", ".111111.", "1.1121#1", "1121#1#1", ".1111111"], lockR: [2], lockC: [2], faces: 15, scramble: 14, ice: 2, flowers: true, unlock: [{ axis: "col", index: 4, after: 5 }], chapter: 4, goal: { kind: "face", face: "8s", count: 2 }, intro: "goal" },
+    // 第 68 关 · 7x8 · 48 个牌位 · 16 种花色 · 3 对冰 · 参考解 17 步
+    { seed: 2773168608, hash: "4c2bc70b", map: ["1111.111", ".111.1#1", ".11#.111", "111111.1", "1111.111", "12111121", "111111.1"], lockR: [2], lockC: [2], faces: 16, scramble: 14, ice: 3, flowers: true, chapter: 4 },
+    // 第 69 关 · 7x8 · 50 个牌位 · 16 种花色 · 2 对冰 · 限 33 步 · 参考解 17 步
+    { seed: 2517321813, hash: "47119f3c", map: [".111111.", "1212.#11", "111112#1", "1#212111", "11111111", "11.1111.", "111.1.1."], lockR: [2], lockC: [2], faces: 16, scramble: 14, ice: 2, flowers: true, chapter: 4, moveLimit: 33 },
+    // 第 70 关 · 7x8 · 50 个牌位 · 16 种花色 · 3 对冰 · 花牌百搭 · 参考解 18 步
+    { seed: 5120243, hash: "d07dfabe", map: ["11..1111", "1211111.", "1##21111", "11#111#1", "12111111", "1#111111", "1.111111"], lockR: [2], lockC: [2], faces: 16, scramble: 15, ice: 3, flowers: true, wild: true, chapter: 4, timeLimit: 54 },
+    // 第 71 关 · 7x8 · 50 个牌位 · 16 种花色 · 2 对冰 · 限 28 步 · 参考解 9 步
+    { seed: 3125959196, hash: "8c480907", map: [".1111111", "112111#1", "1.22.111", ".1111211", ".1.11111", "11111111", "11.11.1."], lockR: [2], lockC: [2], faces: 16, scramble: 15, ice: 2, flowers: true, chapter: 4, moveLimit: 28 },
+    // 第 72 关 · 7x8 · 50 个牌位 · 16 种花色 · 3 对冰 · 限 44 步 · 目标 7s×2 · 参考解 16 步
+    { seed: 3549266973, hash: "d5ae1ac5", map: ["11.111.1", "1112#.11", "1111112.", "121#2111", "111#2211", "1111#111", "11.1.1.."], lockR: [2], lockC: [2], faces: 16, scramble: 15, ice: 3, flowers: true, chapter: 4, moveLimit: 44, goal: { kind: "face", face: "7s", count: 2 } },
+    // 第 73 关 · 7x8 · 50 个牌位 · 17 种花色 · 2 对冰 · 连锁解锁(消3对) · 限 83 步 · 参考解 15 步
+    { seed: 1458742980, hash: "3b6988fe", map: [".11.111.", "1212121.", "1.111211", "111#1#11", "12111111", "111111#1", ".111..11"], lockR: [2, 4], lockC: [2], faces: 17, scramble: 15, ice: 2, flowers: true, unlock: [{ axis: "col", index: 3, after: 3 }], chapter: 4, moveLimit: 83 },
+    // 第 74 关 · 7x8 · 52 个牌位 · 17 种花色 · 3 对冰 · 花牌百搭 · 参考解 24 步
+    { seed: 3349539635, hash: "f91601a7", map: ["1.1111.1", "1.1122#1", "12112##1", "122#1111", "1111#11.", ".1111111", "11111111"], lockR: [2, 4], lockC: [2], faces: 17, scramble: 15, ice: 3, flowers: true, wild: true, chapter: 4, timeLimit: 72 },
+    // 第 75 关 · 7x8 · 52 个牌位 · 17 种花色 · 2 对冰 · 限 72 步 · 参考解 16 步
+    { seed: 2236017346, hash: "6c12e382", map: ["111.1.11", "112#2#.1", "..1.2211", ".221#211", "12111211", "111#1#11", "1111111."], lockR: [2, 4], lockC: [2, 5], faces: 17, scramble: 15, ice: 2, flowers: true, chapter: 4, moveLimit: 72 },
+    // 第 76 关 · 7x8 · 52 个牌位 · 17 种花色 · 3 对冰 · 限 52 步 · 参考解 15 步
+    { seed: 2374133311, hash: "7a0e1a53", map: ["1.1111.1", "121111#1", ".1#11111", "12121121", ".1#211#1", "11#11211", "1.111111"], lockR: [2, 4], lockC: [2, 5], faces: 17, scramble: 16, ice: 3, flowers: true, chapter: 4, moveLimit: 52 },
+    // 第 77 关 · 7x8 · 52 个牌位 · 17 种花色 · 2 对冰 · 限 39 步 · 目标 1s×2 · 参考解 16 步
+    { seed: 1309988255, hash: "f8d48582", map: ["1.11.111", "1121#111", "12211#11", "11#112#1", "12#11221", "11111111", "1..1.1.1"], lockR: [2, 4], lockC: [2, 5], faces: 17, scramble: 16, ice: 2, flowers: true, chapter: 4, moveLimit: 39, goal: { kind: "face", face: "1s", count: 2 } },
+    // 第 78 关 · 7x8 · 52 个牌位 · 18 种花色 · 3 对冰 · 花牌百搭 · 限 37 步 · 参考解 16 步
+    { seed: 4274464394, hash: "d65d6d72", map: ["1.1111..", "11121211", ".211.11.", "11112121", "11111.11", "11111#11", "11111.11"], lockR: [2, 4], lockC: [2, 5], faces: 18, scramble: 16, ice: 3, flowers: true, wild: true, chapter: 4, moveLimit: 37 },
+    // 第 79 关 · 7x8 · 54 个牌位 · 18 种花色 · 2 对冰 · 连锁解锁(消5对) · 参考解 15 步
+    { seed: 2028687383, hash: "f27a2ce1", map: ["111111.1", "11111111", "1.111111", "11111111", "11111111", "11111111", "11111111"], lockR: [2, 4], lockC: [2, 5], faces: 18, scramble: 16, ice: 2, flowers: true, unlock: [{ axis: "row", index: 5, after: 5 }], chapter: 4, timeLimit: 45 },
+    // 第 80 关 · 7x8 · 50 个牌位 · 18 种花色 · 3 对冰 · 限 89 步 · 参考解 19 步
+    { seed: 4291850974, hash: "e804323d", map: ["1..1111.", "1121122.", "111.11..", "11212111", "111#1111", "12#1111.", "11..1111"], lockR: [2, 4], lockC: [2, 5], faces: 18, scramble: 16, ice: 3, flowers: true, chapter: 4, moveLimit: 89, timeLimit: 57 },
+    // 第 81 关 · 7x8 · 44 个牌位 · 8 种花色 · 2 对冰 · 参考解 17 步
+    { seed: 3398261384, hash: "5d8310f7", map: ["1.1.1111", "1111.11.", "1112#.11", "11.##111", "11111111", "1121.111", ".111...1"], lockR: [2], lockC: [2], faces: 8, scramble: 16, ice: 2, chapter: 5, dialect: { "ranks": [2, 5, 8] }, intro: "only258" },
+    // 第 82 关 · 7x8 · 48 个牌位 · 8 种花色 · 4 对冰 · 单向轨 · 参考解 20 步
+    { seed: 1, hash: "8490adb5", map: ["11..1111", "11111111", ".1#11#11", "1211#111", ".1#11111", "11#21#11", "11111111"], lockR: [2], lockC: [2], faces: 8, scramble: 16, ice: 4, oneWay: [{ axis: "col", index: 4, dir: -1 }], chapter: 5, dialect: { "ranks": [2, 5, 8] } },
+    // 第 83 关 · 7x8 · 50 个牌位 · 8 种花色 · 3 对冰 · 参考解 16 步
+    { seed: 853619257, hash: "b081d359", map: [".1111111", ".1111111", "..1.2111", "112#.111", "11.11111", "11111111", "11111111"], lockR: [2], lockC: [2], faces: 8, scramble: 17, ice: 3, chapter: 5, dialect: { "ranks": [2, 5, 8] } },
+    // 第 84 关 · 7x8 · 48 个牌位 · 8 种花色 · 4 对冰 · 参考解 20 步
+    { seed: 292519918, hash: "d4c5a131", map: ["1.11111.", "1#111#11", "11111111", "..11.111", "1121.111", "11#12111", "1111.111"], lockR: [2], lockC: [2], faces: 8, scramble: 17, ice: 4, chapter: 5, dialect: { "ranks": [2, 5, 8] } },
+    // 第 85 关 · 7x8 · 48 个牌位 · 8 种花色 · 3 对冰 · 限 90 步 · 参考解 16 步
+    { seed: 1, hash: "de4c674b", map: ["11111111", "1#11#111", ".1211221", "1#.211#1", "11#11111", ".1.1111.", "11.1.111"], lockR: [2], lockC: [2], faces: 8, scramble: 17, ice: 3, chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 90 },
+    // 第 86 关 · 7x8 · 50 个牌位 · 8 种花色 · 4 对冰 · 单向轨 · 限 33 步 · 参考解 22 步
+    { seed: 3612207834, hash: "3e53a895", map: ["11111..1", "11111111", "111.11..", "1111.111", "121.1111", "111.1121", "11111111"], lockR: [2], lockC: [2], faces: 8, scramble: 17, ice: 4, oneWay: [{ axis: "col", index: 4, dir: 1 }], chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 33 },
+    // 第 87 关 · 7x8 · 50 个牌位 · 8 种花色 · 3 对冰 · 限 30 步 · 参考解 19 步
+    { seed: 3866597386, hash: "c215265f", map: ["11.11111", "11211211", "1...111.", ".1111111", ".111.111", "11221111", "11..1111"], lockR: [2], lockC: [2], faces: 8, scramble: 17, ice: 3, chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 30 },
+    // 第 88 关 · 7x8 · 50 个牌位 · 8 种花色 · 4 对冰 · 限 32 步 · 参考解 19 步
+    { seed: 803168540, hash: "c8a508c0", map: ["1111111.", ".1111111", ".#221211", ".1#21121", "11.211#1", "1#12#111", ".1111..1"], lockR: [2], lockC: [2], faces: 8, scramble: 17, ice: 4, chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 32 },
+    // 第 89 关 · 8x9 · 56 个牌位 · 9 种花色 · 3 对冰 · 限 105 步 · 参考解 35 步
+    { seed: 1315599291, hash: "93870013", map: [".11.1111.", ".11111111", "11111#11.", ".11111111", "11111.11.", "1111..1..", ".1.111111", ".11111111"], lockR: [3, 5], lockC: [2], faces: 9, scramble: 18, ice: 3, chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 105 },
+    // 第 90 关 · 8x9 · 54 个牌位 · 9 种花色 · 4 对冰 · 单向轨 · 限 33 步 · 参考解 17 步
+    { seed: 1628709355, hash: "0255845d", map: ["11111.111", "111.11111", "11.111#11", ".1..1111.", "11#1#1111", "1111...1.", "11.111111", ".1.11.111"], lockR: [3, 5], lockC: [2], faces: 9, scramble: 18, ice: 4, oneWay: [{ axis: "row", index: 1, dir: 1 }], chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 33 },
+    // 第 91 关 · 8x9 · 58 个牌位 · 9 种花色 · 3 对冰 · 限 111 步 · 参考解 39 步
+    { seed: 1, hash: "e5cddff5", map: ["1.1111111", "1111#1111", "1111.1111", "111##1111", "111.#1111", "111111111", ".11.1111.", "111.1..1."], lockR: [3, 5], lockC: [2, 6], faces: 9, scramble: 18, ice: 3, chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 111 },
+    // 第 92 关 · 8x9 · 58 个牌位 · 9 种花色 · 4 对冰 · 限 54 步 · 参考解 21 步
+    { seed: 2347543651, hash: "df303627", map: ["1111.1111", "1#1111111", "111111111", "1111.1111", "11111..#.", "11111#...", "11111.111", "11.11.111"], lockR: [3, 5], lockC: [2, 6], faces: 9, scramble: 18, ice: 4, chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 54 },
+    // 第 93 关 · 8x9 · 58 个牌位 · 9 种花色 · 3 对冰 · 限 110 步 · 参考解 19 步
+    { seed: 1057975615, hash: "a1a93e8d", map: ["1..111111", "1..1#..11", "111111111", "111#1111.", "111111111", "111111#.1", "111111#11", "111.11.11"], lockR: [3, 5], lockC: [2, 6], faces: 9, scramble: 18, ice: 3, chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 110 },
+    // 第 94 关 · 8x9 · 58 个牌位 · 9 种花色 · 4 对冰 · 单向轨 · 限 101 步 · 参考解 35 步
+    { seed: 721118456, hash: "0a4c1e17", map: ["1111111.1", "111111111", ".11111111", "1111#..11", "1111.1111", "111##1111", ".111.1111", ".11111..."], lockR: [3, 5], lockC: [2, 6], faces: 9, scramble: 18, ice: 4, oneWay: [{ axis: "col", index: 1, dir: 1 }], chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 101 },
+    // 第 95 关 · 8x9 · 60 个牌位 · 9 种花色 · 3 对冰 · 限 53 步 · 参考解 20 步
+    { seed: 1, hash: "a5e54729", map: ["1111.11.1", "111111#11", ".11111111", "1111..111", "11.111111", "11111111.", "1.1111##1", "111.11111"], lockR: [3, 5], lockC: [2, 6], faces: 9, scramble: 19, ice: 3, chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 53 },
+    // 第 96 关 · 8x9 · 58 个牌位 · 9 种花色 · 4 对冰 · 限 33 步 · 参考解 20 步
+    { seed: 337090139, hash: "60d0c789", map: ["11..11...", "111111111", "111111111", "1111.111.", "111111111", "1...1.111", "1..111111", "11.111111"], lockR: [3, 5], lockC: [2, 6], faces: 9, scramble: 19, ice: 4, chapter: 5, dialect: { "ranks": [2, 5, 8] }, moveLimit: 33 },
+    // 第 97 关 · 8x9 · 52 个牌位 · 18 种花色 · 3 对冰 · 参考解 23 步
+    { seed: 3477544093, hash: "cdca2d3d", map: ["1111111..", "111.111.1", "111111111", "1111..11.", "11111....", "11111....", "1.1111111", "...11.111"], lockR: [], lockC: [2], faces: 18, scramble: 19, ice: 3, chapter: 6, dialect: { "noSlideSuit": "m" }, intro: "noSuit" },
+    // 第 98 关 · 8x9 · 54 个牌位 · 18 种花色 · 5 对冰 · 参考解 30 步
+    { seed: 1380728644, hash: "c1549185", map: ["1111.1.11", "11111111.", "111#1.11.", "1.11###..", "111111.11", "11#111111", "11111#111", "1...11111"], lockR: [], lockC: [2], faces: 18, scramble: 19, ice: 5, chapter: 6, dialect: { "noSlideSuit": "s" } },
+    // 第 99 关 · 8x9 · 54 个牌位 · 19 种花色 · 4 对冰 · 连锁解锁(消5对) · 目标 z4×2 · 参考解 28 步
+    { seed: 561587982, hash: "c12b5ebd", map: ["1.111.111", "111111111", "1111..##1", "1.11.##11", "111111111", "1111111#1", "11.#11.11", "11..1..11"], lockR: [], lockC: [2], faces: 19, scramble: 19, ice: 4, unlock: [{ axis: "col", index: 5, after: 5 }], chapter: 6, dialect: { "noSlideSuit": "m" }, goal: { kind: "face", face: "z4", count: 2 } },
+    // 第 100 关 · 8x9 · 56 个牌位 · 19 种花色 · 5 对冰 · 参考解 30 步
+    { seed: 305738211, hash: "e097c0f3", map: ["11111...1", "111111#.1", ".1111.111", ".111111#1", ".11111111", "111111..1", "111111..1", "111.11.11"], lockR: [], lockC: [2], faces: 19, scramble: 19, ice: 5, chapter: 6, dialect: { "noSlideSuit": "m" } },
+    // 第 101 关 · 8x9 · 54 个牌位 · 19 种花色 · 4 对冰 · 限 48 步 · 参考解 31 步
+    { seed: 618917651, hash: "199b70df", map: ["..11111..", "1111#1111", "11.111##1", "111111#11", "1#1111.11", "1.1111#11", "11.111.11", "1111...11"], lockR: [], lockC: [2], faces: 19, scramble: 20, ice: 4, chapter: 6, dialect: { "noSlideSuit": "m" }, moveLimit: 48 },
+    // 第 102 关 · 8x9 · 58 个牌位 · 19 种花色 · 5 对冰 · 限 48 步 · 参考解 24 步
+    { seed: 1634455431, hash: "12f8aaa5", map: ["...1111.1", "111111111", "1111111..", "1111111..", "111111111", "11#..1111", "1111.1111", "..1111111"], lockR: [], lockC: [2], faces: 19, scramble: 20, ice: 5, chapter: 6, dialect: { "noSlideSuit": "s" }, moveLimit: 48 },
+    // 第 103 关 · 8x9 · 58 个牌位 · 20 种花色 · 4 对冰 · 限 53 步 · 参考解 27 步
+    { seed: 3178586709, hash: "ac2a8243", map: ["111..1111", ".#1111111", "1.1111111", "1#1111111", "111111111", "1111###11", "1111##111", "..11111.1"], lockR: [], lockC: [2], faces: 20, scramble: 20, ice: 4, chapter: 6, dialect: { "noSlideSuit": "p" }, moveLimit: 53 },
+    // 第 104 关 · 8x9 · 58 个牌位 · 20 种花色 · 5 对冰 · 限 51 步 · 目标 9m×2 · 参考解 30 步
+    { seed: 4194124489, hash: "35a1c8bd", map: ["11.11.11.", "1#.11##11", "111111111", "111#11111", "111111111", "11111#111", "111.11111", ".111...11"], lockR: [], lockC: [2], faces: 20, scramble: 20, ice: 5, chapter: 6, dialect: { "noSlideSuit": "m" }, moveLimit: 51, goal: { kind: "face", face: "9m", count: 2 } },
+    // 第 105 关 · 8x9 · 56 个牌位 · 20 种花色 · 4 对冰 · 连锁解锁(消3对) · 限 54 步 · 参考解 35 步
+    { seed: 2095211760, hash: "7fb718bf", map: ["11.111111", ".11111111", "11.111111", "1..111111", "1.1111111", "1....111.", "111.1#111", "1.111.1.1"], lockR: [], lockC: [2], faces: 20, scramble: 20, ice: 4, unlock: [{ axis: "col", index: 4, after: 3 }], chapter: 6, dialect: { "noSlideSuit": "s" }, moveLimit: 54 },
+    // 第 106 关 · 8x9 · 60 个牌位 · 20 种花色 · 5 对冰 · 限 54 步 · 参考解 29 步
+    { seed: 2559441758, hash: "331b64f9", map: ["11111.111", "11.#1#121", ".1211111.", "11#11111.", "1111#1111", "11111#111", "11111.111", "1..11.111"], lockR: [], lockC: [2], faces: 20, scramble: 20, ice: 5, chapter: 6, dialect: { "noSlideSuit": "p" }, moveLimit: 54 },
+    // 第 107 关 · 8x9 · 60 个牌位 · 21 种花色 · 4 对冰 · 限 59 步 · 参考解 28 步
+    { seed: 3581270834, hash: "50a41855", map: ["11.111.11", "121##111.", "111112.11", "1#1111111", "11111111.", "1111#1111", ".#1#111#1", "111111.11"], lockR: [], lockC: [2, 6], faces: 21, scramble: 20, ice: 4, chapter: 6, dialect: { "noSlideSuit": "m" }, moveLimit: 59 },
+    // 第 108 关 · 8x9 · 58 个牌位 · 21 种花色 · 5 对冰 · 限 54 步 · 参考解 28 步
+    { seed: 3937338675, hash: "8eeef1df", map: ["1.1..1111", "111111..1", "11.#111.1", "1111111.1", "111111111", "111.11111", ".11111111", "...111111"], lockR: [], lockC: [2, 6], faces: 21, scramble: 21, ice: 5, chapter: 6, dialect: { "noSlideSuit": "m" }, moveLimit: 54 },
+    // 第 109 关 · 8x9 · 60 个牌位 · 21 种花色 · 4 对冰 · 限 53 步 · 目标 6p×2 · 参考解 36 步
+    { seed: 105552769, hash: "f8c7a617", map: ["111.111.1", "11111...1", "1111#11.1", ".11111111", "111111111", "1.111#111", "1.1111111", "1.1111111"], lockR: [], lockC: [2, 6], faces: 21, scramble: 21, ice: 4, chapter: 6, dialect: { "noSlideSuit": "m" }, moveLimit: 53, goal: { kind: "face", face: "6p", count: 2 } },
+    // 第 110 关 · 8x9 · 58 个牌位 · 21 种花色 · 5 对冰 · 限 54 步 · 参考解 38 步
+    { seed: 359104587, hash: "176a9bc5", map: ["1.1111.11", "1#111111.", "1.1111#11", "11.1111#1", ".111111..", "111111111", "111##.111", "111111111"], lockR: [], lockC: [2, 6], faces: 21, scramble: 21, ice: 5, chapter: 6, dialect: { "noSlideSuit": "s" }, moveLimit: 54 },
+    // 第 111 关 · 8x9 · 62 个牌位 · 22 种花色 · 4 对冰 · 连锁解锁(消5对) · 限 53 步 · 参考解 33 步
+    { seed: 121894869, hash: "2abbfad5", map: ["111111111", "11#1111#1", ".11#1222.", "1#11#112.", "111111111", ".111111#1", ".111111#1", "11.1111.1"], lockR: [], lockC: [2, 6], faces: 22, scramble: 21, ice: 4, unlock: [{ axis: "row", index: 1, after: 5 }], chapter: 6, dialect: { "noSlideSuit": "p" }, moveLimit: 53 },
+    // 第 112 关 · 8x9 · 62 个牌位 · 22 种花色 · 5 对冰 · 限 54 步 · 参考解 36 步
+    { seed: 1186676758, hash: "b4dafadf", map: ["11.11.11.", ".2121#211", "1111121.1", "111111111", "11.11#111", "111111111", "111.1111.", "1.1111..."], lockR: [], lockC: [2, 6], faces: 22, scramble: 21, ice: 5, chapter: 6, dialect: { "noSlideSuit": "s" }, moveLimit: 54 },
+    // 第 113 关 · 8x9 · 56 个牌位 · 13 种花色 · 参考解 20 步
+    { seed: 20261013, hash: "13eb2a4f", map: ["11.111...", "11...1.11", "111111111", "1111.1111", "...1...11", "111111111", "111111111", "111111.11"], lockR: [3, 5], lockC: [], faces: 13, scramble: 21, chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, intro: "only19" },
+    // 第 114 关 · 8x9 · 56 个牌位 · 13 种花色 · 单向轨 · 参考解 21 步
+    { seed: 1, hash: "e4c4290d", map: ["111..1.11", "1.11#1111", "1111111.1", "11.111#.1", ".#1111111", "11111#.11", "1.1111111", "111.111.1"], lockR: [3, 5], lockC: [], faces: 13, scramble: 22, oneWay: [{ axis: "row", index: 6, dir: -1 }], chapter: 7, dialect: { "ranks": [1, 9], "honors": true } },
+    // 第 115 关 · 8x9 · 56 个牌位 · 13 种花色 · 连锁解锁(消5对) · 参考解 19 步
+    { seed: 1490219237, hash: "981ea4ea", map: ["111111.11", ".12111111", ".111#1111", ".111.1.11", ".1111.1#.", "1111.#11.", "111111111", "1.1111..1"], lockR: [3, 5], lockC: [], faces: 13, scramble: 22, unlock: [{ axis: "col", index: 3, after: 5 }], chapter: 7, dialect: { "ranks": [1, 9], "honors": true } },
+    // 第 116 关 · 8x9 · 58 个牌位 · 13 种花色 · 参考解 19 步
+    { seed: 1805430293, hash: "bedf1aa5", map: [".11.11.11", ".11111111", ".11111111", "..11.1111", "1111#1111", "11111111.", "11111.11.", "111.11.11"], lockR: [3, 5], lockC: [], faces: 13, scramble: 22, chapter: 7, dialect: { "ranks": [1, 9], "honors": true } },
+    // 第 117 关 · 8x9 · 58 个牌位 · 13 种花色 · 限 31 步 · 参考解 18 步
+    { seed: 1549580422, hash: "7ab19e77", map: ["1.11..111", "1111.1111", ".1111.111", ".11.111.1", "111111111", "11111...1", "111.1111.", "111111111"], lockR: [3, 5], lockC: [], faces: 13, scramble: 22, chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 31 },
+    // 第 118 关 · 8x9 · 60 个牌位 · 13 种花色 · 单向轨 · 参考解 23 步
+    { seed: 722051248, hash: "3605815b", map: [".11.1.111", "11111#111", ".###1111.", "11111##11", "11#111111", "122111111", "1121121#1", "1..1.1111"], lockR: [3, 5], lockC: [], faces: 13, scramble: 22, oneWay: [{ axis: "col", index: 3, dir: 1 }], chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, timeLimit: 64 },
+    // 第 119 关 · 8x9 · 60 个牌位 · 13 种花色 · 限 32 步 · 参考解 18 步
+    { seed: 7, hash: "f437cdf7", map: [".1.111111", "11.##.111", "1.#1111.1", "132111.#1", "121111111", "1#1131.11", "11111#1#1", ".111111.."], lockR: [3, 5], lockC: [], faces: 13, scramble: 22, chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 32, intro: "stack3" },
+    // 第 120 关 · 8x9 · 60 个牌位 · 13 种花色 · 限 37 步 · 参考解 20 步
+    { seed: 3498694038, hash: "6bf5f77e", map: ["111111.11", "1111.2111", "111111111", "1#1#111..", ".111111.1", "111111#11", "111.1.#11", "1.1111111"], lockR: [3, 5], lockC: [], faces: 13, scramble: 23, chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 37 },
+    // 第 121 关 · 8x9 · 60 个牌位 · 13 种花色 · 连锁解锁(消3对) · 限 32 步 · 参考解 22 步
+    { seed: 374512296, hash: "e2bb0767", map: ["1.11..111", "111#11111", "1.111111.", "1111.11.1", "111111111", "11#111.11", "11.11111.", "111111111"], lockR: [3, 5], lockC: [], faces: 13, scramble: 23, unlock: [{ axis: "row", index: 6, after: 3 }], chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 32 },
+    // 第 122 关 · 8x9 · 62 个牌位 · 13 种花色 · 单向轨 · 参考解 22 步
+    { seed: 4107330625, hash: "39ea85c4", map: ["11...1111", ".11111111", "111111111", "1.1111.1.", ".1111121.", "111111111", "11111111.", ".11111111"], lockR: [3, 5], lockC: [], faces: 13, scramble: 23, oneWay: [{ axis: "col", index: 2, dir: -1 }], chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, timeLimit: 62 },
+    // 第 123 关 · 8x9 · 60 个牌位 · 13 种花色 · 限 35 步 · 参考解 20 步
+    { seed: 2125820633, hash: "b2f4d033", map: ["11111..11", "11.1111.1", ".1111.111", "1.1111111", "111..1111", "11111111.", "1111111.1", "11111.111"], lockR: [3, 5], lockC: [], faces: 13, scramble: 23, chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 35 },
+    // 第 124 关 · 8x9 · 60 个牌位 · 13 种花色 · 限 34 步 · 参考解 20 步
+    { seed: 1073836645, hash: "c04c161f", map: [".1.1.1111", "111111.11", "1121..111", "1211121.1", "11.11.11.", "11.21..11", "111111111", "..1.11111"], lockR: [3, 5], lockC: [], faces: 13, scramble: 23, chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 34 },
+    // 第 125 关 · 8x9 · 60 个牌位 · 13 种花色 · 限 35 步 · 参考解 19 步
+    { seed: 2579274850, hash: "56227878", map: ["1.1111111", "1.1111121", "11111111.", ".11.11111", "11#111111", "1111..111", "11...11.1", "111111.11"], lockR: [3, 5], lockC: [], faces: 13, scramble: 23, chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 35 },
+    // 第 126 关 · 8x9 · 62 个牌位 · 13 种花色 · 单向轨 · 限 35 步 · 参考解 22 步
+    { seed: 1200306694, hash: "36609305", map: ["111111111", "11111.111", ".11111111", "111111111", "111111111", "1..111111", "111111..1", ".111.1..1"], lockR: [3, 5], lockC: [], faces: 13, scramble: 24, oneWay: [{ axis: "col", index: 3, dir: 1 }], chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 35 },
+    // 第 127 关 · 8x9 · 64 个牌位 · 13 种花色 · 连锁解锁(消5对) · 参考解 24 步
+    { seed: 4214225858, hash: "b0bd2f9f", map: ["111111111", "1111#11.1", "1.1111111", "111111111", "111111111", "111111111", ".111.1111", "1111.1..1"], lockR: [3, 5], lockC: [], faces: 13, scramble: 24, unlock: [{ axis: "col", index: 2, after: 5 }], chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, timeLimit: 67 },
+    // 第 128 关 · 8x9 · 62 个牌位 · 13 种花色 · 限 36 步 · 参考解 23 步
+    { seed: 125320357, hash: "297087e7", map: ["111111111", "111111111", "111111111", "11.....11", "1111..111", "1111..111", "111111111", "111.11111"], lockR: [3, 5], lockC: [], faces: 13, scramble: 24, chapter: 7, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 36, timeLimit: 64 },
+    // 第 129 关 · 8x9 · 54 个牌位 · 9 种花色 · 1 对厚冰 · 参考解 25 步
+    { seed: 1404141060, hash: "466cfd83", map: ["1111111..", "1#11#1#11", ".11111..1", ".111111.1", ".111.#.11", ".1111111.", "1121121#1", "11111...1"], lockR: [], lockC: [2, 6], faces: 9, scramble: 24, ice: 5, ice2: 1, chapter: 8, dialect: { "suit": "p" }, intro: "oneSuit" },
+    // 第 130 关 · 8x9 · 60 个牌位 · 9 种花色 · 6 对冰 · 参考解 29 步
+    { seed: 882915210, hash: "cb44eba9", map: ["1111111.1", "111111111", "..111.12.", "11211.12.", "1.111#111", "11211.11.", "11111111.", "1...1111."], lockR: [], lockC: [2, 6], faces: 9, scramble: 24, ice: 6, chapter: 8, dialect: { "suit": "p" } },
+    // 第 131 关 · 8x9 · 58 个牌位 · 9 种花色 · 6 对冰 · 参考解 25 步
+    { seed: 2931056919, hash: "cb60a661", map: ["1..1...11", "1.1111111", "111.1111.", "..#.11111", "1111111#1", "111111121", "11121#111", ".1111.111"], lockR: [], lockC: [2, 6], faces: 9, scramble: 24, ice: 6, chapter: 8, dialect: { "suit": "p" } },
+    // 第 132 关 · 8x9 · 56 个牌位 · 9 种花色 · 6 对冰 · 参考解 25 步
+    { seed: 3659552976, hash: "93491f55", map: ["1111...11", "11#1#1#21", "11#111.1.", ".111111#1", "1111.11#1", "1#12111#1", ".#1111111", "11111111."], lockR: [], lockC: [2, 6], faces: 9, scramble: 24, ice: 6, chapter: 8, dialect: { "suit": "s" } },
+    // 第 133 关 · 8x9 · 62 个牌位 · 9 种花色 · 6 对冰 · 限 43 步 · 参考解 28 步
+    { seed: 2725106893, hash: "657b924e", map: ["111.11.11", "111.21111", "111221111", "1#1111111", "112.11111", "11.1.11.1", ".2111##11", ".1..1111."], lockR: [], lockC: [2, 6], faces: 9, scramble: 25, ice: 6, chapter: 8, dialect: { "suit": "m" }, moveLimit: 43 },
+    // 第 134 关 · 8x9 · 62 个牌位 · 9 种花色 · 2 对厚冰 · 限 47 步 · 参考解 28 步
+    { seed: 20261013, hash: "a7e61531", map: ["11.1....1", "111111111", "111111111", "11..11111", "111111111", "121121.11", "1.1111.11", ".111111.1"], lockR: [], lockC: [2, 6], faces: 9, scramble: 25, ice: 6, ice2: 2, chapter: 8, dialect: { "suit": "p" }, moveLimit: 47 },
+    // 第 135 关 · 8x9 · 60 个牌位 · 9 种花色 · 6 对冰 · 限 44 步 · 参考解 26 步
+    { seed: 172076154, hash: "140df40f", map: ["1111.1111", "1111.1111", "111111111", "111111111", ".11111..1", "1111111.1", "1111111..", "11...111."], lockR: [], lockC: [2, 6], faces: 9, scramble: 25, ice: 6, chapter: 8, dialect: { "suit": "p" }, moveLimit: 44 },
+    // 第 136 关 · 8x9 · 62 个牌位 · 9 种花色 · 6 对冰 · 限 43 步 · 参考解 29 步
+    { seed: 2179231030, hash: "fcaed02a", map: ["..111.111", "1121111.1", "1.111111.", "12111111.", "11111112.", ".11111111", "11.11#111", "11111..11"], lockR: [], lockC: [2, 6], faces: 9, scramble: 25, ice: 6, chapter: 8, dialect: { "suit": "m" }, moveLimit: 43 },
+    // 第 137 关 · 8x9 · 60 个牌位 · 9 种花色 · 6 对冰 · 限 44 步 · 参考解 26 步
+    { seed: 1048122128, hash: "c2a5338f", map: ["1111..111", ".11..111.", "..1111111", "111111111", "11.1.1111", "111111111", ".11.11111", "111111111"], lockR: [], lockC: [2, 6], faces: 9, scramble: 25, ice: 6, chapter: 8, dialect: { "suit": "p" }, moveLimit: 44 },
+    // 第 138 关 · 8x9 · 64 个牌位 · 9 种花色 · 6 对冰 · 限 44 步 · 参考解 26 步
+    { seed: 2938922015, hash: "37fb253a", map: ["111111.11", ".11112111", "1111##111", "111111121", ".1#111#.1", "111111211", "11111#.11", "1111.1111"], lockR: [], lockC: [2, 6], faces: 9, scramble: 25, ice: 6, chapter: 8, dialect: { "suit": "m" }, moveLimit: 44 },
+    // 第 139 关 · 8x9 · 64 个牌位 · 9 种花色 · 1 对厚冰 · 限 47 步 · 参考解 27 步
+    { seed: 7, hash: "e359d4f0", map: ["111111111", "11111#111", "..1121#11", "121111211", "12..11121", "1111#1#11", "11.1#1111", "11.111.1."], lockR: [], lockC: [2, 6], faces: 9, scramble: 26, ice: 6, ice2: 1, chapter: 8, dialect: { "suit": "s" }, moveLimit: 47 },
+    // 第 140 关 · 8x9 · 62 个牌位 · 9 种花色 · 6 对冰 · 限 44 步 · 参考解 29 步
+    { seed: 3104282865, hash: "ac0d5af3", map: ["111.1111.", "1111..1..", "111111111", "1111#1111", "111111111", "111111111", "1111#1111", ".11.11111"], lockR: [], lockC: [2, 6], faces: 9, scramble: 26, ice: 6, chapter: 8, dialect: { "suit": "s" }, moveLimit: 44 },
+    // 第 141 关 · 8x9 · 62 个牌位 · 9 种花色 · 6 对冰 · 限 44 步 · 参考解 30 步
+    { seed: 858509850, hash: "cc7fdfa7", map: ["11.1111.1", "111111111", "1111.1111", ".11111111", "..1111111", ".11111.11", "1111.1.11", "111111111"], lockR: [], lockC: [2, 6], faces: 9, scramble: 26, ice: 6, chapter: 8, dialect: { "suit": "s" }, moveLimit: 44 },
+    // 第 142 关 · 8x9 · 62 个牌位 · 9 种花色 · 6 对冰 · 限 43 步 · 参考解 28 步
+    { seed: 7, hash: "29a5bfd6", map: ["111.11..1", "111111121", "122111111", "1.1.11111", "1.1111.11", ".1111111.", ".11111.11", "111111..1"], lockR: [], lockC: [2, 6], faces: 9, scramble: 26, ice: 6, chapter: 8, dialect: { "suit": "s" }, moveLimit: 43 },
+    // 第 143 关 · 8x9 · 66 个牌位 · 9 种花色 · 6 对冰 · 限 43 步 · 参考解 29 步
+    { seed: 1350658164, hash: "c258bdb9", map: ["11.1.1.11", "11211111.", "11112111.", "111111.11", "111111111", "111111111", "111111111", "1111.111."], lockR: [], lockC: [2, 6], faces: 9, scramble: 26, ice: 6, chapter: 8, dialect: { "suit": "m" }, moveLimit: 43 },
+    // 第 144 关 · 8x9 · 66 个牌位 · 9 种花色 · 2 对厚冰 · 限 45 步 · 参考解 31 步
+    { seed: 20261013, hash: "ae580bc2", map: ["11111.111", "11.1.1211", "11111122.", "1111211..", "12.111111", "111#1111.", "111111111", "11.11111."], lockR: [], lockC: [2, 6], faces: 9, scramble: 26, ice: 6, ice2: 2, chapter: 8, dialect: { "suit": "m" }, moveLimit: 45 },
+    // 第 145 关 · 8x9 · 60 个牌位 · 22 种花色 · 目标 碎冰×8 · 参考解 25 步
+    { seed: 492786481, hash: "cf7ec008", map: ["111..1111", "11121.121", "11.#.1111", "111#11111", "11111111.", "1.11.1211", "1#1111111", "11..11.1."], lockR: [3, 5], lockC: [], faces: 22, scramble: 27, flowers: true, chapter: 9, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 }, intro: "collect" },
+    // 第 146 关 · 8x9 · 60 个牌位 · 22 种花色 · 单向轨 · 目标 碎冰×8 · 参考解 23 步
+    { seed: 1839553046, hash: "bf1d256a", map: ["..1.1.111", ".111111.1", "111112111", "1.2111.11", "1211111#1", ".#111111.", ".11111111", "1111.11.1"], lockR: [3, 5], lockC: [], faces: 22, scramble: 27, flowers: true, oneWay: [{ axis: "row", index: 1, dir: -1 }], chapter: 9, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 147 关 · 8x9 · 60 个牌位 · 23 种花色 · 目标 碎冰×8 · 参考解 26 步
+    { seed: 1542846522, hash: "069bbc1b", map: ["111.111.1", "111121211", "111211111", "1.##11121", "111#11111", "111#.11.1", "11111..#.", "11..1111."], lockR: [3, 5], lockC: [], faces: 23, scramble: 27, flowers: true, chapter: 9, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 148 关 · 8x9 · 56 个牌位 · 23 种花色 · 目标 碎冰×8 · 参考解 19 步
+    { seed: 1, hash: "aca2df62", map: ["111...11.", "1111#11#1", "11#1#2111", "111111.11", ".1112#111", "1111#111.", "111##2111", "111.11..."], lockR: [3, 5], lockC: [], faces: 23, scramble: 27, flowers: true, chapter: 9, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 149 关 · 8x9 · 64 个牌位 · 24 种花色 · 限 37 步 · 目标 碎冰×8 · 参考解 20 步
+    { seed: 1228796675, hash: "17253715", map: ["11.11.1.1", "1111211.1", "...111111", "1#111.111", "112111211", "111112..1", "1122.1111", ".1.111111"], lockR: [3, 5], lockC: [], faces: 24, scramble: 27, flowers: true, chapter: 9, moveLimit: 37, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 150 关 · 8x9 · 62 个牌位 · 24 种花色 · 单向轨 · 目标 碎冰×8 · 参考解 25 步
+    { seed: 2283097156, hash: "783ecf93", map: [".1111.11.", "12.111111", "1121111#.", "111111211", ".111111#1", ".1111111.", "1112.11..", "111.11111"], lockR: [3, 5], lockC: [], faces: 24, scramble: 27, flowers: true, oneWay: [{ axis: "row", index: 4, dir: 1 }], chapter: 9, timeLimit: 65, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 151 关 · 8x9 · 62 个牌位 · 24 种花色 · 限 38 步 · 目标 碎冰×8 · 参考解 26 步
+    { seed: 2094360121, hash: "946f00c0", map: ["111.1111.", "112211111", "1111##111", "111111#.1", "11#12#111", "112#1112.", "111#11#1.", "11111..11"], lockR: [3, 5], lockC: [], faces: 24, scramble: 28, flowers: true, chapter: 9, moveLimit: 38, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 152 关 · 8x9 · 64 个牌位 · 25 种花色 · 限 38 步 · 目标 碎冰×8 · 参考解 27 步
+    { seed: 3001928412, hash: "b3955a45", map: ["1.11.1..1", "1..1.1111", ".12111121", "1.111#2..", "11112#211", "1#1112111", "1#2112#11", "111111111"], lockR: [3, 5], lockC: [], faces: 25, scramble: 28, flowers: true, chapter: 9, moveLimit: 38, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 153 关 · 9x9 · 64 个牌位 · 25 种花色 · 限 44 步 · 目标 碎冰×8 · 参考解 23 步
+    { seed: 3472318634, hash: "104507ba", map: ["1.1.1111.", "11111.111", "111#.1#11", "111##1111", ".11111111", ".#1111111", ".#1111111", "111111##.", "111111111"], lockR: [3, 6], lockC: [], faces: 25, scramble: 28, flowers: true, chapter: 9, moveLimit: 44, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 154 关 · 9x9 · 64 个牌位 · 26 种花色 · 单向轨 · 目标 碎冰×8 · 参考解 25 步
+    { seed: 1483603746, hash: "96cfb96e", map: ["1.1111111", "1111212.1", "1##1111#1", "1111##111", ".#11.1.#1", "1111#111.", ".1111111.", "111111#11", "1.11.1111"], lockR: [3, 6], lockC: [], faces: 26, scramble: 28, flowers: true, oneWay: [{ axis: "col", index: 4, dir: 1 }], chapter: 9, timeLimit: 65, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 155 关 · 9x9 · 66 个牌位 · 26 种花色 · 限 38 步 · 目标 碎冰×8 · 参考解 22 步
+    { seed: 547973919, hash: "34c74d34", map: ["111111.11", "..111111.", "1212#1111", "11.111111", "11.11.1#1", "11.111111", "111111111", "1111##1.1", "11.11...1"], lockR: [3, 6], lockC: [], faces: 26, scramble: 28, flowers: true, chapter: 9, moveLimit: 38, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 156 关 · 9x9 · 66 个牌位 · 26 种花色 · 限 41 步 · 目标 碎冰×8 · 参考解 25 步
+    { seed: 2812251590, hash: "8145e343", map: [".1.11111.", ".21111.11", "11.1111..", ".1#1.#111", "11.111111", "111111.#1", "111111#11", "111111111", "111111111"], lockR: [3, 6], lockC: [], faces: 26, scramble: 28, flowers: true, chapter: 9, moveLimit: 41, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 157 关 · 9x9 · 66 个牌位 · 27 种花色 · 限 40 步 · 目标 碎冰×8 · 参考解 25 步
+    { seed: 3215743534, hash: "9e9758b8", map: ["111.11111", "111111111", "1111#1111", "11111.111", "11...#111", "111111111", ".111#11.1", "111111111", "111.1...."], lockR: [3, 6], lockC: [], faces: 27, scramble: 28, flowers: true, chapter: 9, moveLimit: 40, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 158 关 · 9x9 · 66 个牌位 · 27 种花色 · 单向轨 · 限 56 步 · 目标 碎冰×8 · 参考解 25 步
+    { seed: 3461744734, hash: "7527d621", map: ["11..1...1", "1##121111", "11221..1.", "12..11.1.", "1122#.121", "111111211", "11121.11.", "1#1111111", "1..11.1.."], lockR: [3, 6], lockC: [], faces: 27, scramble: 29, flowers: true, oneWay: [{ axis: "col", index: 4, dir: -1 }], chapter: 9, moveLimit: 56, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 159 关 · 9x9 · 68 个牌位 · 28 种花色 · 目标 碎冰×8 · 参考解 28 步
+    { seed: 2199265843, hash: "f367bbc8", map: [".11.11.11", "1#2212111", "1121#1121", ".2211#.11", "111.#1111", "111#2111.", "11111#111", "11.11###1", ".11.111.."], lockR: [3, 6], lockC: [], faces: 28, scramble: 29, flowers: true, chapter: 9, timeLimit: 73, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 160 关 · 9x9 · 68 个牌位 · 28 种花色 · 限 39 步 · 目标 碎冰×8 · 参考解 25 步
+    { seed: 3255730036, hash: "cc063e46", map: ["1111..1..", "11122#1#1", "1211211#1", "111111111", "1###11111", "1111#1111", "11111#11.", "1111111#1", "11.1..111"], lockR: [3, 6], lockC: [], faces: 28, scramble: 29, flowers: true, chapter: 9, moveLimit: 39, timeLimit: 65, goal: { kind: "collect", faces: ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"], count: 8 } },
+    // 第 161 关 · 9x9 · 64 个牌位 · 24 种花色 · 5 对冰 · 目标 碎冰×3 · 参考解 30 步
+    { seed: 2810000634, hash: "b1a54696", map: ["1.1.11111", "111111111", "111111.1.", "111111..1", "111111.11", "111111.1.", "1111.1.1.", "..#11111.", "11.111111"], lockR: [], lockC: [2, 6], faces: 24, scramble: 29, ice: 5, flowers: true, chapter: 10, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 162 关 · 9x9 · 62 个牌位 · 24 种花色 · 6 对冰 · 目标 碎冰×3 · 参考解 31 步
+    { seed: 4237778683, hash: "74556640", map: ["11111.11.", "11111#.11", "111.1111.", "1..#11111", ".#1111111", "11111#.11", "1111111.1", "1111111.1", "1....1111"], lockR: [], lockC: [2, 6], faces: 24, scramble: 29, ice: 6, flowers: true, chapter: 10, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 163 关 · 9x9 · 62 个牌位 · 25 种花色 · 6 对冰 · 连锁解锁(消5对) · 目标 碎冰×3 · 参考解 30 步
+    { seed: 2867330207, hash: "4f5365aa", map: ["1..111111", "11111.1.1", "111111111", "11111111.", ".11111111", ".11##1111", "1111#.#11", "1.11##.11", "1.111..11"], lockR: [], lockC: [2, 6], faces: 25, scramble: 29, ice: 6, flowers: true, unlock: [{ axis: "row", index: 3, after: 5 }], chapter: 10, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 164 关 · 9x9 · 64 个牌位 · 25 种花色 · 6 对冰 · 目标 碎冰×3 · 参考解 32 步
+    { seed: 3446804282, hash: "3a9124cc", map: ["11111..11", "11111#11.", "111111111", "1.#1#1111", "1#.1.1311", "1.#11.111", "..1111111", "1111111#1", "..111111."], lockR: [], lockC: [2, 6], faces: 25, scramble: 30, ice: 6, flowers: true, chapter: 10, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 165 关 · 9x9 · 64 个牌位 · 26 种花色 · 6 对冰 · 限 45 步 · 目标 碎冰×3 · 参考解 31 步
+    { seed: 3586030359, hash: "602bd306", map: ["1..1..11.", "11.111111", ".1111111.", "..1111111", "1#11111.1", "11111.1.1", "11111.111", "111111111", "..1111111"], lockR: [], lockC: [2, 6], faces: 26, scramble: 30, ice: 6, flowers: true, chapter: 10, moveLimit: 45, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 166 关 · 9x9 · 64 个牌位 · 26 种花色 · 6 对冰 · 限 45 步 · 目标 碎冰×3 · 参考解 33 步
+    { seed: 3240784592, hash: "99a3baa8", map: ["111111111", "111111..1", ".11....11", "111111111", "111111111", "..1111#11", "1..11.11.", "1..111111", "11111111."], lockR: [], lockC: [2, 6], faces: 26, scramble: 30, ice: 6, flowers: true, chapter: 10, moveLimit: 45, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 167 关 · 9x9 · 66 个牌位 · 26 种花色 · 6 对冰 · 限 48 步 · 目标 碎冰×3 · 参考解 36 步
+    { seed: 925034231, hash: "83d2f877", map: ["1111.11.1", "11#121#11", "13112.111", "1#11111#1", "111111#11", ".1111121.", "11.1##1..", "11#111111", "..11..111"], lockR: [], lockC: [2, 6], faces: 26, scramble: 30, ice: 6, flowers: true, chapter: 10, moveLimit: 48, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 168 关 · 9x9 · 66 个牌位 · 27 种花色 · 6 对冰 · 限 50 步 · 目标 碎冰×3 · 参考解 30 步
+    { seed: 2856757171, hash: "b8754300", map: [".1111111.", ".11..111.", "111.1111.", "11111.11.", "11.111.11", "111111.11", "111111111", "11111111.", "11111111."], lockR: [], lockC: [2, 6], faces: 27, scramble: 30, ice: 6, flowers: true, chapter: 10, moveLimit: 50, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 169 关 · 9x9 · 64 个牌位 · 27 种花色 · 6 对冰 · 连锁解锁(消3对) · 限 45 步 · 目标 碎冰×3 · 参考解 29 步
+    { seed: 984395416, hash: "aeb485fe", map: ["111..1111", "111..1111", "111111111", "11111..11", "11.111111", "11111111.", "11111....", "11111111.", "11...1.11"], lockR: [], lockC: [2, 6], faces: 27, scramble: 30, ice: 6, flowers: true, unlock: [{ axis: "row", index: 4, after: 3 }], chapter: 10, moveLimit: 45, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 170 关 · 9x9 · 66 个牌位 · 28 种花色 · 6 对冰 · 限 49 步 · 目标 碎冰×3 · 参考解 33 步
+    { seed: 156866370, hash: "2cf0f656", map: ["..11111.1", "..1111111", "11111111.", "11111.111", "111111111", "11111111.", "1111.1111", "11.11..11", "111111..."], lockR: [], lockC: [2, 6], faces: 28, scramble: 31, ice: 6, flowers: true, chapter: 10, moveLimit: 49, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 171 关 · 9x9 · 68 个牌位 · 28 种花色 · 6 对冰 · 限 48 步 · 目标 碎冰×3 · 参考解 28 步
+    { seed: 2470323674, hash: "2e899a24", map: ["11111111.", "11111.111", "111111111", "11..11111", "11.11.111", "11..11111", "11..11111", ".111111.1", "111.11111"], lockR: [], lockC: [2, 6], faces: 28, scramble: 31, ice: 6, flowers: true, chapter: 10, moveLimit: 48, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 172 关 · 9x9 · 68 个牌位 · 28 种花色 · 6 对冰 · 限 49 步 · 目标 碎冰×3 · 参考解 32 步
+    { seed: 1683785301, hash: "28354d45", map: ["111111.11", "...1111.1", "112311.11", "111111.1.", "1211111..", "11121#1#.", ".1.11#111", "111111111", "1.11111.1"], lockR: [], lockC: [2, 6], faces: 28, scramble: 31, ice: 6, flowers: true, chapter: 10, moveLimit: 49, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 173 关 · 9x9 · 66 个牌位 · 29 种花色 · 6 对冰 · 限 48 步 · 目标 碎冰×3 · 参考解 29 步
+    { seed: 3246549464, hash: "e8024d66", map: ["11..1111.", "111111111", "111111111", "11111111.", "111111111", "111.11.11", "11.111111", "1..111#..", "..111111."], lockR: [], lockC: [2, 6], faces: 29, scramble: 31, ice: 6, flowers: true, chapter: 10, moveLimit: 48, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 174 关 · 9x9 · 68 个牌位 · 29 种花色 · 6 对冰 · 限 46 步 · 目标 碎冰×3 · 参考解 35 步
+    { seed: 1857469127, hash: "ff3a3f64", map: ["..1111111", ".11111111", "111111111", "111111111", "111111111", "1111111.1", "111111...", "111111..1", "1111....1"], lockR: [], lockC: [2, 6], faces: 29, scramble: 31, ice: 6, flowers: true, chapter: 10, moveLimit: 46, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 175 关 · 9x9 · 70 个牌位 · 30 种花色 · 6 对冰 · 连锁解锁(消5对) · 限 45 步 · 目标 碎冰×3 · 参考解 33 步
+    { seed: 4122729614, hash: "2f7573d6", map: ["..1.11111", "1111111.1", "1111111..", "11111111.", "11111111.", "11111111.", "111111111", "1.1111111", "1111.1111"], lockR: [], lockC: [2, 6], faces: 30, scramble: 31, ice: 6, flowers: true, unlock: [{ axis: "col", index: 7, after: 5 }], chapter: 10, moveLimit: 45, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 176 关 · 9x9 · 70 个牌位 · 30 种花色 · 6 对冰 · 限 47 步 · 目标 碎冰×3 · 参考解 30 步
+    { seed: 733102229, hash: "d63ad7a4", map: ["11.111111", "111111111", ".11111111", "11111.11.", "1.1111111", "111111111", "111111111", ".111111..", "..111111."], lockR: [], lockC: [2, 6], faces: 30, scramble: 32, ice: 6, flowers: true, chapter: 10, moveLimit: 47, goal: { kind: "collect", faces: ["z5", "z6", "z7"], count: 3 } },
+    // 第 177 关 · 9x9 · 64 个牌位 · 26 种花色 · 目标 碎冰×9 · 参考解 30 步
+    { seed: 20261013, hash: "02aa4a4e", map: ["..111.1.1", "11111#111", "1111.1111", "111...111", "1.#11111.", "1111.111.", "111111111", "111.11111", "1111111.."], lockR: [3, 6], lockC: [], faces: 26, scramble: 32, flowers: true, chapter: 11, goal: { kind: "collect", faces: ["1p", "2p", "3p", "4p", "5p", "6p", "7p", "8p", "9p"], count: 9 } },
+    // 第 178 关 · 9x9 · 66 个牌位 · 26 种花色 · 单向轨 · 参考解 16 步
+    { seed: 4210140223, hash: "0b7b48c5", map: [".11111121", ".#111111.", "111111111", "11#111.#1", "111111112", ".11.1.111", ".111.111.", "1111#2111", "11111...."], lockR: [3, 6], lockC: [], faces: 26, scramble: 32, flowers: true, oneWay: [{ axis: "col", index: 7, dir: -1 }], chapter: 11 },
+    // 第 179 关 · 9x9 · 64 个牌位 · 27 种花色 · 目标 碎冰×9 · 参考解 25 步
+    { seed: 2988518241, hash: "84250949", map: ["11.111111", "111#11111", "111111111", ".211#.11.", ".1111#.11", "111.1#111", ".#1#11111", "111.11#11", "1.11.1111"], lockR: [3, 6], lockC: [], faces: 27, scramble: 32, flowers: true, chapter: 11, goal: { kind: "collect", faces: ["1p", "2p", "3p", "4p", "5p", "6p", "7p", "8p", "9p"], count: 9 } },
+    // 第 180 关 · 9x9 · 66 个牌位 · 27 种花色 · 参考解 24 步
+    { seed: 4112156578, hash: "34335140", map: ["11....11.", "111131111", "11111#111", ".31.11111", "1111.1111", "1..1.111.", "111111..1", "111111111", "..1111.1."], lockR: [3, 6], lockC: [], faces: 27, scramble: 32, flowers: true, chapter: 11 },
+    // 第 181 关 · 9x9 · 66 个牌位 · 28 种花色 · 限 44 步 · 目标 碎冰×9 · 参考解 30 步
+    { seed: 3440858250, hash: "e6468636", map: ["111111111", "111111...", "1111.111.", "1.11111..", "1..111111", "11111111.", "1111.111.", "11111111.", "1.1111111"], lockR: [3, 6], lockC: [], faces: 28, scramble: 32, flowers: true, chapter: 11, moveLimit: 44, goal: { kind: "collect", faces: ["1p", "2p", "3p", "4p", "5p", "6p", "7p", "8p", "9p"], count: 9 } },
+    // 第 182 关 · 9x9 · 66 个牌位 · 28 种花色 · 单向轨 · 参考解 31 步
+    { seed: 2919631472, hash: "6ef1f5ec", map: ["111...111", "1111#13#.", "1111111#1", "1#.111.#1", "111111111", ".##11#31.", "1111#1111", "111111111", "11.1111.1"], lockR: [3, 6], lockC: [], faces: 28, scramble: 32, flowers: true, oneWay: [{ axis: "col", index: 6, dir: -1 }], chapter: 11, timeLimit: 74 },
+    // 第 183 关 · 9x9 · 68 个牌位 · 28 种花色 · 限 49 步 · 目标 碎冰×9 · 参考解 34 步
+    { seed: 3350213745, hash: "aedfa390", map: ["..111111.", "11.111111", "111111.11", ".11111221", "1111111#1", "..1111111", ".1.1.1111", "13.1111..", ".111.1111"], lockR: [3, 6], lockC: [], faces: 28, scramble: 33, flowers: true, chapter: 11, moveLimit: 49, goal: { kind: "collect", faces: ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m"], count: 9 } },
+    // 第 184 关 · 9x9 · 68 个牌位 · 29 种花色 · 限 45 步 · 参考解 32 步
+    { seed: 3094367970, hash: "3fb25b0a", map: ["111111111", ".11111111", "111.11111", "1111..11.", "11.11111.", "111111111", ".11111111", ".111111..", ".1111111."], lockR: [3, 6], lockC: [], faces: 29, scramble: 33, flowers: true, chapter: 11, moveLimit: 45 },
+    // 第 185 关 · 9x9 · 68 个牌位 · 29 种花色 · 限 46 步 · 目标 碎冰×9 · 参考解 29 步
+    { seed: 20261013, hash: "cc2e58b0", map: ["11111111.", "111111111", ".11111111", "111111111", ".1111.111", "111111#11", "1#.111111", "111.11...", "1111111.."], lockR: [3, 6], lockC: [], faces: 29, scramble: 33, flowers: true, chapter: 11, moveLimit: 46, goal: { kind: "collect", faces: ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m"], count: 9 } },
+    // 第 186 关 · 9x9 · 68 个牌位 · 30 种花色 · 单向轨 · 参考解 30 步
+    { seed: 2847422923, hash: "d4f3b488", map: ["111111111", "111111111", "11111111.", ".11.111..", "111.111..", "111111111", "1.1111111", "11111.111", "1111...11"], lockR: [3, 6], lockC: [], faces: 30, scramble: 33, flowers: true, oneWay: [{ axis: "col", index: 5, dir: -1 }], chapter: 11, timeLimit: 72 },
+    // 第 187 关 · 9x9 · 68 个牌位 · 30 种花色 · 限 73 步 · 目标 碎冰×9 · 参考解 31 步
+    { seed: 7, hash: "c8c3adce", map: [".111.1111", ".1.11111.", ".1..1111.", ".11111111", "111111111", "111111111", "11111111.", "11111.111", "1111111.1"], lockR: [3, 6], lockC: [], faces: 30, scramble: 33, flowers: true, chapter: 11, moveLimit: 73, goal: { kind: "collect", faces: ["1s", "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s"], count: 9 } },
+    // 第 188 关 · 9x9 · 66 个牌位 · 30 种花色 · 限 48 步 · 参考解 33 步
+    { seed: 2620675016, hash: "65d11f38", map: ["111111111", "11111111.", "1111.1111", "111111111", "1.1111111", "1.1111111", "11111.111", "111.1...1", "..111...."], lockR: [3, 6], lockC: [], faces: 30, scramble: 33, flowers: true, chapter: 11, moveLimit: 48 },
+    // 第 189 关 · 9x9 · 70 个牌位 · 31 种花色 · 限 48 步 · 目标 碎冰×9 · 参考解 31 步
+    { seed: 3152013718, hash: "dafa614e", map: ["11111.111", "111.111.1", "1.1111..1", "111111111", "111111111", "11.111111", "1111.1111", "111111111", "1..11111."], lockR: [3, 6], lockC: [], faces: 31, scramble: 34, flowers: true, chapter: 11, moveLimit: 48, goal: { kind: "collect", faces: ["1s", "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s"], count: 9 } },
+    // 第 190 关 · 9x9 · 70 个牌位 · 31 种花色 · 单向轨 · 限 51 步 · 参考解 29 步
+    { seed: 904078115, hash: "adb041b8", map: ["111.11111", "11111.11.", "11.111.11", "1.1111..1", ".11111111", ".11111111", "111111111", "111111111", "1111111.1"], lockR: [3, 6], lockC: [], faces: 31, scramble: 34, flowers: true, oneWay: [{ axis: "col", index: 4, dir: 1 }], chapter: 11, moveLimit: 51 },
+    // 第 191 关 · 9x9 · 70 个牌位 · 32 种花色 · 目标 碎冰×9 · 参考解 30 步
+    { seed: 3869457812, hash: "38249b64", map: ["11.11111.", "1111.1111", "1111.11.1", "11.111111", "111111111", "111111111", "111.11111", "1111111.1", ".1111..11"], lockR: [3, 6], lockC: [], faces: 32, scramble: 34, flowers: true, chapter: 11, timeLimit: 72, goal: { kind: "collect", faces: ["1p", "2p", "3p", "4p", "5p", "6p", "7p", "8p", "9p"], count: 9 } },
+    // 第 192 关 · 9x9 · 68 个牌位 · 32 种花色 · 限 45 步 · 参考解 34 步
+    { seed: 4223770159, hash: "e37745be", map: [".11..1111", "111.111..", "11111.111", "1.1..1111", "111..1111", "111111111", "11111.111", "111111111", "111111111"], lockR: [3, 6], lockC: [], faces: 32, scramble: 34, flowers: true, chapter: 11, moveLimit: 45, timeLimit: 82 },
+    // 第 193 关 · 9x9 · 66 个牌位 · 9 种花色 · 5 对冰 · 参考解 35 步
+    { seed: 442278218, hash: "7d261d60", map: ["11....111", "11111##11", ".1112111.", "1211#1111", ".11#11111", "111111111", "11.111#11", ".111111#1", "1111111.."], lockR: [], lockC: [2, 6], faces: 9, scramble: 34, ice: 5, chapter: 12, dialect: { "ranks": [2, 5, 8] } },
+    // 第 194 关 · 9x9 · 66 个牌位 · 25 种花色 · 6 对冰 · 参考解 33 步
+    { seed: 3190689051, hash: "3b91ba32", map: ["111111111", "11.111111", "11.111111", "11.1#1111", "1111..111", "1111111.1", "11.1.1.1.", "11.111#11", "111111..1"], lockR: [], lockC: [2, 6], faces: 25, scramble: 34, ice: 6, chapter: 12 },
+    // 第 195 关 · 9x9 · 64 个牌位 · 9 种花色 · 6 对冰 · 连锁解锁(消5对) · 目标 1s×2 · 参考解 34 步
+    { seed: 2696486838, hash: "c2824ebd", map: ["1111.11..", "11111.11.", "..1111..1", "11#111111", ".11111121", "11111.1..", "1.1111111", ".11111111", "111111..1"], lockR: [], lockC: [2, 6], faces: 9, scramble: 34, ice: 6, unlock: [{ axis: "row", index: 4, after: 5 }], chapter: 12, dialect: { "suit": "s" }, goal: { kind: "face", face: "1s", count: 2 } },
+    // 第 196 关 · 9x9 · 64 个牌位 · 26 种花色 · 6 对冰 · 参考解 31 步
+    { seed: 488766506, hash: "9b5a3e4d", map: ["1.111..11", "11.11111.", ".21111#..", "11211#111", ".111111.1", "11.111111", "1#11#2111", "11..1111.", ".1111.111"], lockR: [], lockC: [2, 6], faces: 26, scramble: 34, ice: 6, chapter: 12 },
+    // 第 197 关 · 9x9 · 68 个牌位 · 9 种花色 · 6 对冰 · 限 49 步 · 参考解 37 步
+    { seed: 1612062421, hash: "4a378200", map: ["111.11111", "1111121.1", ".2.1.11#1", "121.11111", "1#21.1111", "1.#11.111", "111111#11", "1.1111111", "111.1.1.1"], lockR: [], lockC: [2, 6], faces: 9, scramble: 34, ice: 6, chapter: 12, dialect: { "suit": "p" }, moveLimit: 49 },
+    // 第 198 关 · 9x9 · 68 个牌位 · 27 种花色 · 6 对冰 · 参考解 35 步
+    { seed: 1158009947, hash: "9f3632b3", map: ["11111...1", "1#111#111", "111211111", "11#111111", "1111111#1", "1111#1111", ".11111#11", "1##1#1111", "111111.11"], lockR: [], lockC: [2, 6], faces: 27, scramble: 34, ice: 6, chapter: 12, timeLimit: 81 },
+    // 第 199 关 · 9x9 · 66 个牌位 · 25 种花色 · 6 对冰 · 限 75 步 · 参考解 37 步
+    { seed: 20261013, hash: "8660eeca", map: ["111111111", "1111.1.11", "1111#111.", "1#1111111", "..111111.", "11111#111", "11111.111", ".111..11.", "1111.1111"], lockR: [], lockC: [2, 6], faces: 25, scramble: 34, ice: 6, chapter: 12, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 75 },
+    // 第 200 关 · 9x9 · 68 个牌位 · 28 种花色 · 6 对冰 · 限 68 步 · 目标 z6×2 · 参考解 30 步
+    { seed: 190989127, hash: "e4e80b13", map: ["11.111111", "111112111", "1111111..", "111111111", "111#1111.", ".11.1111.", "111#11.11", "111.11.11", ".11111.11"], lockR: [], lockC: [2, 6], faces: 28, scramble: 34, ice: 6, chapter: 12, moveLimit: 68, goal: { kind: "face", face: "z6", count: 2 } },
+    // 第 201 关 · 10x9 · 68 个牌位 · 9 种花色 · 6 对冰 · 连锁解锁(消3对) · 限 49 步 · 参考解 36 步
+    { seed: 7, hash: "cdbef01b", map: ["1111.11.1", "1111#11.1", ".11111111", "1111.1111", ".....1111", "111111111", "1111111#.", "1111111..", "111111..1", "11...1..1"], lockR: [], lockC: [2, 6], faces: 9, scramble: 34, ice: 6, unlock: [{ axis: "row", index: 4, after: 3 }], chapter: 12, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 49 },
+    // 第 202 关 · 10x9 · 68 个牌位 · 29 种花色 · 6 对冰 · 参考解 35 步
+    { seed: 3510677939, hash: "941aaaf7", map: ["1111.1111", "11.111111", "11.1111#1", "111111111", "11111111.", "111..#11.", "111111111", "..111111.", "..111..1.", "1111....."], lockR: [], lockC: [2, 6], faces: 29, scramble: 34, ice: 6, chapter: 12, timeLimit: 81 },
+    // 第 203 关 · 10x9 · 68 个牌位 · 13 种花色 · 6 对冰 · 限 46 步 · 参考解 35 步
+    { seed: 3875199920, hash: "9a2707b7", map: [".1111.111", "1111.#111", "1#11#.#11", "111111111", ".11111111", "1111##111", "1.1111111", ".#1111#..", "111111#..", "..1111111"], lockR: [], lockC: [2, 6], faces: 13, scramble: 34, ice: 6, chapter: 12, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 46 },
+    // 第 204 关 · 10x9 · 68 个牌位 · 30 种花色 · 6 对冰 · 限 54 步 · 参考解 41 步
+    { seed: 3312985449, hash: "f0437789", map: ["1.1111111", "111.11111", "111111#.1", "..1111.11", ".11.11111", "11...1111", "11..11111", "11..11111", "11...1111", "1111..1.1"], lockR: [], lockC: [2, 6], faces: 30, scramble: 34, ice: 6, chapter: 12, moveLimit: 54 },
+    // 第 205 关 · 10x9 · 70 个牌位 · 9 种花色 · 6 对冰 · 限 50 步 · 目标 z4×2 · 参考解 34 步
+    { seed: 1323217889, hash: "e3dff135", map: ["11.111111", "111111111", ".11.11111", "111111111", "11111111.", "1..1...11", "1..111111", "11.11111.", ".1.1111..", "11.1111.."], lockR: [], lockC: [2, 6], faces: 9, scramble: 34, ice: 6, chapter: 12, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 50, goal: { kind: "face", face: "z4", count: 2 } },
+    // 第 206 关 · 10x9 · 68 个牌位 · 31 种花色 · 6 对冰 · 限 44 步 · 参考解 29 步
+    { seed: 20261013, hash: "a8c0f44d", map: ["11..11.11", "11##11111", ".#.111111", "..1111111", ".11111111", ".1111.#11", ".11111111", ".11111111", "1111#.111", "...1.1111"], lockR: [], lockC: [2, 6], faces: 31, scramble: 34, ice: 6, chapter: 12, moveLimit: 44 },
+    // 第 207 关 · 10x9 · 70 个牌位 · 13 种花色 · 6 对冰 · 连锁解锁(消5对) · 参考解 30 步
+    { seed: 2808100387, hash: "535109b7", map: ["1111111..", "111..11..", "1.1..11..", "1.111111.", "1..11111.", "111111.11", "111111111", "1.1111111", "111111111", "11111..11"], lockR: [], lockC: [2, 6], faces: 13, scramble: 34, ice: 6, unlock: [{ axis: "row", index: 6, after: 5 }], chapter: 12, dialect: { "suit": "p" }, timeLimit: 69 },
+    // 第 208 关 · 10x9 · 68 个牌位 · 32 种花色 · 6 对冰 · 限 49 步 · 参考解 31 步
+    { seed: 4130006099, hash: "14a465f5", map: ["11111.111", "111.11111", "111111.11", ".1111#1..", ".1.111111", "1..111#11", "1.11111#1", "...1#1111", "11111..11", "1.111.111"], lockR: [], lockC: [2, 6], faces: 32, scramble: 34, ice: 6, chapter: 12, moveLimit: 49, timeLimit: 71 },
+    // 第 209 关 · 10x9 · 66 个牌位 · 9 种花色 · 1 对厚冰 · 参考解 35 步
+    { seed: 1883116028, hash: "470cc583", map: ["111111111", "1..111111", "1..11111.", "...11.1..", "1111111..", "111111111", "..1111111", ".11111111", "1111111..", "1...11..."], lockR: [4, 7], lockC: [2, 6], faces: 9, scramble: 34, ice: 5, ice2: 1, flowers: true, chapter: 13, dialect: { "suit": "s" } },
+    // 第 210 关 · 10x9 · 68 个牌位 · 29 种花色 · 6 对冰 · 单向轨 · 参考解 32 步
+    { seed: 3880967864, hash: "166baad5", map: ["111111111", "11111.111", "11.1..111", "11...1111", "11...11.1", "11.111111", "111111.11", "11111111.", "..1..1111", "111.11..."], lockR: [4, 7], lockC: [2, 6], faces: 29, scramble: 34, ice: 6, flowers: true, oneWay: [{ axis: "row", index: 3, dir: 1 }], chapter: 13 },
+    // 第 211 关 · 10x9 · 68 个牌位 · 13 种花色 · 6 对冰 · 连锁解锁(消5对) · 目标 5m×2 · 参考解 66 步
+    { seed: 2599853172, hash: "8da1b9d3", map: ["..1.1111.", "111..1111", "111..1111", ".11..1111", "111111111", "1111#11..", "1111.11#.", "1.11.1111", "1.111111.", "1.1111111"], lockR: [4, 7], lockC: [2, 6], faces: 13, scramble: 34, ice: 6, flowers: true, unlock: [{ axis: "row", index: 2, after: 5 }], chapter: 13, dialect: { "suit": "m" }, goal: { kind: "face", face: "5m", count: 2 } },
+    // 第 212 关 · 10x9 · 70 个牌位 · 30 种花色 · 6 对冰 · 参考解 60 步
+    { seed: 1378230966, hash: "8354e831", map: ["..1111111", "111111111", "1111.1#11", "111111111", "111111111", "1111.1...", "1.1.11111", "1...1.111", ".....1111", "11.111111"], lockR: [4, 7], lockC: [2, 6], faces: 30, scramble: 34, ice: 6, flowers: true, chapter: 13 },
+    // 第 213 关 · 10x9 · 68 个牌位 · 9 种花色 · 6 对冰 · 1 对鞭炮 · 限 47 步 · 参考解 37 步
+    { seed: 1032148109, hash: "b0bea233", map: ["1111111.1", "111.111.1", "111.11111", "1111111.1", "..1.11..1", ".1...1..1", "111111111", "111.11111", ".11..1111", "111.11.11"], lockR: [4, 7], lockC: [2, 6], faces: 9, scramble: 34, ice: 6, bombs: 1, flowers: true, chapter: 13, dialect: { "suit": "p" }, moveLimit: 47 },
+    // 第 214 关 · 10x9 · 66 个牌位 · 31 种花色 · 2 对厚冰 · 单向轨 · 参考解 41 步
+    { seed: 96649446, hash: "88973f69", map: ["..1111111", "..1111111", "111111111", "11#111.#.", "111111..1", "111111111", "..111.111", "..1.1.1.1", ".111111..", "111111..."], lockR: [4, 7], lockC: [2, 6], faces: 31, scramble: 34, ice: 6, ice2: 2, flowers: true, oneWay: [{ axis: "col", index: 5, dir: 1 }], chapter: 13, timeLimit: 86 },
+    // 第 215 关 · 10x9 · 68 个牌位 · 9 种花色 · 6 对冰 · 限 78 步 · 参考解 35 步
+    { seed: 569140916, hash: "95beddcf", map: ["111.1111.", "11111111.", "11111111.", "11#..111.", "11111111.", "111111111", "111111111", "111.##111", "111##.11.", "1.....11."], lockR: [4, 7], lockC: [2, 6], faces: 9, scramble: 34, ice: 6, flowers: true, chapter: 13, dialect: { "ranks": [1, 9], "honors": true }, moveLimit: 78 },
+    // 第 216 关 · 10x9 · 70 个牌位 · 33 种花色 · 6 对冰 · 限 75 步 · 目标 f2×2 · 参考解 32 步
+    { seed: 421391862, hash: "bba35fa1", map: ["111111...", "1111111.1", "111111.11", "1111.1.11", "111111111", "1111.1111", "111...111", "1111...11", "11111.11.", "111.1.1.."], lockR: [4, 7], lockC: [2, 6], faces: 33, scramble: 34, ice: 6, flowers: true, chapter: 13, moveLimit: 75, goal: { kind: "face", face: "f2", count: 2 } },
+    // 第 217 关 · 10x9 · 68 个牌位 · 9 种花色 · 6 对冰 · 连锁解锁(消3对) · 限 154 步 · 参考解 35 步
+    { seed: 3780729299, hash: "0213ca65", map: ["111....11", "11.11.111", "11#11.111", "111111111", ".11111111", ".11111111", "11#....11", ".11111111", "111111111", "1.11....."], lockR: [4, 7], lockC: [2, 6], faces: 9, scramble: 34, ice: 6, flowers: true, unlock: [{ axis: "row", index: 8, after: 3 }], chapter: 13, dialect: { "ranks": [2, 5, 8] }, moveLimit: 154 },
+    // 第 218 关 · 10x9 · 70 个牌位 · 34 种花色 · 6 对冰 · 2 对鞭炮 · 单向轨 · 参考解 61 步
+    { seed: 805508867, hash: "cb6563fd", map: ["111111111", "1..111111", ".11111.11", "111111111", "11111111.", "1111..#11", "1111#.111", "1111#111.", "111111#1.", "11.1....."], lockR: [4, 7], lockC: [2, 6], faces: 34, scramble: 34, ice: 6, bombs: 2, flowers: true, oneWay: [{ axis: "col", index: 4, dir: 1 }], chapter: 13, timeLimit: 128 },
+    // 第 219 关 · 10x9 · 70 个牌位 · 9 种花色 · 1 对厚冰 · 限 89 步 · 参考解 71 步
+    { seed: 2262469177, hash: "4c77cd0d", map: ["11.111111", "11.111111", "111111111", "11111#11.", ".11111.11", ".11111111", ".11111111", "11.1..11.", "11....1..", ".11.11111"], lockR: [4, 7], lockC: [2, 6], faces: 9, scramble: 34, ice: 6, ice2: 1, flowers: true, chapter: 13, dialect: { "ranks": [2, 5, 8] }, moveLimit: 89 },
+    // 第 220 关 · 10x9 · 72 个牌位 · 34 种花色 · 6 对冰 · 限 147 步 · 参考解 33 步
+    { seed: 4241620700, hash: "dc15d942", map: [".1111.111", "111.2111.", "1111#111.", "111111111", "111#111#1", "111111111", "1.111111.", "1.#111#11", "1##11111.", "..111111."], lockR: [4, 7], lockC: [2, 6], faces: 34, scramble: 34, ice: 6, flowers: true, chapter: 13, moveLimit: 147 },
+    // 第 221 关 · 10x9 · 70 个牌位 · 13 种花色 · 6 对冰 · 限 152 步 · 目标 6s×2 · 参考解 38 步
+    { seed: 1886764952, hash: "6f3dc737", map: ["1.1111111", "1.1.11111", "11111111.", "..111111.", "....11111", "11....11.", "1111.11..", "11111111.", "111111111", "111111111"], lockR: [4, 7], lockC: [2, 6], faces: 13, scramble: 34, ice: 6, flowers: true, chapter: 13, dialect: { "suit": "s" }, moveLimit: 152, goal: { kind: "face", face: "6s", count: 2 } },
+    // 第 222 关 · 10x9 · 72 个牌位 · 34 种花色 · 6 对冰 · 单向轨 · 限 79 步 · 参考解 32 步
+    { seed: 3927566629, hash: "277abb15", map: [".11111111", ".11#1111.", "11111111.", "1111#1111", "111111##.", "11111111.", ".111#1111", "11.1.1.#1", "1111#.111", "111111111"], lockR: [4, 7], lockC: [2, 6], faces: 34, scramble: 34, ice: 6, flowers: true, oneWay: [{ axis: "col", index: 7, dir: -1 }], chapter: 13, moveLimit: 79 },
+    // 第 223 关 · 10x9 · 70 个牌位 · 25 种花色 · 6 对冰 · 1 对鞭炮 · 连锁解锁(消5对) · 参考解 33 步
+    { seed: 1019455317, hash: "1d3b88bd", map: ["1.1111111", "11111.111", "..1..1111", "11111111.", "1##11..11", "111.11#1.", "111111111", ".11#11111", ".1111.#1.", "111111111"], lockR: [4, 7], lockC: [2, 6], faces: 25, scramble: 34, ice: 6, bombs: 1, flowers: true, unlock: [{ axis: "col", index: 3, after: 5 }], chapter: 13, dialect: { "ranks": [2, 5, 8] }, timeLimit: 69 },
+    // 第 224 关 · 10x9 · 72 个牌位 · 34 种花色 · 2 对厚冰 · 限 47 步 · 参考解 35 步
+    { seed: 683646510, hash: "eb7a8965", map: ["1111.1111", "1..1#.111", "1.1111111", "11.11.111", ".11111111", "111111111", "11111111.", "1111111#.", "111.1..11", "1111.11.."], lockR: [4, 7], lockC: [2, 6], faces: 34, scramble: 34, ice: 6, ice2: 2, flowers: true, chapter: 13, moveLimit: 47, timeLimit: 74 }
   ];
+  var CHAPTER_NAMES = ["\u63A8\u4E0E\u70B9", "\u9489\u4F4F", "\u65B9\u5411\u4E0E\u94FE\u6761", "\u51B0\u5C01", "\u8BA2\u5355", "\u5C06\u5C06\u80E1", "\u65AD\u95E8", "\u5E7A\u4E5D", "\u6E05\u4E00\u8272", "\u516B\u82B1\u9F50", "\u4E09\u5143\u9F50", "\u6E05\u9F99", "\u53CC\u65B9\u8A00", "\u7EC8\u7AE0"];
   function levelAt(index) {
     const i = Number.isFinite(index) ? Math.max(0, Math.min(LEVELS.length - 1, Math.floor(index))) : 0;
     return LEVELS[i];
@@ -493,6 +757,36 @@
       if (u.after > cleared) (u.axis === "row" ? lockR : lockC).push(u.index);
     }
     return { lockR, lockC };
+  }
+  function goalPairs(def, grid) {
+    const g = def.goal;
+    if (!g) return 0;
+    let avail = 0;
+    if (g.kind === "face") {
+      const base = unwild(g.face);
+      grid.flat().forEach((cell) => {
+        if (Array.isArray(cell)) cell.forEach((f) => {
+          if (unwild(stripIce(f)) === base) avail++;
+        });
+      });
+      avail = Math.floor(avail / 2);
+    } else if (g.kind === "collect") {
+      const tally = /* @__PURE__ */ new Map();
+      grid.flat().forEach((cell) => {
+        if (Array.isArray(cell)) cell.forEach((f) => {
+          const b = unwild(stripIce(f));
+          if (g.faces && g.faces.includes(b)) tally.set(b, (tally.get(b) || 0) + 1);
+        });
+      });
+      return Array.from(tally.values()).filter((n) => n >= 2).length;
+    } else {
+      grid.flat().forEach((cell) => {
+        if (Array.isArray(cell)) cell.forEach((f) => {
+          avail += iceLayers(f);
+        });
+      });
+    }
+    return Math.max(0, Math.min(g.count, avail));
   }
   function rng(seed) {
     return () => {
@@ -536,23 +830,24 @@
     for (let i = 0; i < L.length; i++) visit(i, /* @__PURE__ */ new Set());
     return shuffled(owner.flatMap((li, ri) => li < 0 ? [] : [{ a: L[li], b: R[ri] }]), random);
   }
-  function certify(start, runs, proposed) {
+  var pairOf = (t) => Array.isArray(t) ? [t[0], t[1]] : [t, t];
+  function certify(start, runs, proposed, d) {
     let g = start;
     const solution = [];
     for (const a of proposed) {
-      const next = transition(g, runs, a);
+      const next = transition(g, runs, a, d);
       if (next.changed) {
         g = next.grid;
         solution.push(a);
       }
     }
-    for (let pair = sameFacePairs(g)[0] || pairs(g)[0]; pair; pair = sameFacePairs(g)[0] || pairs(g)[0]) {
-      const a = { kind: "match", a: pair.a, b: pair.b }, next = transition(g, runs, a);
+    for (let pair = sameFacePairs(g, d)[0] || pairs(g, d)[0]; pair; pair = sameFacePairs(g, d)[0] || pairs(g, d)[0]) {
+      const a = { kind: "match", a: pair.a, b: pair.b }, next = transition(g, runs, a, d);
       if (!next.changed) break;
       g = next.grid;
       solution.push(a);
     }
-    return count(g) === 0 ? solution : null;
+    return liveCount(g, d) === 0 ? solution : null;
   }
   function railConflicts(g, def) {
     const locked = (p) => def.lockR.includes(p.r) || def.lockC.includes(p.c);
@@ -568,91 +863,141 @@
     }
     return n;
   }
+  function rankOf2(def, grid, par) {
+    const limit = def.moveLimit || 0;
+    return [limit && par > limit ? 1 : 0, railConflicts(grid, def), sameFacePairs(grid, def.dialect).length, par];
+  }
+  function cmp(a, b) {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const d = (a[i] || 0) - (b[i] || 0);
+      if (d) return d;
+    }
+    return 0;
+  }
   function construct(def, seed, tokens) {
+    let best = null, bestRank = null;
     for (let attempt = 0; attempt < 6; attempt++) {
       const s = attempt === 0 ? seed : (seed ^ Math.imul(attempt, 2654435769)) >>> 0;
       const deal = constructOnce(def, s, tokens);
-      if (deal) return deal;
+      if (!deal) continue;
+      const r = rankOf2(def, deal.grid, deal.solution.length);
+      if (!bestRank || cmp(r, bestRank) < 0) {
+        best = deal;
+        bestRank = r;
+      }
+      if (!r[0]) return deal;
     }
-    return null;
+    return best;
   }
   function constructOnce(def, seed, tokens) {
     const random = rng(seed), places = locations(def, random);
-    const pool = shuffled((def.flowers ? FACES : BASE_FACES).filter((f) => f !== BOMB_FACE), random).slice(0, Math.max(1, def.faces));
-    let faces = tokens ? shuffled(tokens, random) : shuffled(pool.concat(pool), random).slice(0, places.length);
+    const d = def.dialect;
+    const source = def.flowers ? FACES : BASE_FACES;
+    const goalBase = def.goal && def.goal.kind === "face" ? unwild(def.goal.face) : null;
+    const kinds = source.filter((f) => f !== BOMB_FACE);
+    const liveKinds = kinds.filter((f) => pairable(f, d));
+    const dudKinds = kinds.filter((f) => !pairable(f, d));
+    const pool = shuffled(liveKinds, random).slice(0, Math.max(1, def.faces));
+    if (!tokens && goalBase && source.includes(goalBase) && !pool.includes(goalBase)) pool[pool.length - 1] = goalBase;
+    const collectFaces = def.goal && def.goal.kind === "collect" ? (def.goal.faces || []).map((f) => unwild(f)) : [];
+    for (const f of collectFaces) {
+      if (!source.includes(f)) continue;
+      if (pool.includes(f)) continue;
+      if (pool.length < liveKinds.length) pool.push(f);
+      else pool[pool.length - 1] = f;
+    }
+    const doubled = pool.concat(pool);
+    let faces;
+    if (tokens) faces = shuffled(tokens, random);
+    else {
+      const forced = Array.from(new Set((goalBase && source.includes(goalBase) ? [goalBase] : []).concat(collectFaces.filter((f) => pool.includes(f)))));
+      let liveList = forced.flatMap((f) => [f, f]).concat(shuffled(doubled.filter((f) => !forced.includes(f)), random));
+      const liveCap = liveList.length, maxDud = Math.floor(places.length * 0.55);
+      const needDud = Math.max(places.length - liveCap, Math.floor(places.length * 0.4));
+      const dudPairs = d && dudKinds.length ? Math.min(needDud, maxDud, dudKinds.length * 2) : 0;
+      const livePairs = places.length - dudPairs;
+      if (liveList.length < livePairs) return null;
+      const dudList = shuffled(dudKinds.concat(dudKinds), random);
+      const combined = liveList.slice(0, livePairs).concat(dudList.slice(0, dudPairs));
+      faces = dudPairs ? shuffled(combined, random) : combined;
+    }
+    if (!tokens && def.wild) faces = faces.map((f) => typeof f === "string" && f[0] === "f" && !f.endsWith("*") && !f.endsWith("~") ? f + "*" : f);
     if (faces.length > places.length) return null;
-    if (def.wild) faces = faces.map((f) => f[0] === "f" && !f.endsWith("*") && !f.endsWith("~") ? f + "*" : f);
-    const bombCount = tokens ? 0 : Math.min(Math.max(0, def.bombs || 0), faces.length);
+    const bombCount = tokens || d ? 0 : Math.min(Math.max(0, def.bombs || 0), faces.length);
     for (let i = 0; i < bombCount; i++) faces[i] = BOMB_FACE;
     const iceCount = tokens ? 0 : Math.min(Math.max(0, def.ice || 0), faces.length);
     if (iceCount > 0) {
       const ice2 = Math.min(Math.max(0, def.ice2 || 0), iceCount);
-      const order = shuffled(faces.map((_, i) => i).filter((i) => !faces[i].startsWith("b") && faces[i][0] !== "f"), random);
+      const order = shuffled(faces.map((_, i) => i).filter((i) => {
+        const f = faces[i];
+        return typeof f === "string" && !f.startsWith("b") && f[0] !== "f" && pairable(f, d);
+      }), random);
       order.slice(0, iceCount).forEach((i, k) => {
-        if (!faces[i].endsWith("~")) faces[i] = faces[i] + "~".repeat(k < ice2 ? 2 : 1);
+        const f = faces[i];
+        if (!f.endsWith("~")) faces[i] = f + "~".repeat(k < ice2 ? 2 : 1);
       });
     }
     const used = places.slice(0, faces.length);
     const base = empty(def);
     used.forEach((p, i) => {
-      base[p.a.r][p.a.c].push(faces[i]);
-      base[p.b.r][p.b.c].push(faces[i]);
+      const [fa, fb] = pairOf(faces[i]);
+      base[p.a.r][p.a.c].push(fa);
+      base[p.b.r][p.b.c].push(fb);
     });
     const startLocks = activeLocks(def, 0);
     const runs = runsFor(base, startLocks.lockR, startLocks.lockC, def.oneWay);
+    const free = slidable(runs);
     const removals = [];
     for (let i = used.length - 1; i >= 0; i--) {
       const p = used[i];
+      if (!pairable(pairOf(faces[i])[0], d)) continue;
       removals.push({ kind: "match", a: p.a, b: p.b });
-      if (faces[i].endsWith("~")) removals.push({ kind: "match", a: p.a, b: p.b });
+      if (pairOf(faces[i])[0].endsWith("~")) removals.push({ kind: "match", a: p.a, b: p.b });
     }
     const ideal = Math.max(1, Math.floor(faces.length / 12));
-    const quality = Math.max(1, Math.floor(count(base) / 6));
-    let best = null, bestRail = Infinity, bestPairs = Infinity;
+    const quality = Math.max(1, Math.floor(liveCount(base, d) / 6));
+    let best = null, bestRank = null;
     const scrambleRounds = (rounds, stopPairs, steps) => {
       for (let attempt = 0; attempt < rounds; attempt++) {
         let g = base;
         const inverse = [];
-        for (let j = 0; j < steps && runs.length; j++) {
-          const ri = Math.floor(random() * runs.length), step = random() < 0.5 ? -1 : 1;
+        for (let j = 0; j < steps && free.length; j++) {
+          const ri = free[Math.floor(random() * free.length)], step = random() < 0.5 ? -1 : 1;
           g = rotate(g, runs[ri], step);
           inverse.unshift({ kind: "slide", run: ri, step: -step });
         }
-        const solution2 = certify(g, runs, inverse.concat(removals));
+        const solution2 = certify(g, runs, inverse.concat(removals), def.dialect);
         if (!solution2) continue;
-        const rail = railConflicts(g, def), score = sameFacePairs(g).length;
-        if (rail < bestRail || rail === bestRail && score < bestPairs) {
+        const r = rankOf2(def, g, solution2.length);
+        if (!bestRank || cmp(r, bestRank) < 0) {
           best = { grid: g, runs, solution: solution2, seed, fallback: false };
-          bestRail = rail;
-          bestPairs = score;
+          bestRank = r;
         }
-        if (bestRail === 0 && bestPairs <= stopPairs) return;
+        if (!r[1] && r[2] <= stopPairs) return;
       }
     };
     scrambleRounds(32, ideal, def.scramble);
-    if (bestRail > 0 || bestPairs > quality) scrambleRounds(64, quality, def.scramble);
-    if (bestRail > 0) scrambleRounds(64, quality, def.scramble * 2);
-    if (bestRail > 0) scrambleRounds(64, quality, def.scramble * 4);
+    if (bestRank && (bestRank[1] > 0 || bestRank[2] > quality)) scrambleRounds(64, quality, def.scramble);
+    if (bestRank && bestRank[1] > 0) scrambleRounds(64, quality, def.scramble * 2);
+    if (bestRank && bestRank[1] > 0) scrambleRounds(64, quality, def.scramble * 4);
     if (best) return best;
-    const solution = certify(base, runs, removals);
+    const solution = certify(base, runs, removals, def.dialect);
     if (!solution) return null;
     let current = { grid: base, runs, solution, seed, fallback: true };
     best = current;
-    bestRail = railConflicts(base, def);
-    bestPairs = sameFacePairs(base).length;
-    for (let j = 0; j < def.scramble * 4 && runs.length; j++) {
-      const ri = Math.floor(random() * runs.length), step = random() < 0.5 ? -1 : 1;
+    bestRank = rankOf2(def, base, solution.length);
+    for (let j = 0; j < def.scramble * 4 && free.length; j++) {
+      const ri = free[Math.floor(random() * free.length)], step = random() < 0.5 ? -1 : 1;
       const grid = rotate(current.grid, runs[ri], step);
-      const route = certify(grid, runs, [{ kind: "slide", run: ri, step: -step }, ...current.solution]);
+      const route = certify(grid, runs, [{ kind: "slide", run: ri, step: -step }, ...current.solution], def.dialect);
       if (!route) continue;
-      const rail = railConflicts(grid, def), score = sameFacePairs(grid).length;
-      if (rail <= railConflicts(current.grid, def) && score <= sameFacePairs(current.grid).length) current = { grid, runs, solution: route, seed, fallback: false };
-      if (rail < bestRail || rail === bestRail && score < bestPairs) {
+      const r = rankOf2(def, grid, route.length);
+      if (r[1] <= rankOf2(def, current.grid, current.solution.length)[1] && r[2] <= rankOf2(def, current.grid, current.solution.length)[2]) current = { grid, runs, solution: route, seed, fallback: false };
+      if (cmp(r, bestRank) < 0) {
         best = { grid, runs, solution: route, seed, fallback: false };
-        bestRail = rail;
-        bestPairs = score;
+        bestRank = r;
       }
-      if (bestRail === 0 && bestPairs <= ideal) break;
+      if (!r[1] && r[2] <= ideal) break;
     }
     return best;
   }
@@ -662,24 +1007,107 @@
     if (!deal) throw new Error("\u5173\u5361\u65E0\u6CD5\u751F\u6210\u53EF\u9A8C\u8BC1\u7684\u6E05\u53F0\u8DEF\u7EBF");
     return deal;
   }
-  function redeal(index, g, seed) {
+  function tokensFrom(g) {
     const freq = /* @__PURE__ */ new Map();
     g.forEach((row) => row.forEach((cell) => {
       if (Array.isArray(cell)) for (const f of cell) freq.set(f, (freq.get(f) || 0) + 1);
     }));
-    const tokens = [];
+    const out = [], left = [];
     for (const [f, n] of freq) {
-      if (n % 2 !== 0 || n > 4) return null;
-      for (let i = 0; i < n / 2; i++) tokens.push(f);
+      if (n > 4) return null;
+      for (let i = 0; i < Math.floor(n / 2); i++) out.push(f);
+      if (n % 2) left.push(f);
     }
+    while (left.length > 1) {
+      const iw = left.findIndex(isWild);
+      if (iw < 0) return null;
+      const w = left.splice(iw, 1)[0];
+      const jn = left.findIndex((f) => !isWild(f));
+      out.push([w, left.splice(jn >= 0 ? jn : 0, 1)[0]]);
+    }
+    return left.length ? null : out;
+  }
+  function stateLegal(g) {
+    const tiles = count(g);
+    if (!tiles || tiles % 2) return false;
+    const freq = /* @__PURE__ */ new Map();
+    g.flat().forEach((cell) => {
+      if (Array.isArray(cell)) cell.forEach((f) => freq.set(f, (freq.get(f) || 0) + 1));
+    });
+    return !Array.from(freq.values()).some((n) => n > 4);
+  }
+  function redeal(index, g, seed) {
+    const tokens = tokensFrom(g);
+    if (!tokens) return null;
     return construct(LEVELS[index], seed, tokens);
+  }
+
+  // cocos/assets/scripts/core/tutorials.ts
+  var CHAPTER_TUTORIALS = [
+    {
+      chapter: 5,
+      title: "\u5C06\u5C06\u80E1",
+      // 开局 pairs()/tapPairs() 都是 0：不推就什么都消不掉，教学必须由动作开口。
+      // 哑弹故意也用「筒」（6p 而不是 6s）：同花色、不同点数，"只有 2、5、8 能配"这条规则
+      // 才不会被玩家理解成"筒子不行、条子行"。8 万 / 5 万 能配但此刻不相邻。
+      board: ["2p 6p 2p", "8m 5m 8m"],
+      dialect: { ranks: [2, 5, 8] },
+      steps: [
+        {
+          say: "\u8FD9\u4E00\u5173\u53EA\u6709 2\u30015\u30018 \u80FD\u914D\u6210\u5BF9\u3002\u63A8\u8FD9\u4E00\u884C\uFF0C\u8BA9\u4E24\u5F20\u4E8C\u7B52\u78B0\u5934\u3002",
+          need: "slide",
+          on: { slide: { axis: "row", index: 0 } },
+          step: 1,
+          expect: { changed: true, pairs: 1, faces: ["2p"] }
+        },
+        {
+          say: "\u518D\u63A8\u540C\u4E00\u884C\u4E00\u6B21\uFF1A\u516D\u7B52\u8DDF\u7740\u632A\u4E86\u4F4D\uFF0C\u4F46\u5B83\u4E0D\u5728 2\u30015\u30018 \u91CC\u3002",
+          need: "slide",
+          on: { slide: { axis: "row", index: 0 } },
+          step: 1,
+          // changed:true + pairs:0 就是这一步的教学内容本身，不是失败。
+          expect: { changed: true, pairs: 0 }
+        }
+      ],
+      close: "\u63A8\u5F97\u52A8\u7684\u8F68 \u2260 \u6D88\u5F97\u6389\u7684\u724C\u3002\u8FD9\u4E00\u7AE0\u53EA\u627E 2\u30015\u30018\uFF1B\u5269\u4E0B\u6D88\u4E0D\u6389\u7684\u4E0D\u7528\u7BA1\uFF0C\u80FD\u6D88\u7684\u6E05\u5149\u5C31\u80E1\u4E86\u3002"
+    }
+  ];
+  function tutorialKey(chapter) {
+    return "ch" + chapter;
+  }
+  function tutorialFor(chapter) {
+    return CHAPTER_TUTORIALS.find((t) => t.chapter === chapter) || null;
+  }
+  function tutorialByKey(key2) {
+    if (!key2 || key2.slice(0, 2) !== "ch") return null;
+    const n = Number(key2.slice(2));
+    return Number.isInteger(n) && n >= 0 ? tutorialFor(n) : null;
   }
 
   // cocos/assets/scripts/core/Session.ts
   var local = { load: () => null, save: () => {
   }, feedback: () => {
   } };
+  function dayStamp(now = /* @__PURE__ */ new Date()) {
+    const p = (n) => (n < 10 ? "0" : "") + n;
+    return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
+  }
   var PAGE_SIZE = 16;
+  var CHAPTER_SIZE = PAGE_SIZE;
+  var CHAPTER_MAX_STARS = CHAPTER_SIZE * 3;
+  var CHAPTER_GATE = [22, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27];
+  var chapterOf = (index) => Math.floor(index / CHAPTER_SIZE);
+  var gateFor = (chapter) => CHAPTER_GATE[chapter] ?? 27;
+  function ratingFor(moves, par) {
+    if (par <= 0) return 3;
+    if (moves <= par + Math.max(1, Math.round(par * 0.08))) return 3;
+    if (moves <= par + Math.max(2, Math.round(par * 0.35))) return 2;
+    return 1;
+  }
+  function starLines(par) {
+    if (par <= 0) return { three: 0, two: 0 };
+    return { three: par + Math.max(1, Math.round(par * 0.08)), two: par + Math.max(2, Math.round(par * 0.35)) };
+  }
   var Session = class {
     constructor(seed = Date.now(), platform = local) {
       this.grid = [];
@@ -699,6 +1127,15 @@
       this.lastErased = [];
       this.revision = 0;
       this.history = [];
+      /** 限时关剩余秒数；非限时关恒 0。只由 `tick` 递减，视图负责按帧喂 dt。 */
+      this.timeLeft = 0;
+      this.paused = false;
+      /**
+       * 这一局是否已经结束（通关 / 判负）。结束的一局不落盘（见 `save()`），
+       * 也不能从大厅「继续」回来——否则会回到已经赢了的盘或 0 秒的限时盘。
+       * 撤销会把状态退回到未结束。
+       */
+      this.finished = false;
       this.par = 0;
       this.hintsUsed = 0;
       this.shufflesUsed = 0;
@@ -710,13 +1147,51 @@
       this.clearedPairs = 0;
       /** 目标关进度（已达成数）。 */
       this.goalDone = 0;
+      /**
+       * 本关**实际能完成**的目标数 = `min(def.goal.count, 盘面上这个牌面凑得出的对数)`。
+       * 关卡表里的 count 是设计意图（历史口径算错，写着 3~12 对，而每种牌最多 4 张 = 2 对），
+       * 按实际量收敛之后，目标关才真的是「不必清空也能过」。HUD 必须显示这个数。
+       */
+      this.goalTarget = 0;
       /** 待展示的说明卡（第 1 关教学 / 机制首现）。非空时牌桌输入被屏蔽。 */
       this.tip = null;
       /** 已经看过的机制说明（持久化，避免每次都弹）。 */
       this.tipsSeen = {};
+      /** 本局得分（B1）：`Σ erased×10×(1+0.5×(chain-1))`，鼓励一次多消与多波连锁。 */
+      this.score = 0;
+      /** 每关最高分 / 历史最少步数。`bestMoves` 是选关页「再快 N 步」的唯一依据。 */
+      this.best = {};
+      this.bestMoves = {};
+      /**
+       * 每关的参考解步数（`par`）。
+       *
+       * `par` 不在关卡表里——它是 `generate()` 的产物（证书长度），选关页要为 16 关各跑一次
+       * 生成才能拿到，成本约 800ms，不能现算。所以通关时把它记下来，
+       * 供选关页算「再快 N 步能升几星」。没通关的关没有这个数，也就不显示刷星导航。
+       */
+      this.pars = {};
+      /**
+       * 道具账本（A2）：`levelIndex → {h,s}` = 这一关已经用掉的提示/洗牌次数。
+       *
+       * **不随重开清零**——清零就等于额度无限，广告补给也就没有需求。
+       * 通关时删除该关记录；`usedDay` 变化（跨天）时整体清空，兜住「用完提示又打不过」的永久卡死。
+       */
+      this.used = {};
+      /** 道具账本的日期戳（本地 YYYY-MM-DD）。跨天整表清空。 */
+      this.usedDay = "";
+      /** 复活（A3）：本关已用次数，上限 2。第一次 +3 步，第二次 +1 步。 */
+      this.revivesUsed = 0;
+      /** 复活额外换来的步数预算；`moveLimit` 要把它加上去。 */
+      this.bonusMoves = 0;
+      /** 本次失败的成因。失败页据此决定给「+3 步」「+30 秒」还是「免费洗牌」。 */
+      this.failReason = "";
+      /** 提示计划的总步数（B1 提示改造）。视图用它显示「第 2/5 步」。 */
+      this.hintTotal = 0;
       this.returnModal = "none";
       /** 当前关的关卡定义（reset 时从关卡表取；单测可直接替换）。 */
       this.def = LEVELS[0];
+      /** 开局时还能消的牌数，作进度条分母；total 仍是全部牌位（存档校验靠它，别动）。 */
+      this.liveTotal = 0;
       this.seed = seed;
       this.platform = platform;
       let data;
@@ -734,51 +1209,111 @@
         if (data.tipsSeen && typeof data.tipsSeen === "object") {
           for (const [k, v] of Object.entries(data.tipsSeen)) if (v === true) this.tipsSeen[k] = true;
         }
+        const nums = (src, ok) => {
+          const out = {};
+          if (src && typeof src === "object") {
+            for (const [i, n] of Object.entries(src)) if (/^\d+$/.test(i) && Number.isInteger(n) && ok(Number(n))) out[i] = Number(n);
+          }
+          return out;
+        };
+        this.best = nums(data.best, (n) => n >= 0);
+        this.bestMoves = nums(data.bestMoves, (n) => n > 0);
+        this.pars = nums(data.pars, (n) => n > 0);
+        const today = dayStamp();
+        if (data.usedDay === today && data.used && typeof data.used === "object") {
+          for (const [i, v] of Object.entries(data.used)) {
+            if (!/^\d+$/.test(i) || !v || typeof v !== "object") continue;
+            const h = Math.max(0, Math.min(9, Number(v.h) || 0)), s = Math.max(0, Math.min(9, Number(v.s) || 0));
+            if (h || s) this.used[i] = { h, s };
+          }
+        }
+        this.usedDay = today;
         this.reducedMotion = data.reducedMotion === true;
         this.vibration = data.vibration !== false;
+      } else {
+        this.usedDay = dayStamp();
       }
-      this.reset(this.maxLevel, false);
-      if (data?.version === 2) this.restore(data.run);
+      if (!(data?.version >= 2 && this.restore(data.run))) this.reset(this.maxLevel, false);
       this.modal = "home";
     }
     save() {
       try {
         this.platform.save({
-          version: 2,
+          version: 4,
           maxLevel: this.maxLevel,
           stars: this.stars,
+          best: this.best,
+          bestMoves: this.bestMoves,
+          pars: this.pars,
+          used: this.used,
+          usedDay: this.usedDay,
           reducedMotion: this.reducedMotion,
           vibration: this.vibration,
           tipsSeen: this.tipsSeen,
-          run: count(this.grid) ? { index: this.levelIndex, seed: this.seed, grid: this.grid, total: this.total, moves: this.moves, par: this.par, hintsUsed: this.hintsUsed, shufflesUsed: this.shufflesUsed, clearedPairs: this.clearedPairs, goalDone: this.goalDone } : null
+          // 已经结束（通关 / 判负）的一局不再当成"可以继续的进度"落盘：否则冷启动会回到
+          // 一个已经赢了的目标盘（win 弹框不会重放）或 0 秒的限时盘（tick 只在 before>0 时判负，
+          // 于是 0 秒还能一直推）。通关那一局本来也不该继续。
+          run: !this.finished && count(this.grid) ? {
+            index: this.levelIndex,
+            seed: this.seed,
+            grid: this.grid,
+            total: this.total,
+            moves: this.moves,
+            par: this.par,
+            hintsUsed: this.hintsUsed,
+            shufflesUsed: this.shufflesUsed,
+            clearedPairs: this.clearedPairs,
+            goalDone: this.goalDone,
+            goalTarget: this.goalTarget,
+            score: this.score,
+            bonusMoves: this.bonusMoves,
+            revivesUsed: this.revivesUsed,
+            hintTotal: this.hintTotal,
+            timeLeft: Math.round(this.timeLeft * 10) / 10
+          } : null
         });
       } catch {
       }
     }
+    /** @returns 是否已经装好一副可玩的牌桌（false = 调用方需要用 `reset` 初始化）。 */
     restore(run) {
-      if (!run || !Number.isInteger(run.index) || run.index < 0 || run.index > this.maxLevel || !Array.isArray(run.grid)) return;
+      if (!run || !Number.isInteger(run.index) || run.index < 0 || run.index > this.maxLevel || !Array.isArray(run.grid)) return false;
       const map = levelAt(run.index).map, grid = run.grid;
-      if (grid.length !== map.length || !grid.every((row, r) => Array.isArray(row) && row.length === map[r].length && row.every((cell, c) => map[r][c] === "." ? cell === null : map[r][c] === "#" ? cell === "#" : Array.isArray(cell) && cell.length <= 3 && cell.every((f) => isFace(f))))) return;
-      if (![run.total, run.moves, run.par, run.seed, run.hintsUsed, run.shufflesUsed].every((n) => Number.isInteger(n) && n >= 0) || run.hintsUsed > 3 || run.shufflesUsed > 2 || run.moves > 1e5 || run.par > 1e4) return;
-      const tally = /* @__PURE__ */ new Map();
-      grid.flat().forEach((cell) => {
-        if (Array.isArray(cell)) cell.forEach((f) => tally.set(f, (tally.get(f) || 0) + 1));
-      });
-      if (!count(grid) || count(grid) > run.total || run.total > 136 || Array.from(tally.values()).some((n) => n % 2 || n > 4)) return;
-      this.reset(run.index, false);
+      if (grid.length !== map.length || !grid.every((row, r) => Array.isArray(row) && row.length === map[r].length && row.every((cell, c) => map[r][c] === "." ? cell === null : map[r][c] === "#" ? cell === "#" : Array.isArray(cell) && cell.length <= 3 && cell.every((f) => isFace(f))))) return false;
+      if (![run.total, run.moves, run.par, run.seed, run.hintsUsed, run.shufflesUsed].every((n) => Number.isInteger(n) && n >= 0) || run.hintsUsed > 9 || run.shufflesUsed > 9 || run.moves > 1e5 || run.par > 1e4) return false;
+      if (!stateLegal(grid) || count(grid) > run.total || run.total > 136) return false;
+      const level = levelAt(run.index), limit = level.timeLimit || 0;
+      const tl = Number.isFinite(run.timeLeft) ? run.timeLeft : limit;
+      if (limit && tl <= 0) {
+        this.reset(run.index, false);
+        this.message = "\u4E0A\u4E00\u5C40\u65F6\u95F4\u5DF2\u7ECF\u7528\u5B8C\uFF0C\u8FD9\u4E00\u5173\u91CD\u65B0\u5F00\u59CB\u3002";
+        return true;
+      }
+      const target = Number.isInteger(run.goalTarget) ? run.goalTarget : 0;
+      if (target > 0 && Number.isInteger(run.goalDone) && run.goalDone >= target) return false;
+      this.setupLevel(run.index);
+      this.timeLeft = Math.max(0, Math.min(tl, limit));
       this.grid = clone(grid);
       this.seed = run.seed;
       this.total = run.total;
       this.moves = run.moves;
       this.par = run.par;
-      this.hintsUsed = run.hintsUsed;
-      this.shufflesUsed = run.shufflesUsed;
+      this.liveTotal = liveCount(this.grid, this.dialect) + (this.total - count(this.grid));
+      const book = this.used[this.levelIndex];
+      this.hintsUsed = book ? book.h : 0;
+      this.shufflesUsed = book ? book.s : 0;
+      this.score = Number.isInteger(run.score) ? Math.max(0, run.score) : 0;
+      this.bonusMoves = Number.isInteger(run.bonusMoves) ? Math.max(0, run.bonusMoves) : 0;
+      this.revivesUsed = Number.isInteger(run.revivesUsed) ? Math.max(0, Math.min(2, run.revivesUsed)) : 0;
+      this.hintTotal = Number.isInteger(run.hintTotal) ? Math.max(0, run.hintTotal) : 0;
       this.clearedPairs = Number.isInteger(run.clearedPairs) ? Math.max(0, run.clearedPairs) : 0;
       this.goalDone = Number.isInteger(run.goalDone) ? Math.max(0, run.goalDone) : 0;
+      this.goalTarget = Math.max(this.goalDone, goalPairs(this.def, this.grid));
       this.refreshRuns();
       this.tip = null;
       this.solution = [];
       this.message = "\u724C\u684C\u5DF2\u4FDD\u7559\uFF0C\u63A5\u7740\u4E0A\u4E00\u76D8\u6162\u6162\u60F3\u3002";
+      return true;
     }
     /**
      * 按「当前盘面 + 当前已消对数」重算滑轨。
@@ -793,6 +1328,22 @@
     get levelCount() {
       return LEVELS.length;
     }
+    /** 本关钉死的发牌种子；`null` = 该关没钉（主线不该出现，无尽段之外的兜底路径）。 */
+    get pinnedSeed() {
+      return Number.isInteger(this.def.seed) ? this.def.seed >>> 0 : null;
+    }
+    /** 本关限时秒数；0 = 不限时。视图据此决定要不要画倒计时。 */
+    get timeLimit() {
+      return this.def.timeLimit || 0;
+    }
+    /** 本关方言（哪些牌能配对）。所有配对判定都要带上它。 */
+    get dialect() {
+      return this.def.dialect;
+    }
+    /** 还能被消掉的牌数。方言关的进度条和剩余数必须用它，否则玩家面对一堆消不掉的哑弹永远到不了 0。 */
+    get remaining() {
+      return liveCount(this.grid, this.dialect);
+    }
     /** 牌面代号 → 中文名（目标关 HUD 等界面文案用）。 */
     static faceName(face) {
       const nums = "\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D";
@@ -802,9 +1353,14 @@
       if (/^f[1-8]$/.test(face)) return ["\u6625", "\u590F", "\u79CB", "\u51AC", "\u6885", "\u5170", "\u7AF9", "\u83CA"][Number(face[1]) - 1];
       return face;
     }
-    /** 难度 1~5，由关卡序号推导；关卡数据本身不再携带章节与名称。 */
+    /**
+     * 难度 1~5：按章推进。旧口径 `1+floor(index/20)` 在 224 关下会把前三章全标成同一级，
+     * 而章节才是玩家感知的难度台阶。
+     */
+    // 用 ?? 而不是 Number.isInteger 判空：TS 不认后者做类型窄化。
     get difficulty() {
-      return Math.min(5, 1 + Math.floor(this.levelIndex / 20));
+      const c = this.def.chapter ?? Math.floor(this.levelIndex / 16);
+      return Math.max(1, Math.min(5, 1 + Math.floor(c / 3.2)));
     }
     get hintsLeft() {
       return 3 - this.hintsUsed;
@@ -812,12 +1368,21 @@
     get shufflesLeft() {
       return 2 - this.shufflesUsed;
     }
+    /**
+     * 方言关不提供洗牌——这是产品决定，不是兜底失败。
+     * 方言的牌池被白名单砍窄，`redeal` 用的又是**别的种子**（`seed + revision*7919`），
+     * 实测经常发不出可证满盘解；与其让玩家按了没反应，不如明说"洗不开"。
+     * 设计意图：方言章卖的是规划，不是重开一次运气。
+     */
+    get shuffleBlocked() {
+      return !!this.def.dialect;
+    }
     get canUndo() {
       return this.history.length > 0;
     }
-    /** 本关步数上限（0 = 不限步）。 */
+    /** 本关步数上限（0 = 不限步）。复活换来的额外步数算在里面。 */
     get moveLimit() {
-      return this.def.moveLimit || 0;
+      return (this.def.moveLimit || 0) + this.bonusMoves;
     }
     get movesLeft() {
       return this.moveLimit ? Math.max(0, this.moveLimit - this.moves) : 0;
@@ -826,31 +1391,50 @@
     get goal() {
       return this.def.goal || null;
     }
+    /**
+     * 本关**需要**完成的目标数：`min(def.goal.count, 盘面给得出的对数)`。
+     *
+     * 正常进关（reset / restore）时就已经定死在 `goalTarget` 里——不能边收边算，
+     * 否则收掉一对之后盘面上只剩一对，目标会越算越小。这里只为「绕过 reset 直接改 def」
+     * 的路径（单测、调试）就地补算一次并冻结。
+     */
+    get goalNeed() {
+      if (!this.goal) return 0;
+      if (!this.goalTarget) this.goalTarget = goalPairs(this.def, this.grid);
+      return this.goalTarget;
+    }
+    /** 只看 `goalNeed`，不看关卡表里那个可能偏大的 `count`。 */
     get goalReached() {
-      const g = this.goal;
-      return !!g && this.goalDone >= g.count;
+      return this.goalNeed > 0 && this.goalDone >= this.goalNeed;
     }
     /**
      * 可靠的死局判定（不是近似搜索）：没有可消对子，且所有可达状态都没有任何一步能减少牌数。
      * 视图在每次落子后调用；预算用尽时返回 false（不误判）。
      */
     get dead() {
-      if (!count(this.grid) || this.goalReached) return false;
+      if (!liveCount(this.grid, this.dialect) || this.goalReached) return false;
       return isDead(this.grid, (grid) => {
         const l = activeLocks(this.def, this.clearedPairs);
         return runsFor(grid, l.lockR, l.lockC, this.def.oneWay);
-      }, 2e3);
+      }, 2e3, 60, this.dialect);
     }
     /** 待展示的说明卡：第 1 关固定教学；其余机制只在首次出现时弹一次。 */
     get introTip() {
       return this.tip;
     }
+    /** 这一关该弹的是「手写小盘教学」还是「文字卡」：非 null 就开教学屏（视图据此分岔）。 */
+    get introTutorial() {
+      return this.tip ? tutorialByKey(this.tip) : null;
+    }
     dismissTip() {
       const t = this.tip;
-      if (t && t !== "basic") {
-        this.tipsSeen[t] = true;
-        this.save();
+      if (!t) return;
+      this.tipsSeen[t] = true;
+      if (tutorialByKey(t)) {
+        if (this.def.intro && !this.tipsSeen[this.def.intro]) this.tipsSeen[this.def.intro] = true;
+        if (this.levelIndex === 0) this.tipsSeen["basic"] = true;
       }
+      this.save();
       this.tip = null;
       this.revision++;
     }
@@ -859,23 +1443,58 @@
     get openedFrom() {
       return this.returnModal;
     }
+    /**
+     * 本章已拿到的星数。**只统计已通关的关**（`stars` 里没有的关不贡献）。
+     * 章节门槛（B2）与选关页页脚的「还需 N 星」都读它。
+     */
+    chapterStars(chapter) {
+      const from = chapter * CHAPTER_SIZE, to = Math.min(from + CHAPTER_SIZE, LEVELS.length);
+      let n = 0;
+      for (let i = from; i < to; i++) n += this.stars[i] || 0;
+      return n;
+    }
+    /** 本章星数门槛。 */
+    gateOf(chapter) {
+      return gateFor(chapter);
+    }
+    /** 距离解锁本章还差几星（0 = 已达标）。 */
+    gateGap(chapter) {
+      return Math.max(0, gateFor(chapter) - this.chapterStars(chapter));
+    }
+    /**
+     * 这一关能不能进：`maxLevel` 的线性进度 **+ 上一章的星数门槛**，两道闸叠加。
+     *
+     * `maxLevel` 的语义刻意不改——它仍然是「已通关的最远关」。
+     * 这样「打完了第 16 关但星数不够」是合法可表达的状态（maxLevel=16 且 canEnter(16)=false），
+     * 不需要重构存档，也不用给 maxLevel 塞第二层含义。
+     *
+     * `unlockAll`（体验版 / 开发版）必须绕过门槛，否则内部测试会被自己的门槛挡住。
+     */
+    canEnter(index) {
+      if (!Number.isInteger(index) || index < 0 || index >= LEVELS.length) return false;
+      if (this.unlockAll) return true;
+      if (index > this.maxLevel) return false;
+      const c = chapterOf(index);
+      if (c === 0) return true;
+      return this.chapterStars(c - 1) >= gateFor(c - 1);
+    }
+    /** 星级：只看步数（旧口径的「用道具掉星」已删，理由见 `ratingFor` 注释）。 */
     get rating() {
-      return this.moves <= this.par && !this.hintsUsed && !this.shufflesUsed ? 3 : this.moves <= Math.ceil(this.par * 1.5) ? 2 : 1;
+      return ratingFor(this.moves, this.par);
+    }
+    /** 本关的 2 星线 / 3 星线。视图（牌桌 HUD、失败页、选关页）直接用，避免两端各算一遍算岔。 */
+    get starLines() {
+      return starLines(this.par);
     }
     remember() {
-      this.history.push({ grid: clone(this.grid), moves: this.moves, lastChain: this.lastChain, solution: this.solution.slice(), hint: this.hint.slice(), clearedPairs: this.clearedPairs, goalDone: this.goalDone });
+      this.history.push({ grid: clone(this.grid), moves: this.moves, lastChain: this.lastChain, solution: this.solution.slice(), hint: this.hint.slice(), clearedPairs: this.clearedPairs, goalDone: this.goalDone, timeLeft: this.timeLeft, score: this.score });
       if (this.history.length > 80) this.history.shift();
     }
-    reset(index = this.levelIndex, fresh = true) {
-      const chosen = Number.isFinite(index) ? Math.max(0, Math.min(LEVELS.length - 1, Math.floor(index))) : 0;
-      if (fresh) this.seed = this.seed + 2654435769 >>> 0;
-      const deal = generate(chosen, this.seed);
+    /** 只装配关卡的静态部分（定义、计数器、待弹的说明卡），**不发牌**。 */
+    setupLevel(chosen) {
       this.levelIndex = chosen;
       this.def = levelAt(chosen);
-      this.grid = deal.grid;
-      this.runs = deal.runs;
-      this.solution = deal.solution;
-      this.total = count(this.grid);
+      this.finished = false;
       this.moves = 0;
       this.lastChain = 0;
       this.selected = null;
@@ -883,37 +1502,132 @@
       this.history = [];
       this.modal = "none";
       this.lastErased = [];
-      this.par = deal.solution.length;
-      this.hintsUsed = 0;
-      this.shufflesUsed = 0;
+      const book = this.used[chosen];
+      this.hintsUsed = book ? book.h : 0;
+      this.shufflesUsed = book ? book.s : 0;
       this.levelPage = Math.floor(chosen / PAGE_SIZE);
       this.returnModal = "none";
       this.clearedPairs = 0;
       this.goalDone = 0;
-      this.tip = chosen === 0 ? "basic" : this.def.intro && !this.tipsSeen[this.def.intro] ? this.def.intro : null;
-      this.message = chosen === 0 ? "\u540C\u724C\u76F8\u90BB\uFF0C\u8F7B\u70B9\u6D88\u9664\uFF1B\u62D6\u52A8\u4E00\u884C\u6216\u4E00\u5217\uFF0C\u677E\u624B\u81EA\u52A8\u6D88\u3002" : "\u770B\u6E05\u8FD9\u76D8\u7684\u969C\u788D\uFF0C\u5148\u627E\u51FA\u7B2C\u4E00\u6B65\u3002";
+      this.goalTarget = 0;
+      this.score = 0;
+      this.bonusMoves = 0;
+      this.revivesUsed = 0;
+      this.failReason = "";
+      this.hintTotal = 0;
+      this.timeLeft = this.def.timeLimit || 0;
+      this.paused = false;
+      const chapter = this.def.chapter ?? Math.floor(chosen / 16);
+      const tutKey = tutorialFor(chapter) ? tutorialKey(chapter) : null;
+      if (tutKey && !this.tipsSeen[tutKey]) this.tip = tutKey;
+      else if (chosen === 0 && !this.tipsSeen["basic"]) this.tip = "basic";
+      else this.tip = this.def.intro && !this.tipsSeen[this.def.intro] ? this.def.intro : null;
+    }
+    /**
+     * 发牌，**绝不向上抛**。
+     *
+     * `generate` 内部已经用确定性派生种子重试过 6 次，理论上仍可能全部摇不出可验证的清台路线。
+     * 以前这里把异常直接抛穿：`onLoad` 里一句 `new Session()` 炸掉就是整屏空白，
+     * 而真机读不到 console。现在换种子重试，最后兜到第 1 关（360 次抽样 0 失败），
+     * 保证界面一定起得来。
+     */
+    deal(chosen) {
+      const pin = LEVELS[chosen]?.seed;
+      const attempts = Number.isInteger(pin) ? [pin >>> 0] : [1, 2, 3, 4].map((k) => this.seed + Math.imul(k, 2654435769) >>> 0);
+      for (const s of attempts) {
+        try {
+          return { index: chosen, deal: generate(chosen, s) };
+        } catch {
+        }
+      }
+      console.error("[core] \u8FD9\u4E00\u5173\u53D1\u4E0D\u51FA\u53EF\u9A8C\u8BC1\u7684\u724C\uFF0C\u5DF2\u515C\u5E95\u5230\u7B2C 1 \u5173\u3002\u9489\u6B7B\u79CD\u5B50\u7684\u5173\u51FA\u73B0\u8FD9\u6761\uFF1Dlevels.ts \u4E0E .test \u4E0D\u540C\u6B65\uFF0C\u8BF7\u91CD\u8DD1 npm run author:levels", { level: chosen, seed: this.seed, pin });
+      this.seed = this.seed + 1 >>> 0;
+      return { index: 0, deal: generate(0, this.seed) };
+    }
+    reset(index = this.levelIndex, fresh = true) {
+      const wanted = Number.isFinite(index) ? Math.max(0, Math.min(LEVELS.length - 1, Math.floor(index))) : 0;
+      const pin = LEVELS[wanted]?.seed;
+      this.seed = Number.isInteger(pin) ? pin >>> 0 : fresh ? this.seed + 2654435769 >>> 0 : this.seed;
+      const { index: chosen, deal } = this.deal(wanted);
+      this.setupLevel(chosen);
+      this.grid = deal.grid;
+      this.runs = deal.runs;
+      this.solution = deal.solution;
+      this.total = count(this.grid);
+      this.liveTotal = liveCount(this.grid, this.dialect);
+      this.par = deal.solution.length;
+      this.goalTarget = goalPairs(this.def, this.grid);
+      this.message = chosen === 0 ? "\u540C\u724C\u76F8\u90BB\uFF0C\u8F7B\u70B9\u6D88\u9664\uFF1B\u62D6\u52A8\u4E00\u884C\u6216\u4E00\u5217\uFF0C\u677E\u624B\u81EA\u52A8\u6D88\u3002" : chosen !== wanted ? "\u8FD9\u4E00\u5173\u6682\u65F6\u53D1\u4E0D\u51FA\u53EF\u89E3\u7684\u724C\uFF0C\u5148\u7ED9\u4F60\u6446\u4E86\u7B2C 1 \u5173\u3002" : "\u770B\u6E05\u8FD9\u76D8\u7684\u969C\u788D\uFF0C\u5148\u627E\u51FA\u7B2C\u4E00\u6B65\u3002";
       this.revision++;
+    }
+    setPaused(v) {
+      this.paused = v;
+    }
+    /**
+     * 限时关的秒数推进。视图每帧喂 dt，**只有牌桌活跃、无弹窗、没被说明卡挡住、未暂停时才走表**。
+     *
+     * 单帧钳到 0.25 秒：小游戏切后台掉帧、一次 GC 卡十几秒，都不许把倒计时吃掉——
+     * 玩家因为手机卡了一下就被判负，是要投诉的。真实时间靠 `paused` 挡，不用 `Date.now()` 追：
+     * 追时间必然在"接电话回来"的那一刻做出错误判决。
+     * @returns 是否跨过了整秒（视图据此决定要不要重绘）
+     */
+    tick(dt) {
+      if (!this.def.timeLimit || this.modal !== "none" || this.tip || this.paused) return false;
+      const before = this.timeLeft;
+      this.timeLeft = Math.max(0, this.timeLeft - Math.min(Math.max(dt, 0), 0.25));
+      if (this.timeLeft <= 0 && before > 0) {
+        this.modal = "lose";
+        this.finished = true;
+        this.failReason = "time";
+        this.message = `\u65F6\u95F4\u5230\uFF0C\u8FD8\u5DEE ${liveCount(this.grid, this.dialect)} \u5F20\u53EF\u6D88\u3002`;
+        this.save();
+        return true;
+      }
+      const crossed = Math.ceil(this.timeLeft) !== Math.ceil(before);
+      if (crossed) this.save();
+      return crossed;
     }
     apply(action) {
       if (this.modal !== "none" || this.tip) return false;
-      const out = transition(this.grid, this.runs, action);
+      const out = transition(this.grid, this.runs, action, this.dialect);
       if (!out.changed) return false;
+      const need = this.goalNeed;
       this.remember();
-      const planned = this.solution[0], expected = planned ? transition(this.grid, this.runs, planned) : null;
+      const planned = this.solution[0], expected = planned ? transition(this.grid, this.runs, planned, this.dialect) : null;
       if (expected?.changed && signature(expected.grid) === signature(out.grid)) this.solution.shift();
       else this.solution = [];
       const hinted = this.hint[0];
-      if (hinted && signature(transition(this.grid, this.runs, hinted).grid) === signature(out.grid)) this.hint.shift();
-      else this.hint = [];
+      if (hinted && signature(transition(this.grid, this.runs, hinted, this.dialect).grid) === signature(out.grid)) {
+        this.hint.shift();
+        if (!this.hint.length) this.hintTotal = 0;
+      } else {
+        this.hint = [];
+        this.hintTotal = 0;
+      }
       this.grid = out.grid;
       this.selected = null;
       this.lastChain = out.chain;
       this.lastErased = out.erased;
       this.moves++;
-      const cleared = out.erased.filter((p) => !hasIce(p.face)).length;
+      this.score += Math.round(out.erased.length * 10 * (1 + 0.5 * (Math.max(1, out.chain) - 1)));
+      const whole = (p) => !hasIce(p.face) && !hasIce(p.other);
+      const anyIce = (p) => hasIce(p.face) || hasIce(p.other);
+      const cleared = out.erased.filter(whole).length;
       this.clearedPairs += cleared;
       const g = this.goal;
-      if (g) this.goalDone += g.kind === "face" ? g.face ? out.erased.filter((p) => p.face === g.face || p.face.startsWith(g.face + "~")).length : cleared : out.erased.filter((p) => hasIce(p.face)).length;
+      if (g) {
+        const base = unwild(g.face || "");
+        const isGoal = (p) => unwild(stripIce(p.face)) === base || unwild(stripIce(p.other)) === base;
+        if (g.kind === "collect") {
+          const hit = /* @__PURE__ */ new Set();
+          for (const pr of out.erased) for (const f of [pr.face, pr.other]) {
+            const b = unwild(stripIce(f));
+            if (g.faces && g.faces.includes(b)) hit.add(b);
+          }
+          this.goalDone += hit.size;
+        } else this.goalDone += g.kind === "face" ? g.face ? out.erased.filter(isGoal).length : cleared : out.erased.filter(anyIce).length;
+        if (need) this.goalDone = Math.min(this.goalDone, need);
+      }
       this.refreshRuns();
       if (out.erased.length && this.vibration) {
         try {
@@ -921,19 +1635,28 @@
         } catch {
         }
       }
-      const brokeIce = out.erased.some((p) => hasIce(p.face));
-      this.message = brokeIce ? "\u51B0\u5C42\u788E\u4E86\uFF0C\u9732\u51FA\u724C\u9762\u518D\u6D88\u4E00\u6B21\u624D\u80FD\u6536\u8D70\u3002" : out.erased.length ? out.chain > 1 ? `\u8FDE\u6D88 ${out.chain} \u5C42\uFF0C\u5E26\u8D70 ${out.erased.length} \u5BF9\uFF01` : `\u78B0\u4E2A\u5BF9\uFF01\u6D88\u6389 ${out.erased.length} \u5BF9\u3002` : "\u518D\u8F6C\u4E2A\u65B9\u5411\uFF0C\u724C\u4F1A\u4ECE\u8F68\u9053\u53E6\u4E00\u5934\u56DE\u6765\u3002";
-      if (this.hint.length) this.message = this.describe(this.hint[0]);
-      const done = count(this.grid) === 0;
+      const brokeIce = out.erased.some(anyIce);
+      this.message = brokeIce ? "\u51B0\u5C42\u788E\u4E86\uFF0C\u9732\u51FA\u724C\u9762\u518D\u6D88\u4E00\u6B21\u624D\u80FD\u6536\u8D70\u3002" : out.erased.length ? out.chain >= 3 ? `\u6760\uFF01\u8FDE\u6D88 ${out.chain} \u5C42\uFF0C\u5E26\u8D70 ${out.erased.length} \u5BF9\u3002` : out.chain > 1 ? `\u78B0\uFF01\u8FDE\u6D88 ${out.chain} \u5C42\uFF0C\u5E26\u8D70 ${out.erased.length} \u5BF9\u3002` : `\u78B0\u4E2A\u5BF9\uFF01\u6D88\u6389 ${out.erased.length} \u5BF9\u3002` : "\u518D\u8F6C\u4E2A\u65B9\u5411\uFF0C\u724C\u4F1A\u4ECE\u8F68\u9053\u53E6\u4E00\u5934\u56DE\u6765\u3002";
+      if (this.hint.length) this.message = this.hintLead() + this.describe(this.hint[0]);
+      const done = liveCount(this.grid, this.dialect) === 0;
       if (done || this.goalReached) {
         this.modal = "win";
+        this.finished = true;
         this.maxLevel = Math.max(this.maxLevel, Math.min(LEVELS.length - 1, this.levelIndex + 1));
-        this.stars[this.levelIndex] = Math.max(this.stars[this.levelIndex] || 0, this.rating);
+        const lv = this.levelIndex;
+        this.stars[lv] = Math.max(this.stars[lv] || 0, this.rating);
+        this.best[lv] = Math.max(this.best[lv] || 0, this.score);
+        this.bestMoves[lv] = this.bestMoves[lv] ? Math.min(this.bestMoves[lv], this.moves) : this.moves;
+        if (this.par > 0) this.pars[lv] = this.par;
+        delete this.used[lv];
         this.hint = [];
-        if (!done) this.message = "\u76EE\u6807\u8FBE\u6210\uFF0C\u901A\u5173\uFF01";
+        this.hintTotal = 0;
+        this.message = done ? "\u80E1\u4E86\uFF01\u6E05\u53F0\u3002" : "\u80E1\u4E86\uFF01\u76EE\u6807\u8FBE\u6210\u3002";
       } else if (this.moveLimit && this.moves >= this.moveLimit) {
         this.modal = "lose";
-        this.message = `\u6B65\u6570\u7528\u5C3D\uFF0C\u8FD8\u5DEE ${count(this.grid)} \u5F20\u3002`;
+        this.finished = true;
+        this.failReason = "step";
+        this.message = `\u6B65\u6570\u7528\u5C3D\uFF0C\u8FD8\u5DEE ${liveCount(this.grid, this.dialect)} \u5F20\u53EF\u6D88\u3002`;
       }
       this.save();
       this.revision++;
@@ -947,11 +1670,11 @@
         this.revision++;
         return;
       }
-      if (this.selected && partners(this.grid, this.selected).some((q) => equal(q, p))) {
+      if (this.selected && partners(this.grid, this.selected, this.dialect).some((q) => equal(q, p))) {
         this.apply({ kind: "match", a: this.selected, b: p });
         return;
       }
-      const near = partners(this.grid, p);
+      const near = partners(this.grid, p, this.dialect);
       if (near.length === 1) {
         this.apply({ kind: "match", a: p, b: near[0] });
         return;
@@ -974,12 +1697,96 @@
       }
       this.revision++;
     }
+    /**
+     * 视图判定「牌走死」（`dead` 为真）之后调用。
+     *
+     * 以前视图只是把屏幕切到失败页，Session 仍停在 `modal='none'` 的活跃状态：
+     * 限时关会继续走表（失败原因被改写成"时间到"），存档也会把死盘写进去，
+     * 冷启动后落在一个既没有失败页、也走不动的牌桌上。
+     */
+    finishDead() {
+      if (this.finished) return;
+      this.finished = true;
+      this.modal = "lose";
+      this.failReason = "dead";
+      this.message = "\u724C\u8D70\u6B7B\u4E86\uFF1A\u5269\u4E0B\u7684\u724C\u51D1\u4E0D\u51FA\u53EF\u6D88\u7684\u7EC4\u5408\u3002";
+      this.save();
+      this.revision++;
+    }
+    /**
+     * 还能不能复活（A3）。死局不给复活——死局的痛点是「这盘无解」，
+     * 卖广告解决不了根本问题，只会让玩家觉得被敲诈。死局走 `rescueShuffle`（免费）。
+     */
+    get canRevive() {
+      return this.modal === "lose" && this.finished && this.failReason !== "dead" && this.revivesUsed < 2;
+    }
+    /** 这次复活能换多少：第一次 +3 步，第二次 +1 步。不做递减上限就是无限续命。 */
+    get reviveBonus() {
+      return this.revivesUsed === 0 ? 3 : 1;
+    }
+    /**
+     * 复活：保留盘面与进度，把步数预算 / 倒计时补回来。
+     *
+     * 为什么值钱：盘面已经消掉一大半，重开要从头来。复活卖的是**已经投入的那 5 分钟**，
+     * 这也是激励视频点击率最高的点位。
+     */
+    revive() {
+      if (!this.canRevive) return false;
+      if (this.failReason === "step") {
+        this.bonusMoves += this.reviveBonus;
+      } else if (this.failReason === "time") {
+        this.timeLeft = Math.max(0, this.timeLeft) + 30;
+      } else return false;
+      this.revivesUsed++;
+      this.finished = false;
+      this.modal = "none";
+      this.failReason = "";
+      this.selected = null;
+      this.hint = [];
+      this.hintTotal = 0;
+      this.message = this.bonusMoves ? `\u8865\u4E86 ${this.reviveBonus} \u6B65\uFF0C\u63A5\u7740\u63A8\u3002` : "\u8865\u4E86 30 \u79D2\uFF0C\u63A5\u7740\u63A8\u3002";
+      this.save();
+      this.revision++;
+      return true;
+    }
+    /**
+     * 死局救援：免费重排剩余牌，**不消耗本关洗牌额度**。
+     *
+     * 这是刻意让利的点位：玩家在「这盘走死了」的时候最容易被激怒，
+     * 这时候免费救一次，他会相信后面的广告不是敲诈。方言关洗不开就返回 false，走重开。
+     */
+    rescueShuffle() {
+      if (this.modal !== "lose" || this.failReason !== "dead") return false;
+      const deal = redeal(this.levelIndex, this.grid, this.seed + this.revision * 7919 >>> 0);
+      if (!deal) {
+        this.message = "\u8FD9\u4E00\u5173\u7684\u724C\u91CD\u6392\u4E0D\u5F00\uFF0C\u53EA\u80FD\u91CD\u65B0\u5F00\u59CB\u3002";
+        this.revision++;
+        return false;
+      }
+      this.remember();
+      this.grid = deal.grid;
+      this.runs = deal.runs;
+      this.solution = deal.solution;
+      this.hint = [];
+      this.hintTotal = 0;
+      this.selected = null;
+      this.lastChain = 0;
+      this.lastErased = [];
+      this.refreshRuns();
+      this.finished = false;
+      this.modal = "none";
+      this.failReason = "";
+      this.message = "\u724C\u91CD\u6392\u8FC7\u4E86\uFF0C\u63A5\u7740\u6765\u3002";
+      this.save();
+      this.revision++;
+      return true;
+    }
     slide(run, step) {
       return this.apply({ kind: "slide", run, step });
     }
     undo() {
       if (this.tip) return false;
-      if (this.modal !== "none" && this.modal !== "win" && this.modal !== "lose") return false;
+      if (this.modal !== "none" && this.modal !== "win") return false;
       const snap = this.history.pop();
       if (!snap) {
         this.message = "\u8FD8\u6CA1\u6709\u9700\u8981\u64A4\u9500\u7684\u64CD\u4F5C\u3002";
@@ -987,23 +1794,30 @@
         return false;
       }
       this.grid = snap.grid;
-      this.moves = snap.moves;
       this.lastChain = snap.lastChain;
       this.solution = snap.solution;
       this.hint = snap.hint;
+      this.hintTotal = 0;
       this.clearedPairs = snap.clearedPairs;
       this.goalDone = snap.goalDone;
+      this.score = snap.score;
+      this.finished = false;
+      this.failReason = "";
       this.refreshRuns();
       this.selected = null;
       this.modal = "none";
       this.lastErased = [];
-      this.message = "\u521A\u624D\u7684\u6574\u6B21\u64CD\u4F5C\uFF0C\u5DF2\u7ECF\u4E00\u8D77\u64A4\u56DE\u3002";
+      this.message = "\u521A\u624D\u90A3\u4E00\u6B65\u64A4\u56DE\u4E86\uFF08\u6B65\u6570\u4E0D\u9000\uFF0C\u65F6\u95F4\u4E0D\u9000\uFF09\u3002";
       this.save();
       this.revision++;
       return true;
     }
     shuffle() {
       if (this.modal !== "none" || this.tip || !count(this.grid)) return false;
+      if (this.shuffleBlocked) {
+        this.notice("\u8FD9\u4E00\u5173\u7684\u724C\u6D17\u4E0D\u5F00\uFF1A\u65B9\u8A00\u5173\u53EA\u6709\u4E00\u79CD\u89E3\u6CD5\uFF0C\u9760\u63A8\u4E0D\u9760\u8FD0\u6C14\u3002");
+        return false;
+      }
       if (!this.shufflesLeft) {
         this.notice("\u672C\u5173\u4E24\u6B21\u514D\u8D39\u6D17\u724C\u5DF2\u7528\u5B8C\uFF0C\u53EF\u4EE5\u64A4\u9500\u6216\u91CD\u5F00\u3002");
         return false;
@@ -1024,15 +1838,46 @@
       this.lastErased = [];
       this.refreshRuns();
       this.shufflesUsed++;
-      this.message = "\u539F\u724C\u91CD\u65B0\u6446\u597D\uFF1B\u6D17\u724C\u4E0D\u6539\u724C\u79CD\uFF0C\u4F7F\u7528\u8F85\u52A9\u6700\u591A\u83B7\u4E24\u661F\u3002";
+      this.used[this.levelIndex] = { h: this.hintsUsed, s: this.shufflesUsed };
+      this.message = "\u539F\u724C\u91CD\u65B0\u6446\u597D\uFF1B\u6D17\u724C\u4E0D\u6539\u724C\u79CD\u3002";
       this.save();
       this.revision++;
       return true;
     }
+    /**
+     * 提示文案。**必须短**：它要和「第 1/3 步 · 」前缀一起塞进顶部横幅一行，
+     * 以前写成「先推第 1 行，向右 1 格；下一步会接着提示。」+ 前缀就溢出了，
+     * 玩家看到的是一条被截断的省略号。
+     */
     describe(a) {
-      if (a.kind === "match") return `\u70B9\u4EAE\u7740\u7684\u5BF9\u5B50\uFF1A\u7B2C ${a.a.r + 1} \u884C\u7B2C ${a.a.c + 1} \u5217\u3002`;
+      if (a.kind === "match") return `\u70B9\u7B2C ${a.a.r + 1} \u884C\u7B2C ${a.a.c + 1} \u5217\u8FD9\u4E00\u5BF9\u3002`;
       const r = this.runs[a.run];
-      return `${this.hint.length > 1 ? "\u5148" : ""}\u63A8\u7B2C ${r.index + 1} ${r.axis === "row" ? "\u884C" : "\u5217"}\uFF0C\u5411${r.axis === "row" ? a.step > 0 ? "\u53F3" : "\u5DE6" : a.step > 0 ? "\u4E0B" : "\u4E0A"} ${Math.abs(a.step)} \u683C${this.hint.length > 1 ? "\uFF1B\u4E0B\u4E00\u6B65\u4F1A\u63A5\u7740\u63D0\u793A\u3002" : "\u3002"}`;
+      return `\u63A8\u7B2C ${r.index + 1} ${r.axis === "row" ? "\u884C" : "\u5217"}\uFF0C\u5411${r.axis === "row" ? a.step > 0 ? "\u53F3" : "\u5DE6" : a.step > 0 ? "\u4E0B" : "\u4E0A"} ${Math.abs(a.step)} \u683C\u3002`;
+    }
+    /**
+     * 生成一段**分步提示计划**（B1 提示改造）。
+     *
+     * 旧口径是 `searchHint(maxDepth=3)`：它只回答「眼前 3 步内能消什么」，
+     * 对 par=40 的关等于给了 9 步、剩下 31 步还是不会走。玩家体感是「提示没用」。
+     *
+     * 新口径：`solution`（生成器证书路线）还跟得上当前盘面时，直接沿它给 K 步——
+     * 一次提示卖的是「这一段怎么走」。走偏了才退回局部搜索，并且明说不再保证三星。
+     */
+    planHint() {
+      const K = Math.max(3, Math.min(8, Math.round(this.par / 6) || 3));
+      if (this.solution.length) {
+        if (transition(this.grid, this.runs, this.solution[0], this.dialect).changed) return this.solution.slice(0, K);
+      }
+      const h = searchHint(this.grid, this.runs, { budget: 1800, maxDepth: liveCount(this.grid, this.dialect) <= 6 ? 8 : 3 }, this.dialect);
+      if (h.status === "found" && h.actions.length) return h.actions;
+      if (this.solution.length) return [this.solution[0]];
+      return [];
+    }
+    /** 分步提示的前缀「第 2/5 步 · 」。推对一步后由 `apply` 接着用，玩家能看出计划在往前走。 */
+    hintLead() {
+      if (this.hintTotal <= 1) return "";
+      const done = this.hintTotal - this.hint.length + 1;
+      return `\u7B2C ${done}/${this.hintTotal} \u6B65 \xB7 `;
     }
     requestHint() {
       if (this.modal !== "none" || this.tip) return;
@@ -1043,17 +1888,20 @@
         return;
       }
       if (!this.hintsLeft) {
-        this.notice("\u672C\u5173\u4E09\u6B21\u514D\u8D39\u63D0\u793A\u5DF2\u7528\u5B8C\uFF0C\u8BD5\u8BD5\u64A4\u9500\u6216\u91CD\u5F00\u3002");
+        this.notice("\u672C\u5173\u4E09\u6B21\u63D0\u793A\u5DF2\u7528\u5B8C\u3002\u91CD\u5F00\u4E0D\u4F1A\u6062\u590D\u6B21\u6570\uFF0C\u660E\u5929\u4F1A\u91CD\u7F6E\u3002");
         return;
       }
-      const h = searchHint(this.grid, this.runs, { budget: 1800, maxDepth: count(this.grid) <= 6 ? 8 : 3 });
-      this.hint = h.status === "found" ? h.actions : [];
-      if (!this.hint.length && this.solution.length) this.hint = [this.solution[0]];
+      const plan = this.planHint();
+      this.hint = plan;
+      this.hintTotal = plan.length;
       if (this.hint.length) {
         this.hintsUsed++;
+        this.used[this.levelIndex] = { h: this.hintsUsed, s: this.shufflesUsed };
         this.save();
       }
-      this.message = this.hint.length ? this.describe(this.hint[0]) : h.status === "dead" ? "\u5F53\u524D\u786E\u5B9E\u6CA1\u6709\u6D88\u9664\u8DEF\u7EBF\uFF0C\u53EF\u4EE5\u64A4\u9500\u3001\u6D17\u724C\u6216\u91CD\u5F00\u3002" : "\u6682\u65F6\u6CA1\u627E\u5230\u77ED\u8DEF\u7EBF\uFF0C\u4E0D\u4EE3\u8868\u65E0\u89E3\u3002\u53EF\u4EE5\u7EE7\u7EED\u63A8\uFF0C\u6216\u8BD5\u8BD5\u6D17\u724C\u3002";
+      const retry = this.shuffleBlocked ? "\u53EF\u4EE5\u64A4\u9500\u6216\u91CD\u5F00" : "\u53EF\u4EE5\u64A4\u9500\u3001\u6D17\u724C\u6216\u91CD\u5F00";
+      const lead = this.hintLead();
+      this.message = this.hint.length ? lead + this.describe(this.hint[0]) : `\u6682\u65F6\u6CA1\u627E\u5230\u77ED\u8DEF\u7EBF\uFF0C\u4E0D\u4EE3\u8868\u65E0\u89E3\u3002${retry}\u3002`;
       this.revision++;
     }
     command(id) {
@@ -1070,7 +1918,11 @@
           return;
         }
         if (open === "home" && id === "continue") {
-          if (!count(this.grid)) this.reset(this.maxLevel);
+          if (this.finished || !count(this.grid)) {
+            let i = this.maxLevel;
+            while (i > 0 && !this.canEnter(i)) i--;
+            this.reset(i);
+          }
           this.modal = "none";
           this.save();
           this.revision++;
@@ -1131,8 +1983,12 @@
           this.revision++;
           return;
         }
-        if (open === "lose" && id === "undo") {
-          if (this.undo()) this.modal = "none";
+        if (open === "lose" && id === "revive") {
+          this.revive();
+          return;
+        }
+        if (open === "lose" && id === "rescue") {
+          this.rescueShuffle();
           return;
         }
         if (open === "levels" && (id === "page-prev" || id === "page-next")) {
@@ -1142,7 +1998,7 @@
         }
         if (open === "levels" && id.startsWith("level:")) {
           const i = Number(id.slice(6));
-          if (Number.isInteger(i) && i >= 0 && (i <= this.maxLevel || this.unlockAll)) {
+          if (Number.isInteger(i) && this.canEnter(i)) {
             this.reset(i);
             this.save();
           }
@@ -1513,7 +2369,7 @@
     crystal(x + w * 0.78, y + h * 0.22, w * 0.07);
     crystal(x + w * 0.22, y + h * 0.76, w * 0.06);
   }
-  function iceLayers(face) {
+  function iceLayers2(face) {
     let n = 0;
     while (face.endsWith("~")) {
       face = face.slice(0, -1);
@@ -1694,7 +2550,7 @@
     ctx.save();
     drawFaceArt(ctx, o.face, x + w * 0.09, y + h * 0.07, w * 0.82, (h - lift) * 0.84);
     ctx.restore();
-    const ice = iceLayers(o.face);
+    const ice = iceLayers2(o.face);
     if (ice > 0) drawFrost(ctx, x + w * 0.06, y + h * 0.06, w * 0.88, (h - lift) * 0.88, ice);
     ctx.restore();
   }
@@ -2160,6 +3016,9 @@
       this.H = 1334;
       this.raf = 0;
       this.needsPaint = true;
+      /** 提示动画的起点 / 终点（毫秒）。提示箭头要「依次亮起」，这段时间内必须逐帧重绘。 */
+      this.pulseStart = 0;
+      this.pulseUntil = 0;
       // drag state
       this.drag = null;
       this.press = null;
@@ -2167,6 +3026,7 @@
       /* ── frame loop ─────────────────────────────────────────── */
       this.loop = () => {
         this.raf = requestAnimationFrame(this.loop);
+        if (Date.now() < this.pulseUntil) this.needsPaint = true;
         if (!this.needsPaint) return;
         this.needsPaint = false;
         this.draw();
@@ -2413,9 +3273,15 @@
             this.setScreen("board");
           });
           break;
-        case "undo-lose":
+        // 失败页的出路（A3）：复活回牌桌 / 死局免费重排。旧版那颗免费「撤销一步」已删。
+        case "revive":
           this.act(() => {
-            if (this.session.undo()) this.setScreen("board");
+            if (this.session.revive()) this.setScreen("board");
+          });
+          break;
+        case "rescue":
+          this.act(() => {
+            if (this.session.rescueShuffle()) this.setScreen("board");
           });
           break;
         case "tip-ok":
@@ -2424,8 +3290,13 @@
         case "next":
           this.startLevel(Math.min(this.session.levelIndex + 1, LEVELS.length - 1));
           break;
+        // 提示是分步计划：点一次给一段（K 步），推对一步自动前进。箭头流要逐帧亮起。
         case "hint":
-          this.act(() => this.session.command("hint"));
+          this.act(() => {
+            this.session.command("hint");
+            this.pulseStart = performance.now();
+            this.pulseUntil = Date.now() + 900;
+          });
           break;
         case "shuffle":
           this.act(() => this.session.command("shuffle"));
@@ -2448,8 +3319,7 @@
           this.page = Math.max(0, this.page - 1);
           break;
         case "page-next": {
-          const shown = this.session.unlockAll ? LEVELS.length : this.session.maxLevel + 1;
-          this.page = Math.min(Math.ceil(shown / 16) - 1, this.page + 1);
+          this.page = Math.min(Math.ceil(LEVELS.length / 16) - 1, this.page + 1);
           break;
         }
         default:
@@ -2459,6 +3329,7 @@
     }
     startLevel(i) {
       const idx = Math.max(0, Math.min(LEVELS.length - 1, i));
+      if (!this.session.canEnter(idx)) return;
       this.act(() => {
         this.session.reset(idx);
       });
@@ -2663,15 +3534,14 @@
       const W = this.W;
       this.veil(ctx);
       const PER = 16, COLS = 4, gap = 20;
-      const shown = this.session.unlockAll ? LEVELS.length : this.session.maxLevel + 1;
-      const pages = Math.ceil(shown / PER);
+      const pages = Math.max(1, Math.ceil(LEVELS.length / PER));
       this.page = Math.max(0, Math.min(this.page, pages - 1));
-      const count2 = Math.max(0, Math.min(PER, shown - this.page * PER));
+      const count2 = Math.max(0, Math.min(PER, LEVELS.length - this.page * PER));
       const rows = Math.max(1, Math.ceil(count2 / COLS));
       const pw = W - 68;
       const cw = (pw - 80 - gap * (COLS - 1)) / COLS, chh = 110;
       const gridH = rows * chh + (rows - 1) * gap;
-      const ph = 30 + 72 + 28 + gridH + 38 + 56 + 30;
+      const ph = 30 + 72 + 24 + 40 + gridH + 38 + 56 + 34 + 30;
       const py = this.centeredTop(ph);
       const b = { x: 34, y: py, w: pw, h: ph };
       panel(ctx, b, { r: 30 });
@@ -2680,7 +3550,20 @@
       const close = { x: b.x + b.w - 96, y: py + 30, w: 58, h: 58 };
       this.push("__back", close);
       this.circleBtn(ctx, close, "close");
-      const gy = py + 30 + 72 + 28;
+      const full = this.session.chapterStars(this.page) >= 48;
+      text(
+        ctx,
+        `\u7B2C ${this.page + 1} \u7AE0 \xB7 ${CHAPTER_NAMES[this.page] || ""}\uFF08${this.page * PER + 1}-${Math.min(LEVELS.length, (this.page + 1) * PER)}\uFF09`,
+        b.x + 40,
+        py + 30 + 72 + 24,
+        24,
+        T.ink,
+        "left",
+        true
+      );
+      if (full) text(ctx, "\u5168\u4E09\u661F", b.x + b.w - 44, py + 30 + 72 + 24, 21, "#B4442F", "right", true);
+      const gateBlocked = this.page > 0 && this.session.gateGap(this.page - 1) > 0;
+      const gy = py + 30 + 72 + 24 + 40;
       for (let i = 0; i < count2; i++) {
         const idx = this.page * PER + i;
         const col = i % COLS, row = Math.floor(i / COLS);
@@ -2688,6 +3571,13 @@
         const isCur = idx === this.session.levelIndex;
         const st = this.session.stars[String(idx)] || 0;
         const box = { x: bx, y: by, w: cw, h: chh };
+        const unlocked = !gateBlocked && this.session.canEnter(idx);
+        if (!unlocked) {
+          fillRR(ctx, box, 18, "rgba(222,216,198,.55)");
+          strokeRR(ctx, box, 18, "rgba(190,180,158,.5)", 2);
+          text(ctx, String(idx + 1), bx + cw / 2, by + chh * 0.42, 36, "#B3A98F", "center", true);
+          continue;
+        }
         this.push("level:" + idx, box);
         const g = ctx.createLinearGradient(bx, by, bx, by + chh);
         g.addColorStop(0, "#6FC46F");
@@ -2697,6 +3587,25 @@
         strokeRR(ctx, box, 18, isCur ? "#FFD84D" : "rgba(255,255,255,.35)", isCur ? 4 : 2);
         text(ctx, String(idx + 1), bx + cw / 2, by + chh * 0.32, 36, "#FFFFFF", "center", true);
         stars(ctx, bx + cw / 2, by + chh * 0.72, 12, st);
+        const bm = this.session.bestMoves[String(idx)] || 0;
+        const par = this.session.pars[String(idx)] || 0;
+        if (bm && par && st > 0 && st < 3) {
+          const line = starLines(par);
+          const diff = bm - (st === 1 ? line.two : line.three);
+          if (diff > 0 && diff <= 9) text(ctx, `\u5DEE${diff}\u6B65`, bx + cw - 8, by + chh * 0.3, 13, "#8C3A2E", "right", true);
+        }
+      }
+      if (gateBlocked) {
+        text(
+          ctx,
+          `\u4E0A\u4E00\u7AE0\u8FD8\u5DEE ${this.session.gateGap(this.page - 1)} \u661F\uFF08${this.session.chapterStars(this.page - 1)} / ${this.session.gateOf(this.page - 1)}\uFF09\u624D\u80FD\u89E3\u9501\u672C\u7AE0`,
+          W / 2,
+          py + ph - 92,
+          21,
+          "#B4442F",
+          "center",
+          true
+        );
       }
       const pyy = py + ph - 58;
       const prev = { x: b.x + 40, y: pyy - 26, w: 70, h: 52 };
@@ -2769,8 +3678,8 @@
       const goalText = goal ? goal.kind === "face" ? `\u76EE\u6807 ${Session.faceName(goal.face)} \xD7${S.goalDone}/${goal.count}` : `\u76EE\u6807 \u788E\u51B0 \xD7${S.goalDone}/${goal.count}` : null;
       text(ctx, goalText || `\u5269\u4F59 ${left} / ${S.total} \u5F20`, 40, 134, 25, goalText ? T.jadeDeep : T.ink, "left", true);
       const par = S.par || 0;
-      const moveText = S.moveLimit ? `\u6B65\u6570 ${S.moves}/${S.moveLimit}` : `${S.moves} \u6B65 \xB7 \u4E09\u661F \u2264 ${par} \u6B65`;
-      text(ctx, moveText, W - 40, 134, 25, S.moveLimit && S.movesLeft <= 3 ? T.red : T.ink, "right", true);
+      const moveText = S.moveLimit ? `\u6B65\u6570 ${S.moves}/${S.moveLimit}` : `${S.moves} \u6B65 \xB7 \u4E09\u661F \u2264 ${S.starLines.three} \u6B65`;
+      text(ctx, moveText, W - 40, 134, 25, S.moveLimit && S.movesLeft <= 3 ? "#B4442F" : T.ink, "right", true);
       const pbar = { x: 40, y: 158, w: W - 80, h: 16 };
       fillRR(ctx, pbar, 8, "rgba(60,90,50,.3)");
       const done = S.total ? (S.total - left) / S.total : 0;
@@ -2918,20 +3827,50 @@
         ctx.restore();
       };
       if (S.selected) hl(S.selected, "#FF8A3D");
-      for (const a of S.hint) {
-        if (a.kind === "match") {
-          hl(a.a, "#7EE3FF");
-          hl(a.b, "#7EE3FF");
+      const step0 = S.hint[0];
+      if (step0) {
+        if (step0.kind === "match") {
+          const pulse = 0.55 + 0.45 * Math.sin((performance.now() - this.pulseStart) / 180);
+          ctx.save();
+          ctx.globalAlpha = Math.max(0.4, pulse);
+          hl(step0.a, "#FFD84D");
+          hl(step0.b, "#FFD84D");
+          ctx.restore();
         } else {
-          const run = S.runs[a.run];
-          for (const p of run.cells) hl(p, "rgba(126,227,255,.8)");
+          const run = S.runs[step0.run];
+          if (run) {
+            for (const p of run.cells) hl(p, "rgba(126,227,255,.55)");
+            const dir = step0.step > 0 ? 1 : -1;
+            const cells = dir > 0 ? run.cells : run.cells.slice().reverse();
+            const ang = run.axis === "row" ? dir > 0 ? 0 : Math.PI : dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+            const elapsed = (performance.now() - this.pulseStart) / 1e3;
+            cells.forEach((p, i) => {
+              const a = Math.max(0, Math.min(1, (elapsed - i * 0.06) / 0.18));
+              if (a <= 0) return;
+              const cx = bx + p.c * cellW + cellW / 2, cy = by + p.r * cellH + cellH / 2;
+              const rad = Math.min(cellW, cellH) * 0.28;
+              ctx.save();
+              ctx.globalAlpha = a;
+              ctx.beginPath();
+              ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+              ctx.fillStyle = "rgba(16,44,34,.55)";
+              ctx.fill();
+              ctx.lineWidth = 2;
+              ctx.strokeStyle = "rgba(126,227,255,.85)";
+              ctx.stroke();
+              ctx.translate(cx, cy);
+              ctx.rotate(ang);
+              chevron(ctx, 0, 0, rad * 1.35, "#9FEBFF", 5);
+              ctx.restore();
+            });
+          }
         }
       }
       ctx.restore();
       const tools = [
-        { id: "hint", icon: "hint", label: "\u63D0\u793A", sub: `\u514D\u8D39 ${S.hintsLeft} \u6B21` },
-        { id: "shuffle", icon: "shuffle", label: "\u6D17\u724C", sub: `\u514D\u8D39 ${S.shufflesLeft} \u6B21` },
-        { id: "undo", icon: "undo", label: "\u64A4\u9500", sub: "\u9000\u56DE\u4E0A\u4E00\u6B65" },
+        { id: "hint", icon: "hint", label: "\u63D0\u793A", sub: S.hintsLeft ? `\u5269 ${S.hintsLeft} \u6B21` : "\u5DF2\u7528\u5B8C" },
+        { id: "shuffle", icon: "shuffle", label: "\u6D17\u724C", sub: S.shuffleBlocked ? "\u65B9\u8A00\u6D17\u4E0D\u5F00" : S.shufflesLeft ? `\u5269 ${S.shufflesLeft} \u6B21` : "\u5DF2\u7528\u5B8C" },
+        { id: "undo", icon: "undo", label: "\u64A4\u9500", sub: "\u6B65\u6570\u4E0D\u9000" },
         { id: "restart", icon: "restart", label: "\u91CD\u5F00", sub: "\u91CD\u65B0\u53D1\u724C" }
       ];
       const tw2 = (W - 68 - 3 * 16) / 4;
@@ -3152,7 +4091,7 @@
       const W = this.W;
       this.veil(ctx);
       const S = this.session;
-      const oLevel = 76, oStars = 182, oR1 = 272, oR2 = 326, oNext = 424, oHome = 522;
+      const oLevel = 76, oStars = 182, oR1 = 268, oR2 = 318, oR3 = 368, oR4 = 418, oNext = 512, oHome = 610;
       const ph = oHome + 38 + 42;
       const py = this.centeredTop(ph);
       const b = { x: 78, y: py, w: W - 156, h: ph };
@@ -3166,14 +4105,27 @@
       text(ctx, "\u606D\u559C\u901A\u5173", W / 2, ban.y + ban.h / 2, 50, "#F7DFA0", "center", true, true);
       text(ctx, `\u7B2C ${S.levelIndex + 1} \u5173`, W / 2, py + oLevel, 34, T.ink, "center", true, true);
       stars(ctx, W / 2, py + oStars, 44, S.rating);
-      const best = this.session.stars[String(S.levelIndex)] || S.rating;
-      text(ctx, "\u5269\u4F59\u6B65\u6570", b.x + 70, py + oR1, 26, T.inkSoft, "left");
-      text(ctx, `${S.moves} \u6B65`, b.x + b.w - 70, py + oR1, 26, T.ink, "right", true);
-      text(ctx, "\u6700\u4F73\u8BB0\u5F55", b.x + 70, py + oR2, 26, T.inkSoft, "left");
-      text(ctx, `${Math.min(best, S.moves)} \u6B65`, b.x + b.w - 70, py + oR2, 26, T.ink, "right", true);
+      const row = (y, k, v) => {
+        text(ctx, k, b.x + 70, py + y, 26, T.inkSoft, "left");
+        text(ctx, v, b.x + b.w - 70, py + y, 26, T.ink, "right", true);
+      };
+      row(oR1, "\u672C\u5C40\u6B65\u6570", `${S.moves} \u6B65`);
+      row(oR2, "\u4E09\u661F\u7EBF", `${S.starLines.three} \u6B65`);
+      row(oR3, "\u672C\u5C40\u5F97\u5206", `${S.score}`);
+      const bestNow = S.best[String(S.levelIndex)] || 0;
+      row(oR4, "\u5386\u53F2\u6700\u9AD8", `${bestNow}`);
+      if (S.score > 0 && S.score >= bestNow) text(ctx, "\u65B0\u7EAA\u5F55", b.x + b.w - 70, py + oR3 - 30, 20, "#B4442F", "right", true);
       const nb = { x: b.x + 46, y: py + oNext - 46, w: b.w - 92, h: 92 };
-      this.push("next", nb);
-      button(ctx, nb, "\u4E0B\u4E00\u5173", { kind: "jade", size: 36, icon: "play", pressed: this.isPressed("next") });
+      const nextIdx = S.levelIndex + 1;
+      const last = nextIdx >= LEVELS.length;
+      const blocked = !last && !S.canEnter(nextIdx);
+      if (blocked) {
+        this.push("levels", nb);
+        button(ctx, nb, `\u53BB\u5237\u661F \xB7 \u5DEE ${S.gateGap(chapterOf(nextIdx) - 1)} \u661F`, { kind: "jade", size: 30, pressed: this.isPressed("levels") });
+      } else {
+        this.push("next", nb);
+        button(ctx, nb, last ? "\u518D\u73A9\u4E00\u6B21" : "\u4E0B\u4E00\u5173", { kind: "jade", size: 36, icon: "play", pressed: this.isPressed("next") });
+      }
       const hb = { x: b.x + 46, y: py + oHome - 38, w: b.w - 92, h: 76 };
       this.push("home", hb);
       button(ctx, hb, "\u8FD4\u56DE\u9996\u9875", { kind: "cream", size: 30, pressed: this.isPressed("home") });
@@ -3182,8 +4134,8 @@
       const W = this.W;
       this.veil(ctx);
       const S = this.session;
-      const oSub = 76, oTile = 188, oLevel = 298, oLeft = 340, oMoves = 376, oBtn = 490, oFoot = 566;
-      const ph = oFoot + 15 + 40;
+      const oSub = 76, oTile = 188, oLevel = 298, oLeft = 340, oMoves = 376, oPrimary = 486, oRow = 586, oFoot = 660;
+      const ph = oFoot + 30 + 40;
       const py = this.centeredTop(ph);
       const b = { x: 84, y: py, w: W - 168, h: ph };
       panel(ctx, b, { r: 34 });
@@ -3194,20 +4146,33 @@
       fillRR(ctx, ban, 24, bg);
       strokeRR(ctx, ban, 24, "#5A1913", 5);
       text(ctx, "\u5F88\u9057\u61BE", W / 2, ban.y + ban.h / 2, 48, "#F7DFA0", "center", true, true);
-      const reason = S.modal === "lose" ? S.message : "\u724C\u8D70\u6B7B\u4E86\uFF1A\u5269\u4E0B\u7684\u724C\u51D1\u4E0D\u51FA\u53EF\u6D88\u7684\u7EC4\u5408\u3002";
-      text(ctx, reason, W / 2, py + oSub, 28, T.inkSoft, "center", true, true);
+      const reasonText = S.failReason === "time" ? "\u65F6\u95F4\u5230" : S.failReason === "dead" ? "\u724C\u8D70\u6B7B\u4E86" : "\u6B65\u6570\u7528\u5C3D";
+      text(ctx, reasonText, W / 2, py + oSub, 28, T.inkSoft, "center", true, true);
       drawTile(ctx, W / 2, py + oTile, { face: "5z", w: 116, h: 144 });
       text(ctx, `\u7B2C ${S.levelIndex + 1} \u5173`, W / 2, py + oLevel, 30, T.ink, "center", true);
-      text(ctx, `\u5269\u4F59 ${count(S.grid)} / ${S.total} \u5F20`, W / 2, py + oLeft, 25, T.inkSoft, "center");
-      text(ctx, `${S.moves} \u6B65 \xB7 \u4E09\u661F \u2264 ${S.par} \u6B65`, W / 2, py + oMoves, 25, T.inkSoft, "center");
+      text(ctx, `\u5269\u4F59 ${S.remaining} / ${S.liveTotal} \u5F20`, W / 2, py + oLeft, 25, T.inkSoft, "center");
+      text(ctx, `${S.moves} \u6B65 \xB7 \u4E09\u661F \u2264 ${S.starLines.three} \u6B65`, W / 2, py + oMoves, 25, T.inkSoft, "center");
+      const dead = S.failReason === "dead";
+      const left = Math.max(0, 2 - S.revivesUsed);
+      const primary = { x: b.x + 58, y: py + oPrimary - 46, w: b.w - 116, h: 92 };
+      const primaryOk = dead || S.canRevive;
+      const primaryText = dead ? "\u91CD\u6392\u8FD9\u76D8\u724C" : S.failReason === "time" ? "\u8865 30 \u79D2" : `\u8865 ${S.reviveBonus} \u6B65`;
+      const pid = dead ? "rescue" : "revive";
+      if (primaryOk) {
+        this.push(pid, primary);
+        button(ctx, primary, primaryText, { kind: "jade", size: 32, pressed: this.isPressed(pid) });
+      } else {
+        button(ctx, primary, "\u590D\u6D3B\u6B21\u6570\u5DF2\u7528\u5B8C", { kind: "disabled", size: 32 });
+      }
+      if (!dead) text(ctx, `\u672C\u5173\u8FD8\u5269 ${left} \u6B21`, W / 2, py + oPrimary - 74, 22, T.inkSoft, "center");
       const half = (b.w - 116) / 2;
-      const again = { x: b.x + 46, y: py + oBtn - 42, w: half, h: 84 };
-      const restart = { x: b.x + 70 + half, y: py + oBtn - 42, w: half, h: 84 };
-      this.push("undo-lose", again);
+      const restart = { x: b.x + 58, y: py + oRow - 40, w: half, h: 80 };
+      const home = { x: b.x + 58 + half + 0, y: py + oRow - 40, w: half, h: 80 };
       this.push("restart", restart);
-      button(ctx, again, "\u64A4\u9500\u4E00\u6B65", { kind: "cream", size: 28, pressed: this.isPressed("undo-lose") });
-      button(ctx, restart, "\u91CD\u65B0\u5F00\u59CB", { kind: "jade", size: 28, pressed: this.isPressed("restart") });
-      text(ctx, "\u518D\u63A5\u518D\u5389\uFF0C\u4E0B\u4E00\u6B21\u4E00\u5B9A\uFF01", W / 2, py + oFoot, 26, T.inkSoft, "center", true);
+      this.push("home", home);
+      button(ctx, restart, "\u91CD\u65B0\u5F00\u59CB", { kind: "cream", size: 28, pressed: this.isPressed("restart") });
+      button(ctx, home, "\u8FD4\u56DE\u9996\u9875", { kind: "cream", size: 28, pressed: this.isPressed("home") });
+      text(ctx, dead ? "\u724C\u8D70\u6B7B\u4E86\u4E0D\u662F\u4F60\u7684\u9519\uFF0C\u91CD\u6392\u4E00\u6B21\u591A\u534A\u80FD\u8D70\u901A\u3002" : "\u518D\u63A5\u518D\u5389\uFF0C\u4E0B\u4E00\u6B21\u4E00\u5B9A\uFF01", W / 2, py + oFoot, 24, T.inkSoft, "center", true);
     }
     drawPause(ctx) {
       const W = this.W;

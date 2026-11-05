@@ -30,8 +30,22 @@ export interface BoardModel {
   selected: Pos | null;
   /** 提示要高亮的格子 */
   hintCells: Pos[];
+  /**
+   * 机制引导的“看这里”金框：冰面 / 百搭 / 鞭炮 / 目标牌等。
+   * 与 hintCells（蓝轨 / 动作）分工：蓝框告诉你动哪条，金框告诉你这条规则落在哪些牌上。
+   */
+  focusCells?: Pos[];
+  /**
+   * 提示的**分步动作**（B1 提示改造）。只标蓝整条轨是不够的——
+   * 玩家看得出「推哪一条」，看不出「往哪边推、推几格」。
+   *   match = 点这两张牌（画金框 + 一次脉冲）
+   *   slide = 往 step 方向推这条轨（沿轨画一串流向箭头）
+   */
+  hintAction: {kind: 'match'; a: Pos; b: Pos} | {kind: 'slide'; run: number; step: number} | null;
   /** 当前拖动的 run 与偏移（格） */
   drag: {run: number; offset: number} | null;
+  /** 空格是否画「空洞/木桩」槽位。挑战模式的空格是可滑过的空间，缺省 true 留给主线。 */
+  showSlots?: boolean;
   /** 锁定行 / 列（有牌位的轨；常驻画木条 + 锁标，让玩家拖之前就知道推不动） */
   lockedRows: number[];
   lockedCols: number[];
@@ -148,7 +162,7 @@ export class Board {
 
     const w = this.cols * this.cellWid, h = this.rows * this.cellHei;
     this.drawFrame(x, y, w, h);
-    this.placeSlots(model.grid, atlas);
+    this.placeSlots(model.grid, atlas, model.showSlots !== false);
     this.placeRails(model, w, h);
 
     // 收集要显示的牌（按 深度→行→列 顺序，保证后画的在上面）
@@ -310,7 +324,12 @@ export class Board {
     }
   }
 
-  private placeSlots(grid: Cell[][], atlas: TileAtlas): void {
+  private placeSlots(grid: Cell[][], atlas: TileAtlas, show = true): void {
+    if (!show) {
+      // 挑战模式：空格不是障碍，不画 X 槽位，避免被读成「这里推不进去」。
+      for (const s of this.slotPool) s.active = false;
+      return;
+    }
     const n = this.rows * this.cols;
     while (this.slotPool.length < n) {
       const s = makeSprite(this.bgRoot, this.ui.frame('slot'), 10, 10, 0, 0, true, this.ui.inset('slot'));
@@ -366,8 +385,9 @@ export class Board {
     };
     const arrowAt = (x: number, y: number, size: number, dir: 1 | -1, axis: 'row' | 'col'): void => {
       const n = makeSprite(this.railRoot, this.ui.frame('chevron'), size, size, x, y);
-      // chevron 默认指向右：行方向 0°/180°，列方向 90°（下）/-90°（上）
-      n.node.angle = axis === 'row' ? (dir === 1 ? 0 : 180) : (dir === 1 ? 90 : -90);
+      // chevron 素材默认指向右。cc 的 angle 正值是**逆时针**，所以列方向要反过来：
+      // -90 才是向下（`dir=1` = 向高索引 = 屏幕下方），+90 是向上。
+      n.node.angle = axis === 'row' ? (dir === 1 ? 0 : 180) : (dir === 1 ? -90 : 90);
       n.color = hex('#E8C56B');
       n.node.name = 'rail-arrow';
     };
@@ -427,16 +447,76 @@ export class Board {
   }
 
   private drawHighlights(model: BoardModel): void {
-    // 高亮框每次 build 全量重建 → 必须销毁旧的（removeAllChildren() 只是摘下来，节点和组件会一直堆着）
+    // 高亮框每次 build 全量重建 → 必须销毁旧的（removeAllChildren() 只是摘下来，节点和组件会一直堆着）。
+    // 销毁前先停掉挂在它们身上的 tween：提示箭头的淡入是分帧跑的，
+    // 直接 destroy 会让 tween 继续写一个已经销毁的 UIOpacity。
+    for (const c of this.hlRoot.children.slice()) {
+      const op = c.getComponent(UIOpacity);
+      if (op) Tween.stopAllByTarget(op);
+      Tween.stopAllByTarget(c);
+    }
     clearChildren(this.hlRoot);
     // 只保留 选中（橙）与 提示（蓝）——进关后不再自动亮出成对提示
-    const add = (p: Pos, kind: 'gold' | 'select' | 'hint') => {
+    const add = (p: Pos, kind: 'gold' | 'select' | 'hint'): Node => {
       const c = this.cellCenter(p);
       // 高亮框占格子的 92%（与 H5 的 hl() 一致），边框本身画在素材边缘
-      makeHighlight(this.hlRoot, this.ui, this.cellWid * .92, this.cellHei * .92, c.x, c.y, kind);
+      return makeHighlight(this.hlRoot, this.ui, this.cellWid * .92, this.cellHei * .92, c.x, c.y, kind);
     };
     if (model.selected) add(model.selected, 'select');
+    for (const p of model.focusCells || []) add(p, 'gold');
     for (const p of model.hintCells) add(p, 'hint');
+
+    const ha = model.hintAction;
+    if (!ha) return;
+    if (ha.kind === 'match') {
+      // 点消：两张牌各画一个金框，并一起脉冲一次——「点这里」比「这里标蓝了」明确得多
+      for (const p of [ha.a, ha.b]) {
+        const node = add(p, 'gold');
+        tween(node)
+          .to(0.16, {scale: new Vec3(1.14, 1.14, 1)})
+          .to(0.22, {scale: new Vec3(1, 1, 1)})
+          .start();
+      }
+      return;
+    }
+    const run = this.runs[ha.run];
+    if (!run) return;
+    this.drawHintFlow(run, ha.step);
+  }
+
+  /**
+   * 沿轨画一串**流向箭头**：方向 = 推动方向，数量按轨长铺满。
+   *
+   * 为什么不是只画一个箭头：一个箭头在长轨上指不出「整段都在动」，
+   * 玩家会以为是"推一格"。一串箭头 + 依次淡入，视觉上就是「这一整排往那边滑」。
+   *
+   * 圆底改成**奶油底 + 深色箭头 + 一圈很淡的深色描边**：
+   * 旧版深色圆底会把牌面盖掉，浅蓝箭头在浅色牌上又看不清（真机反馈截图）。
+   * 奶油底在浅色牌上靠深色箭头保证对比，深色描边让它在深色木框上也站得住。
+   */
+  private drawHintFlow(run: Run, step: number): void {
+    const dir: 1 | -1 = step > 0 ? 1 : -1;
+    // 从「推力的上游」开始亮：step>0 时牌往高索引走，所以箭头从低索引端依次亮起
+    const cells = dir > 0 ? run.cells : run.cells.slice().reverse();
+    const rad = Math.min(this.cellWid, this.cellHei) * .24;
+    cells.forEach((p, i) => {
+      const c = this.cellCenter(p);
+      const holder = makeNode(this.hlRoot, {w: rad * 2, h: rad * 2, x: c.x, y: c.y, name: 'hint-arrow'});
+      const hop = holder.addComponent(UIOpacity);
+      hop.opacity = 0;
+      // 淡淡的深色描边只在奶油底外露一圈，不盖牌面；真正的对比交给深色箭头。
+      const halo = makeSprite(holder, this.ui.frame('dot'), rad * 2.15, rad * 2.15, 0, 0);
+      halo.color = hex('#0E2A20');
+      halo.node.addComponent(UIOpacity).opacity = 110;
+      const dot = makeSprite(holder, this.ui.frame('dot'), rad * 2, rad * 2, 0, 0);
+      dot.color = hex('#FFFDF6');
+      dot.node.addComponent(UIOpacity).opacity = 240;
+      const s = makeSprite(holder, this.ui.frame('chevron'), rad * 1.3, rad * 1.3, 0, 0);
+      // 与 Board.arrowAt 同一套角度：cc 正值逆时针，列方向 -90 才是向下。
+      s.node.angle = run.axis === 'row' ? (dir > 0 ? 0 : 180) : (dir > 0 ? -90 : 90);
+      s.color = hex('#0E2A20');
+      tween(hop).delay(i * 0.06).to(0.18, {opacity: 255}).start();
+    });
   }
 
   private makeTile(): TileNode {

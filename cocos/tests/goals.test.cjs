@@ -27,7 +27,7 @@ const collectDef = (extra) => Object.assign({
 function install(s, def, deal) {
   s.def = def; s.grid = R.clone(deal.grid); s.runs = deal.runs;
   s.total = R.count(deal.grid); s.liveTotal = R.liveCount(deal.grid);
-  s.par = deal.solution.length; s.moves = 0; s.modal = 'none'; s.tip = null;
+  s.par = deal.solution.length; s.moves = 0; s.modal = 'none'; s.tip = null; s.coach = null;
   s.selected = null; s.clearedPairs = 0; s.goalDone = 0; s.goalTarget = 0;
   s.solution = [];
 }

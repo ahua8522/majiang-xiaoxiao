@@ -96,16 +96,14 @@ test('教学屏：Board 不挂 overlay、modal 不双停、回跳认来源、降
     assert.match(src, /if \(s === 'board' && this\.session\.introTutorial\)/, '进牌桌这一个口子统一拦，不许在四个调用点各写一遍');
 });
 
-/* 防回归：玩法说明必须由教学表驱动，而不是再写死一批白话。
+/* 防回归：玩法机制改成章首弹框后，旧的小盘回放列表必须退场。
  *
- * 写死的那 6 行就是这次要解决的"空洞"：它讲操作，讲不了牌型（三元齐收什么、清龙差一张算不算）。
- * 现在同一份数据要能两处用——首次进关演一遍、事后随时回看一遍。
- * 第二条用 doesNotMatch 断一句**现在还在源码里**的白话：它现在必然红，替掉之后才绿，
- * 别换成一条永远不会红的正则（那种断言等于没有）。
+ * 说明数据集中在 CHAPTER_TIPS；帮助页只解释触发点，不再列 14 条 tutorial 入口。
  */
-test('玩法说明：条目由 CHAPTER_TUTORIALS 生成，写死那 6 行白话必须退场', () => {
+test('玩法说明：章首说明由弹框负责，不再列小盘回放入口', () => {
     const src = fs.readFileSync(path.join(VIEW, 'GameRoot.ts'), 'utf8');
-    assert.match(src, /CHAPTER_TUTORIALS\.filter/, '玩法条目必须由教学表生成（数据两处用）');
-    assert.match(src, /activate\('tutorial:'/, '点一条 = 就地重放该章教学');
-    assert.doesNotMatch(src, /'木块与空洞会截断滑轨/, '写死的 6 行白话必须被替掉');
+    assert.match(src, /const CHAPTER_TIPS: string\[\]\[\]/, '14 章说明必须以数据表存在');
+    assert.match(src, /每次进入新的一章都会弹一次章首说明/, '玩法说明要解释弹框触发点');
+    assert.doesNotMatch(src, /CHAPTER_TUTORIALS\.filter/, '小盘回放列表必须退场');
+    assert.doesNotMatch(src, /help:.*tutorial/, '玩法列表不再挂 tutorial 重放入口');
 });

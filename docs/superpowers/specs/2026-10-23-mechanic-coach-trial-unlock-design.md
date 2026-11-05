@@ -1,7 +1,7 @@
 # 机制首见引导 · 体验版解锁 · 按钮纯色设计
 
-日期：2026-10-23 · 分支：`feat/levels-224` · 状态：待实施
-拍板人：wanqinghua（载体=真关卡盘面 / 强度=强制开局 1–3 步 + 高亮 / 可跳过 / 按钮纯色无渐变）
+日期：2026-10-23 · 分支：`feat/levels-224` · 状态：已实施并修订（2026-10-23 章首弹框版，单测 136/136 绿；真机与体验版实机待验）
+拍板人：wanqinghua（最终修订：机制提示改为每章首次进入弹一次弹框，关掉自由玩；章 6 小盘也换成弹框；按钮纯色无渐变）
 
 ## 一、目标
 
@@ -66,7 +66,7 @@ canEnterChapter(chapter: number): boolean {
 }
 ```
 
-`renderLevels()` 的 `gateBlocked` 改为 `!this.session.canEnterChapter(ci)`；`canEnter()` 内部也复用它，消除两处手算。体验版第 2 章起不再灰页，卡片正常挂点击。`unlockAll` 不推进 `maxLevel` 的语义不变。
+`renderLevels()` 的 `gateBlocked` 改为 `!this.session.canEnterChapter(ci)`；页脚的 `needGate` 直接用同一个 `gateBlocked`（否则会出现“卡片能点、页脚还写还差 22 星”的自相矛盾，实测踩到过）；`canEnter()` 内部也复用它，消除两处手算。体验版第 2 章起不再灰页，卡片正常挂点击。`unlockAll` 不推进 `maxLevel` 的语义不变。
 
 ### 3.2 机制首见强制引导（真盘 Coach）
 
@@ -109,7 +109,7 @@ coach: {
 - **试错步**：`lockRow` / `lockCol` 只接受目标锁轨上的滑动（结果必为 `changed:false`）；`oneWay` 只接受与 `dir` 相反的滑动。做完不推进 `solution`，只进入下一步。
 - **拒绝**：不改盘面，只写 `coach.hint`（“按住亮起来的那一行再拖”/“点亮起的两张牌”/“反着推一下，看看推不推得动”），`revision++`。
 - **tap 步**：引导期间点非高亮牌不自动配对、不改 `selected`；只允许点亮起的两张。
-- **停表与封口**：`tick()` 增加 `|| this.coach`；`command()` 在 `coach` 非空时只认 `coach-skip`，提示/洗牌/撤销/重开全部不响应；`undo()` 也加 `|| this.coach` 兜底。
+- **停表与封口**：`tick()` 增加 `|| this.coach`；`command()` 在 `coach` 非空时挡住提示/洗牌/撤销（改了盘面就会和认证解错位），其余导航/设置/重开仍放行——重开会重新起引导，不构成绕过；`undo()` 也加 `|| this.coach` 兜底。
 - **结束**：完成最后一步或点“跳过” → `finishCoach()`：写 `tipsSeen[key] = true`、`tipsSeen['coach:'+key] = true`，清空 `coach`，`save()`，`revision++`。旧机制键一并标 seen，之后不再弹文字卡。
 - **降级**：`solution` 为空、`startCoach()` 抛异常、任一步 `transition` 对不上盘面 → 清空 `coach`、设 `tip = key`，退回今天的文字卡。跳过与降级都永远可用。
 - **读档**：`restore()` 本来就把 `tip` 置空；同时把 `coach` 置空。引导只在“新开这一关”出现，读中盘不重放。
@@ -118,7 +118,7 @@ coach: {
 
 - **横幅**：复用牌桌顶部 62px 横幅（`GameRoot.ts:974-980`），不新增大面板。`coach` 非空时显示：
   - 左：`机制名 · 当步说明`，带 `1/3` 步数；
-  - 右：小号“跳过”按钮，走 `activate('coach-skip')`；
+  - 右：文字链接“跳过 ›”，走 `activate('coach-skip')`；
   - 做错时同一行换成 `coach.hint`，用警示色。
 - **高亮**：动作仍走现成的 `hintCells`（蓝轨）/`hintAction`（方向箭头 / 金色对子脉冲）；机制本身新增 `focusCells`（金色框）：
   - `ice` / `ice2`：所有带 `~` 的牌；
@@ -136,7 +136,7 @@ coach: {
 #### 3.2.4 范围与边界
 
 - 做 18 个机制键（19 减去 `only258`），第 1 关 `basic` 也算。
-- 章 6 小盘教学保留原样；`dismissTip()` 处理章教学时同时写 `coach:only258`，避免之后某关又弹一次将将胡引导。
+- 章 6 小盘教学保留原样；`only258` 没有 coach 条目，章教学走 `tip`，两者不重复。`dismissTip()` 仍会把该关的 `def.intro` 标 seen。
 - 不改 `levels.ts` 的 map / seed / hash / faces / parMax，不改 `Generator` / `certify` / `Rules`。
 - 不加存档字段、不改 `version: 4`；`coach:` 键复用 `tipsSeen`。
 
@@ -179,3 +179,17 @@ coach: {
 - **读档绕过引导**：`restore()` 不重放 coach；玩家杀进程可跳过。这是刻意接受的口子——引导不是门槛，且本来就有“跳过”。
 - **`solution` 与盘面不同步**：只接受结果盘面一致的动作，和现有提示同一条判据；对不上直接降级文字卡，不硬演。
 - **纯色按钮失去层次**：靠底部实心厚度与描边保留按压反馈；截图对比确认不与奶油面板糊在一起。
+
+
+## 十一、2026-10-23 修订：真盘 Coach → 章首弹框
+
+用户看真机截图后反馈：**提示箭头看不清**（深色圆底盖住牌面、浅蓝箭头对比度低），要求“玩法机制提示都改为弹框，对应章节第一关都提示”。
+
+最终口径（已覆盖前文的 Coach 方案）：
+
+1. **触发**：每次**进入这一章**弹一次章首说明：换章、冷启动、从首页“开始游戏/继续”、从选关进入同一章都弹；同一章内通关“下一关/重开”不重复。弹框右上角有“跳过 ›”，点主按钮或跳过都直接自由玩。不要求完成动作，也不写 `tipsSeen` 作为一次性门槛。
+2. **内容**：`GameRoot.CHAPTER_TIPS` 14 条，标题由 `CHAPTER_NAMES` 生成；复用 `renderTipCard()`，不再用 `intro` / `chapter tutorial` / `COACH_TEXT` 触发。
+3. **章 6**：小盘教学不再作为首次入口；帮助页也不再列小盘回放入口，只解释“每章第一次进入时会弹一次章首说明”。
+4. **箭头**：机制提示不再画箭头；仅保留道具“提示”的分步高亮，并把箭头改成**奶油圆底 + 深色箭头 + 淡深色描边**（原深色圆底 + 浅蓝箭头对比度不足）。
+5. **旧代码**：真盘 `Session.coach` / `coach.ts` / 小盘 `TutorialRun` 代码暂留但不再启动；`coach.test.cjs` 已从测试链移除。后续可单独清理。
+6. **验证**：`npm test` 136/136；截图 `docs/mockups/chapter-popup-ch1.png`、`chapter-popup-ch4.png`、`help-popup.png`、`hint-arrow.png`；最终体验版 1.3.0 已上传（desc=章首弹框：换章/进章必弹 · 可跳过；主包 2,337,404 / 27 文件，构建戳 `rebuild-1792730152649`）。

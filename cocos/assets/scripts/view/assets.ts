@@ -192,15 +192,18 @@ export class UiAtlas {
     put('panel', 240, 240, (c, x, y, w, h) => drawPanel(c, x, y, w, h, 48), [56, 56, 56, 56]);
     put('plate', 300, 76, (c, x, y, w, h) => drawPill(c, x, y, w, h, '#2E6B3A'), [38, 38, 38, 38]);
 
-    // 按钮（9 宫格）——r = h*.34 与 H5 的 button() 一致；带顶部高光与两端金铆钉
-    const btn = (name: string, top: string, bottom: string, edge: string, stud: string) =>
-      put(name, 200, 100, (c, x, y, w, h) => drawButton(c, x, y, w, h, top, bottom, edge, h * .34, {studs: true, stud}), [40, 34, 40, 34]);
-    btn('btn-jade', '#5FBE72', palette.jade, palette.jadeDeep, palette.goldLight);
-    btn('btn-cream', '#FFFDF6', '#F1E4C4', '#D8B872', palette.gold);
+    // 按钮（9 宫格）——r = h*.34 与 H5 的 button() 一致。
+    // 开始 / 继续 / 知道了 / 关卡选择这一族走 flat：单色面、无渐变、无高光、无铆钉。
+    // 奖励色（gold）仍保留原来的立体质感，不跟这族混在一起。
+    const btn = (name: string, top: string, bottom: string, edge: string, stud: string, flat = false) =>
+      put(name, 200, 100, (c, x, y, w, h) => drawButton(c, x, y, w, h, top, bottom, edge, h * .34,
+        flat ? {flat: true, stroke: edge} : {studs: true, stud}), [40, 34, 40, 34]);
+    btn('btn-jade', palette.jade, palette.jade, palette.jadeDeep, palette.goldLight, true);
+    btn('btn-cream', '#FFFDF6', '#FFFDF6', '#D8B872', palette.gold, true);
     btn('btn-gold', '#F5D27A', palette.gold, palette.goldDeep, palette.gold);
     // 工具条按钮走的是 H5 的 toolButton()：无高光、无铆钉、描边是半透明金
     put('btn-dark', 200, 116, (c, x, y, w, h) => drawButton(c, x, y, w, h, '#3E7A48', '#245530', '#1B3A22', 20, {gloss: false, stroke: 'rgba(216,169,78,.55)'}), [40, 34, 40, 34]);
-    btn('btn-disabled', '#EFE8D6', '#E0D6BE', '#CBBE9E', '#CBBE9E');
+    btn('btn-disabled', '#EFE8D6', '#EFE8D6', '#CBBE9E', '#CBBE9E', true);
 
     // 牌桌提示横幅：H5 的 msg 条 —— 奶油渐变胶囊（提示统一走这里，底部不再有第二条 toast）
     put('banner', 300, 62, (c, x, y, w, h) => {

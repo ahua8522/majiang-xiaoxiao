@@ -1,12 +1,14 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');
 const R=require('../.test/core/Rules.js');
 const mod=fs.existsSync(__dirname+'/../.test/core/Session.js')?require('../.test/core/Session.js'):{};
-const create=()=>{assert.equal(typeof mod.Session,'function','缺少事务会话');const s=new mod.Session(18);s.command('continue');s.tip=null;return s;};
-function install(s,g,locksR=[],locksC=[]){s.grid=g;s.runs=R.runsFor(g,locksR,locksC);s.total=R.count(g);s.modal='none';s.solution=[];s.selected=null;s.moves=0;s.tip=null;s.clearedPairs=0;s.goalDone=0;}
-test('唯一邻居单点清台且撤销恢复棋盘、步数、清台弹框',()=>{
+const create=()=>{assert.equal(typeof mod.Session,'function','缺少事务会话');const s=new mod.Session(18);s.command('continue');s.tip=null;s.coach=null;return s;};
+function install(s,g,locksR=[],locksC=[]){s.grid=g;s.runs=R.runsFor(g,locksR,locksC);s.total=R.count(g);s.modal='none';s.solution=[];s.selected=null;s.moves=0;s.tip=null;s.coach=null;s.clearedPairs=0;s.goalDone=0;}
+test('唯一邻居单点清台；撤销恢复棋盘与弹框，但步数不退（A1）',()=>{
   const s=create();install(s,[[['1p'],['1p']]]);s.tap({r:0,c:0});
   assert.equal(R.count(s.grid),0);assert.equal(s.modal,'win');assert.equal(s.undo(),true);
-  assert.equal(R.count(s.grid),2);assert.equal(s.modal,'none');assert.equal(s.moves,0);
+  assert.equal(R.count(s.grid),2);assert.equal(s.modal,'none');
+  // A1：撤销只退盘面，不退步数。退了就等于限步关可以「推→撤销→再推」无限穷举。
+  assert.equal(s.moves,1,'撤销不退步数');
 });
 test('多邻居先选择再配对，不能第一次点击擅自决定',()=>{
   const s=create();install(s,[[['1p'],['1p'],['1p'],['1p']]]);
@@ -15,7 +17,8 @@ test('多邻居先选择再配对，不能第一次点击擅自决定',()=>{
 test('一次撤销恢复滑动与全部连消；空撤销不动状态',()=>{
   const s=create();install(s,[[['2p','1p'],[],['2p','1p']]]);const before=JSON.stringify(s.grid);
   s.slide(0,1);assert.equal(R.count(s.grid),0);assert.equal(s.moves,1);assert.equal(s.lastChain,2);
-  assert.equal(s.undo(),true);assert.equal(JSON.stringify(s.grid),before);assert.equal(s.moves,0);assert.equal(s.lastChain,0);
+  assert.equal(s.undo(),true);assert.equal(JSON.stringify(s.grid),before);
+  assert.equal(s.moves,1,'撤销不退步数（A1）');assert.equal(s.lastChain,0);
   assert.equal(s.undo(),false);assert.equal(JSON.stringify(s.grid),before);
 });
 test('洗牌也可整体撤回，不在旧坐标逐张塞回导致污染',()=>{
@@ -40,13 +43,16 @@ test('存档损坏/写入失败不阻塞游戏，设置与最高关卡可持久�
   const first=new mod.Session(1,memory);first.command('settings');first.command('toggle-vibration');
   const second=new mod.Session(1,memory);assert.equal(second.vibration,false);
 });
-test('点消和滑动均计步；目标内无辅助三星，辅助最多两星',()=>{
-  const s=create();install(s,[[['1p'],['1p']]]);s.par=1;s.tap({r:0,c:0});
-  assert.equal(s.moves,1);assert.equal(s.rating,3);assert.equal(s.stars[0],3);
-  s.reset(1);install(s,[[['1p'],['1p']]]);s.par=1;s.requestHint();s.tap({r:0,c:0});
-  assert.equal(s.hintsUsed,1);assert.equal(s.rating,2);assert.equal(s.stars[1],2);
-  s.reset(1);install(s,[[['1p'],['1p']]]);s.par=1;s.moves=3;s.tap({r:0,c:0});
-  assert.equal(s.rating,1);assert.equal(s.stars[1],2,'历史最佳星级不能被低星覆盖');
+test('星级只看步数：用提示/洗牌不掉星，超出 2 星线才降（B1）',()=>{
+  const s=create();install(s,[[['1p'],['1p']]]);s.par=10;
+  assert.equal(s.rating,3,'par=10 的 3 星线是 11 步');
+  s.moves=11;assert.equal(s.rating,3);
+  s.moves=12;assert.equal(s.rating,2);
+  s.moves=14;assert.equal(s.rating,2,'2 星线 = 10+max(2,3.5)=14');
+  s.moves=15;assert.equal(s.rating,1);
+  // 旧口径的「用提示/洗牌就最多两星」已删：它让玩家为了保星不敢点提示，
+  // 直接把道具消耗与广告触发量一起压死。
+  s.moves=10;s.hintsUsed=3;s.shufflesUsed=2;assert.equal(s.rating,3,'用道具不再掉星');
 });
 test('提示重复查看不扣次数，洗牌限额不能用撤销回补',()=>{
   const s=create();install(s,[[['1p'],['1p'],['2p'],['2p']]]);
@@ -85,6 +91,7 @@ test('弹窗记住是从首页还是牌桌打开的，供视图决定底图画�
 test('保存当前棋盘与辅助次数，重新进入可以继续；旧存档升级与非法存档安全回退',()=>{
   const store={value:null,load(){return this.value;},save(v){this.value=JSON.parse(JSON.stringify(v));},feedback(){}};
   const s=new mod.Session(7,store);assert.equal(s.modal,'home');s.command('continue');
+  if(s.tip)s.dismissTip();
   s.slide(0,1);s.requestHint();const board=JSON.stringify(s.grid);
   const again=new mod.Session(8,store);assert.equal(again.modal,'home');assert.equal(JSON.stringify(again.grid),board);assert.equal(again.moves,s.moves);assert.equal(again.hintsUsed,s.hintsUsed);
   again.command('continue');assert.equal(again.modal,'none');
@@ -111,14 +118,20 @@ test('存档接受冰面与花牌 face，非法牌面仍拒绝',()=>{
 
 /* ── 新机制（会话层） ── */
 
-test('限步关：步数用尽仍未清台 → 明确判负（modal=lose）',()=>{
+test('限步关：步数用尽仍未清台 → 明确判负，失败页只能复活不能撤销',()=>{
   const s=create();install(s,[[['1p'],['2p'],[],[]]]);
   s.def={...s.def,moveLimit:2};
   s.slide(0,1);assert.equal(s.modal,'none','第一步不该失败');
   s.slide(0,1);assert.equal(s.modal,'lose','步数用尽必须判负');
   assert.match(s.message,/步数/);
-  assert.equal(s.undo(),true,'失败后仍可撤销回退');
+  assert.equal(s.failReason,'step');
+  // 失败页不给撤销：撤销不退步数，在步数用尽的盘上撤完立刻又判负，
+  // 它原本是免费无限续命的后门（A3 已移除）。
+  assert.equal(s.undo(),false,'失败页不给撤销');
+  assert.equal(s.revive(),true,'复活可以回到牌桌');
   assert.equal(s.modal,'none');
+  assert.equal(s.moveLimit,5,'第一次复活 +3 步');
+  assert.equal(s.moves,2);
 });
 
 test('限步关：在步数内清台仍是通关',()=>{
@@ -168,7 +181,8 @@ test('百搭配对之后：奇数张照样存档、读得回来，盘面仍然�
   assert.ok(G.LEVELS.some((l)=>l.wild),'第五章起要有百搭关');
   const store={value:null,load(){return this.value;},save(v){this.value=JSON.stringify(v);},feedback(){}};
   const s=new mod.Session(7,store);s.command('continue');
-  if(s.tip)s.dismissTip();                    // 第 1 关会弹教学卡，tap() 在未关卡时直接吞掉输入
+  if(s.tip)s.dismissTip();                    // 第 1 关会弹教学，tap() 在未关卡时直接吞掉输入
+  s.coach=null;                               // 这是存档/配对测试，不测引导拦截
   // 拿会话**自己这一盘**改两张脸，而不是硬编形状：硬编 1x4 塞进 3x4 的第 1 关，
   // restore 的形状校验先把它挡了，断言就变成"没恢复"，测不到百搭那套奇数记账。
   const g=s.grid, rows=g.length, cols=g[0].length;
@@ -196,62 +210,61 @@ test('可靠死局判定：只剩一叠孤牌时 session.dead 为真',()=>{
   assert.equal(s.dead,false,'有对子不算死');
 });
 
-test('说明卡：第 1 关弹教学、机制关弹机制说明、看过之后不再弹；打开时屏蔽牌桌输入',()=>{
+test('章首弹框：每次换章都弹；同章重开/下一关不重复',()=>{
   const s=new mod.Session(18);                        // 构造即停在第 1 关
-  assert.equal(s.tip,'basic','第 1 关要给教学卡');
-  s.command('continue');                              // 进牌桌（说明卡仍在）
+  assert.equal(s.tip,'ctip:0','第 1 章进入要弹章首说明');
+  s.command('continue');                              // 进牌桌（弹框仍在）
   const before=JSON.stringify(s.grid);
   s.tap({r:0,c:0});
-  assert.equal(JSON.stringify(s.grid),before,'说明卡打开时点牌无效');
+  assert.equal(JSON.stringify(s.grid),before,'弹框打开时点牌无效');
   s.command('tip-ok');
   assert.equal(s.tip,null);
   s.tap({r:0,c:0});
-  assert.ok(s.selected||JSON.stringify(s.grid)!==before,'关掉说明卡后输入生效');
-  // 机制说明只在首次出现时弹（给关卡表临时挂一个 intro 键）
-  const G=require('../.test/core/Generator.js');
-  G.LEVELS[1].intro='ice';
-  s.reset(1);
-  assert.equal(s.tip,'ice');
-  s.dismissTip();
-  assert.equal(s.tipsSeen['ice'],true);
-  s.reset(1);
-  assert.equal(s.tip,null,'看过的机制说明不再弹');
-  delete G.LEVELS[1].intro;
-});
-
-test('章教学键优先：章 6 首见弹手写小盘，看完同关不再弹任何东西',()=>{
-  const s=new mod.Session(18);s.tipsSeen={};
-  s.reset(80,false);                                  // 章 6 首关：既有 ch5 教学，又有 only258 机制卡
-  assert.equal(s.tip,'ch5','有教学脚本的章必须优先弹教学');
-  assert.equal(s.introTutorial && s.introTutorial.title,'将将胡');
+  assert.ok(s.selected||JSON.stringify(s.grid)!==before,'关掉弹框后输入生效');
+  s.reset(0,false);                                   // 同一章重开
+  assert.equal(s.tip,null,'同章重开不重复');
+  s.reset(0,false,true);                              // 从选关重新进入同一章
+  assert.equal(s.tip,'ctip:0','从选关进入这一章也要弹');
   s.command('tip-ok');
-  assert.equal(s.tip,null);
-  assert.equal(s.tipsSeen['ch5'],true);
-  assert.equal(s.tipsSeen['only258'],true,'机制键必须一起去重，否则演完小盘又弹一张同义的文字卡');
-  s.reset(80,false);
-  assert.equal(s.tip,null,'看过的章教学不许重演：8 秒的交互不能每次开游戏都来一遍');
+  s.reset(16,false);                                  // 换到章 2
+  assert.equal(s.tip,'ctip:1','换章要再弹');
+  s.command('tip-ok');
+  const before2=JSON.stringify(s.grid);
+  let cell={r:0,c:0};
+  outer: for(let r=0;r<s.grid.length;r++)for(let c=0;c<s.grid[r].length;c++){
+    if(R.top(s.grid,{r,c})){cell={r,c};break outer;}
+  }
+  s.tap(cell);
+  assert.ok(s.selected||JSON.stringify(s.grid)!==before2,'关掉弹框后自由玩');
+  s.reset(17,false);                                  // 同一章下一关
+  assert.equal(s.tip,null,'同章下一关不重复');
+  s.reset(32,false);                                  // 换到章 3
+  assert.equal(s.tip,'ctip:2','再换章再弹');
 });
 
-test('没有教学脚本的章：继续走机制文字卡，行为一字不变',()=>{
+test('章 6 将将胡也弹章首说明，不再进小盘教学屏',()=>{
   const s=new mod.Session(18);s.tipsSeen={};
-  s.reset(48,false);                                  // 章 4 首关（ice）本阶段还没有小盘脚本
-  assert.equal(s.tip,'ice');
+  s.reset(80,false);                                  // 章 6 首关
+  assert.equal(s.tip,'ctip:5');
+  assert.equal(s.introTutorial,null,'小盘教学不再作为入口');
+  s.command('tip-ok');
+  s.reset(80,false);                                  // 同章重开
+  assert.equal(s.tip,null,'同章重开不重复');
+  s.reset(96,false);                                  // 换到章 7
+  assert.equal(s.tip,'ctip:6','换章再弹');
+});
+
+test('没有小盘脚本的章同样弹章首说明',()=>{
+  const s=new mod.Session(18);s.tipsSeen={};
+  s.reset(48,false);                                  // 换到章 4（冰封）
+  assert.equal(s.tip,'ctip:3');
   assert.equal(s.introTutorial,null);
 });
 
-test('第 1 关从「每次进都弹 basic」改成只弹一次（它现在是 8 秒的交互）',()=>{
+test('终章也按章号弹说明，不靠旧 intro 键',()=>{
   const s=new mod.Session(18);s.tipsSeen={};
-  assert.equal(s.tip,'basic','构造即停在第 1 关：首见要弹');
-  s.dismissTip();
-  assert.equal(s.tipsSeen['basic'],true);
-  s.reset(0,false);
-  assert.equal(s.tip,null);
-});
-
-test('终章与超范围章号：查不到脚本就不许弹教学，也不许把机制卡一起吞掉',()=>{
-  const s=new mod.Session(18);s.tipsSeen={};
-  s.reset(223,false);                                 // 章 14 首关：本章还没有教学条目
-  assert.equal(s.tip,null);
+  s.reset(223,false);                                 // 换到章 14
+  assert.equal(s.tip,'ctip:13');
   assert.equal(s.introTutorial,null);
 });
 

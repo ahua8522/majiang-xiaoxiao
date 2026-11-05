@@ -394,14 +394,21 @@ export interface ButtonArtOpts {
   stud?: string;
   /** 描边色，默认用 edge */
   stroke?: string;
+  /** 纯色按钮：单色填充，不画渐变 / 顶部高光 / 铆钉（开始、继续这一族）。 */
+  flat?: boolean;
 }
 
 /** 厚按钮：深色底 + 亮色面 + 顶部高光 + 两端金铆钉（几何与 H5 的 button()/toolButton() 对齐）。 */
 export function drawButton(ctx: Ctx2D, x: number, y: number, w: number, h: number, top: string, bottom: string, edge: string, r = h * .34, o: ButtonArtOpts = {}): void {
   fillRR(ctx, x, y + h * .05, w, h * .95, r, edge);
   rr(ctx, x, y, w, h * .9, r);
-  ctx.fillStyle = linear(ctx, x, y, x, y + h * .9, [[0, top], [1, bottom]]);
+  // flat：单色面，不画渐变。保留底部实心厚度与描边，按下仍有「厚按钮」的手感。
+  ctx.fillStyle = o.flat ? top : linear(ctx, x, y, x, y + h * .9, [[0, top], [1, bottom]]);
   ctx.fill();
+  if (o.flat) {
+    strokeRR(ctx, x, y, w, h * .9, r, o.stroke ?? edge, Math.max(1.5, h * .022));
+    return;
+  }
   if (o.gloss !== false) {
     ctx.save(); ctx.globalAlpha = .35;
     fillRR(ctx, x + w * .06, y + h * .09, w * .88, h * .2, r * .6, '#FFFFFF');

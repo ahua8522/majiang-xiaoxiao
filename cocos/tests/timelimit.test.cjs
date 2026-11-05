@@ -38,6 +38,7 @@ function timed(platform, seconds = 30) {
   const s = new S.Session(20261016, platform);
   s.command('continue');
   s.tip = null;
+  s.coach = null;
   return s;
 }
 function untimed() { L[IDX].timeLimit = saved; }
@@ -109,26 +110,28 @@ test('剩余时间进存档：换新进程重进，倒计时不清零', () => {
 test('非限时关调 tick 是安全的空操作', () => {
   untimed();                                     // 还原第 1 关：这一条要测的就是"表里没这个字段"
   const s = new S.Session(5, store());
-  s.command('continue'); s.tip = null;
+  s.command('continue'); s.tip = null; s.coach = null;
   assert.equal(s.timeLeft, 0);
   assert.equal(s.tick(5), false);
   assert.equal(s.modal, 'none');
 });
 
-test('时间到之后撤销：时间退回落子前，不会卡死在 0 秒', () => {
+test('时间到之后复活：补 30 秒回到牌桌；失败页不给撤销（撤销不退时间）', () => {
   const s = timed(store(), 8);
   const ri = s.runs.findIndex((r) => !r.locked && r.cells.length > 1);
   assert.ok(ri >= 0, '第 1 关总有一条推得动的轨');
   assert.equal(s.slide(ri, 1), true);
   run(s, 8.5);
   assert.equal(s.modal, 'lose');
+  assert.equal(s.failReason, 'time');
   assert.equal(s.timeLeft, 0);
-  assert.equal(s.undo(), true, '失败页的撤销必须能用');
+  // 撤销不退时间（A1）：在 0 秒的盘上撤销，下一秒又判负，等于白撤。
+  assert.equal(s.undo(), false, '失败页不给撤销');
+  assert.equal(s.revive(), true, '时间复活必须可用');
   assert.equal(s.modal, 'none');
-  assert.ok(s.timeLeft > 0, `撤销后剩余时间还是 ${s.timeLeft}：tick 只在 before>0 时判负，0 秒会永久锁死`);
+  assert.ok(s.timeLeft >= 30, `复活后应补 30 秒，实际 ${s.timeLeft}`);
   s.tick(0.2);
-  assert.equal(s.modal, 'none', '撤销后时间已恢复，不该立刻再判负');
-  assert.ok(s.timeLeft > 0);
+  assert.equal(s.modal, 'none', '复活后时间已补回，不该立刻再判负');
 });
 
 test('0 秒的存档不再恢复成 0 秒牌桌：按这一关重新开始', () => {
