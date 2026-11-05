@@ -6,10 +6,10 @@ import type {LevelDef} from '../../cocos/assets/scripts/core/levels';
 export type Mode = 'classic' | 'ice' | 'garden' | 'orders' | 'energy';
 export const MODES: {id: Mode; title: string; eyebrow: string; rule: string; isNew: boolean}[] = [
   {id: 'classic', title: '清风入席', eyebrow: '第一站 · 同牌碰头', rule: '点两张相邻同牌，或拖动一行、一列，让同牌碰头。', isNew: false},
-  {id: 'ice', title: '冰糖茶庭', eyebrow: '经典机关 · 破冰', rule: '冰牌先配对碎冰，再配对收走。蓝色裂纹就是进度。', isNew: false},
+  {id: 'ice', title: '冰晶花园', eyebrow: '经典机关 · 破冰', rule: '冰牌先配对碎冰，再配对收走。蓝色裂纹就是进度。', isNew: false},
   {id: 'garden', title: '花圃初开', eyebrow: '新机制 · 开花', rule: '在金色花圃格上消掉牌，让四朵花全部开放。', isNew: true},
-  {id: 'orders', title: '茶客来信', eyebrow: '新组合 · 双份订单', rule: '各收集一对订单上的牌。其他同牌照常可以消。', isNew: true},
-  {id: 'energy', title: '连消灯会', eyebrow: '新机制 · 开运充能', rule: '每收走一对点亮一格，满四格可免费用一次慧眼。', isNew: true}
+  {id: 'orders', title: '心愿收集', eyebrow: '新组合 · 双份目标', rule: '各收集一对清单上的牌。其他同牌照常可以消。', isNew: true},
+  {id: 'energy', title: '灵感连消', eyebrow: '新机制 · 灵感充能', rule: '每收走一对点亮一格，满四格可免费用一次慧眼。', isNew: true}
 ];
 
 interface Snapshot {grid: Grid; solution: Action[]; moves: number; charge: number; streak: number; bestStreak: number; blooms: string[]; collected: Record<string, number>}

@@ -739,7 +739,7 @@
 
   // cocos/assets/scripts/core/Generator.ts
   var BASE_FACES = [];
-  for (let i = 1; i <= 9; i++) for (const suit of ["p", "s", "m"]) BASE_FACES.push(i + suit);
+  for (let i = 1; i <= 9; i++) for (const suit2 of ["p", "s", "m"]) BASE_FACES.push(i + suit2);
   for (let i = 1; i <= 7; i++) BASE_FACES.push("z" + i);
   var FLOWER_FACES = [];
   for (let i = 1; i <= 8; i++) FLOWER_FACES.push("f" + i);
@@ -1072,9 +1072,6 @@
       close: "\u63A8\u5F97\u52A8\u7684\u8F68 \u2260 \u6D88\u5F97\u6389\u7684\u724C\u3002\u8FD9\u4E00\u7AE0\u53EA\u627E 2\u30015\u30018\uFF1B\u5269\u4E0B\u6D88\u4E0D\u6389\u7684\u4E0D\u7528\u7BA1\uFF0C\u80FD\u6D88\u7684\u6E05\u5149\u5C31\u80E1\u4E86\u3002"
     }
   ];
-  function tutorialKey(chapter) {
-    return "ch" + chapter;
-  }
   function tutorialFor(chapter) {
     return CHAPTER_TUTORIALS.find((t) => t.chapter === chapter) || null;
   }
@@ -1082,6 +1079,137 @@
     if (!key2 || key2.slice(0, 2) !== "ch") return null;
     const n = Number(key2.slice(2));
     return Number.isInteger(n) && n >= 0 ? tutorialFor(n) : null;
+  }
+
+  // cocos/assets/scripts/core/coach.ts
+  var COACH_TEXT = {
+    basic: {
+      key: "basic",
+      title: "\u63A8\u4E0E\u70B9",
+      say: ["\u62D6\u4EAE\u8D77\u6765\u7684\u8FD9\u4E00\u884C\uFF0C\u540C\u724C\u78B0\u5934\u5C31\u6D88\u3002"],
+      steps: 1
+    },
+    stack: {
+      key: "stack",
+      title: "\u53E0\u724C",
+      say: ["\u53E0\u7740\u7684\u724C\u8981\u6D88\u4E24\u6B21\uFF0C\u53F3\u4E0A\u89D2\u662F\u5C42\u6570\u3002"],
+      steps: 1,
+      focus: "stack"
+    },
+    lockRow: {
+      key: "lockRow",
+      title: "\u9501\u884C",
+      say: ["\u8FD9\u4E00\u884C\u88AB\u9501\u4F4F\uFF0C\u5148\u62D6\u4E00\u4E0B\u8BD5\u8BD5\u3002", "\u6362\u4EAE\u8D77\u6765\u7684\u5730\u65B9\uFF0C\u505A\u4E00\u6B65\u3002"],
+      steps: 1,
+      bounce: true
+    },
+    lockCol: {
+      key: "lockCol",
+      title: "\u9501\u5217",
+      say: ["\u8FD9\u4E00\u5217\u88AB\u9501\u4F4F\uFF0C\u5148\u62D6\u4E00\u4E0B\u8BD5\u8BD5\u3002", "\u6362\u4EAE\u8D77\u6765\u7684\u5730\u65B9\uFF0C\u505A\u4E00\u6B65\u3002"],
+      steps: 1,
+      bounce: true
+    },
+    moveLimit: {
+      key: "moveLimit",
+      title: "\u9650\u6B65",
+      say: ["\u53F3\u4E0A\u89D2\u6B65\u6570\u7528\u5B8C\u8FD8\u6CA1\u6E05\u53F0\u5C31\u8F93\u3002"],
+      steps: 1
+    },
+    oneWay: {
+      key: "oneWay",
+      title: "\u5355\u5411\u8F68",
+      say: ["\u8FD9\u6761\u8F68\u53EA\u80FD\u987A\u7BAD\u5934\u63A8\uFF0C\u5148\u53CD\u63A8\u8BD5\u8BD5\u3002", "\u7167\u4EAE\u8D77\u6765\u7684\u5730\u65B9\uFF0C\u505A\u4E00\u6B65\u3002"],
+      steps: 1,
+      bounce: true
+    },
+    unlock: {
+      key: "unlock",
+      title: "\u8FDE\u9501\u89E3\u9501",
+      say: ["\u6D88\u4E00\u5BF9\u8BA1\u6570\u524D\u8FDB\uFF0C\u591F\u6570\u81EA\u52A8\u89E3\u9501\u3002"],
+      steps: 1
+    },
+    ice: {
+      key: "ice",
+      title: "\u51B0\u9762",
+      say: ["\u8986\u971C\u724C\u8981\u6D88\u4E24\u6B21\uFF1A\u5148\u788E\u51B0\uFF0C\u518D\u6536\u8D70\u3002"],
+      steps: 1,
+      focus: "ice"
+    },
+    bomb: {
+      key: "bomb",
+      title: "\u97AD\u70AE",
+      say: ["\u97AD\u70AE\u914D\u5BF9\u4F1A\u9707\u788E\u5168\u573A\u540C\u6B3E\u51B0\u9762\u3002"],
+      steps: 1,
+      focus: "bomb"
+    },
+    ice2: {
+      key: "ice2",
+      title: "\u539A\u51B0",
+      say: ["\u539A\u971C\u8981\u788E\u4E24\u6B21\u51B0\uFF0C\u518D\u6D88\u4E00\u6B21\u624D\u6536\u8D70\u3002"],
+      steps: 1,
+      focus: "ice2"
+    },
+    flower: {
+      key: "flower",
+      title: "\u82B1\u724C",
+      say: ["\u82B1\u724C\u914D\u5BF9\u89C4\u5219\u4E0D\u53D8\uFF0C\u540C\u724C\u76F8\u90BB\u5C31\u6D88\u3002"],
+      steps: 1,
+      focus: "flower"
+    },
+    wild: {
+      key: "wild",
+      title: "\u767E\u642D",
+      say: ["\u661F\u53F7\u82B1\u724C\u662F\u767E\u642D\uFF0C\u80FD\u914D\u4EFB\u610F\u724C\u3002", "\u5148\u63A8\u8FD9\u4E00\u8F68\uFF0C\u628A\u767E\u642D\u9001\u8FC7\u53BB\u3002", "\u518D\u63A8\u4E00\u6B21\uFF0C\u8BA9\u767E\u642D\u78B0\u4E0A\u53BB\u3002"],
+      steps: 3,
+      focus: "wild"
+    },
+    goal: {
+      key: "goal",
+      title: "\u76EE\u6807\u5173",
+      say: ["\u4E0D\u7528\u6E05\u53F0\uFF1A\u5148\u8FBE\u6210\u5DE6\u4E0A\u89D2\u76EE\u6807\u3002", "\u5148\u8D70\u4E24\u6B65\uFF0C\u628A\u76EE\u6807\u63A8\u5230\u4E00\u8D77\u3002", "\u6700\u540E\u8FD9\u4E00\u6B65\u4F1A\u63A8\u8FDB\u76EE\u6807\u3002"],
+      steps: 3,
+      focus: "goal"
+    },
+    noSuit: {
+      key: "noSuit",
+      title: "\u65AD\u95E8",
+      say: ["\u8FD9\u4E00\u95E8\u53EA\u80FD\u8F7B\u70B9\uFF0C\u6ED1\u52A8\u5E26\u4E0D\u8D70\u3002"],
+      steps: 1,
+      focus: "noSuit"
+    },
+    only19: {
+      key: "only19",
+      title: "\u5E7A\u4E5D",
+      say: ["\u53EA\u6709 1\u30019 \u548C\u5B57\u724C\u80FD\u914D\u5BF9\u3002"],
+      steps: 1
+    },
+    stack3: {
+      key: "stack3",
+      title: "\u4E09\u5C42\u724C",
+      say: ["\u4E09\u5C42\u724C\u8981\u8FDE\u6D88\u4E09\u6B21\u624D\u6E05\u7A7A\u3002"],
+      steps: 1,
+      focus: "stack3"
+    },
+    oneSuit: {
+      key: "oneSuit",
+      title: "\u6E05\u4E00\u8272",
+      say: ["\u53EA\u6709\u4E00\u95E8\u80FD\u914D\u5BF9\uFF0C\u5176\u4F59\u5168\u662F\u6ED1\u5757\u3002"],
+      steps: 1
+    },
+    collect: {
+      key: "collect",
+      title: "\u96C6\u9F50\u4E00\u7EC4",
+      say: ["\u8FD9\u4E00\u7EC4\u5404\u6D88\u4E00\u5BF9\u5C31\u80E1\u3002", "\u518D\u8D70\u4E00\u6B65\uFF0C\u9876\u680F\u79CD\u6570\u4F1A\u524D\u8FDB\u3002"],
+      steps: 2,
+      focus: "collect"
+    }
+  };
+  function coachFor(key2) {
+    return COACH_TEXT[key2] || null;
+  }
+  function coachSeenKey(key2) {
+    return "coach:" + key2;
   }
 
   // cocos/assets/scripts/core/Session.ts
@@ -1155,6 +1283,18 @@
       this.goalTarget = 0;
       /** 待展示的说明卡（第 1 关教学 / 机制首现）。非空时牌桌输入被屏蔽。 */
       this.tip = null;
+      /**
+       * 真盘机制引导。与 `tip` 互斥：章教学仍走 tip（手写小盘），机制首见走 coach（真实牌桌）。
+       * 非空时牌桌只接受引导目标动作；跳过关、读完档都不会重放。
+       */
+      this.coach = null;
+      /** 本关该展示的机制键；setupLevel 决定，reset 装好 solution 后再起 coach。 */
+      this.introKey = null;
+      /**
+       * 上一次进入的章号。章首弹框按「换章」触发：同一章内下一关/重开不重复，
+       * 换章或冷启动（初值为 null）都会弹；不落盘，所以每次开游戏都会看到当前章的说明。
+       */
+      this.lastChapter = null;
       /** 已经看过的机制说明（持久化，避免每次都弹）。 */
       this.tipsSeen = {};
       /** 本局得分（B1）：`Σ erased×10×(1+0.5×(chain-1))`，鼓励一次多消与多波连锁。 */
@@ -1233,7 +1373,10 @@
       } else {
         this.usedDay = dayStamp();
       }
-      if (!(data?.version >= 2 && this.restore(data.run))) this.reset(this.maxLevel, false);
+      if (!(data?.version >= 2 && this.restore(data.run))) {
+        this.lastChapter = null;
+        this.reset(this.maxLevel, false);
+      }
       this.modal = "home";
     }
     save() {
@@ -1310,7 +1453,8 @@
       this.goalDone = Number.isInteger(run.goalDone) ? Math.max(0, run.goalDone) : 0;
       this.goalTarget = Math.max(this.goalDone, goalPairs(this.def, this.grid));
       this.refreshRuns();
-      this.tip = null;
+      this.coach = null;
+      this.introKey = null;
       this.solution = [];
       this.message = "\u724C\u684C\u5DF2\u4FDD\u7559\uFF0C\u63A5\u7740\u4E0A\u4E00\u76D8\u6162\u6162\u60F3\u3002";
       return true;
@@ -1432,10 +1576,150 @@
       this.tipsSeen[t] = true;
       if (tutorialByKey(t)) {
         if (this.def.intro && !this.tipsSeen[this.def.intro]) this.tipsSeen[this.def.intro] = true;
+        if (this.def.intro && coachFor(this.def.intro)) this.tipsSeen[coachSeenKey(this.def.intro)] = true;
         if (this.levelIndex === 0) this.tipsSeen["basic"] = true;
       }
       this.save();
       this.tip = null;
+      this.revision++;
+    }
+    /* ── 真盘机制引导（coach） ───────────────────────────── */
+    /**
+     * 试错步的目标轨：锁行取第一条锁行、锁列取第一条锁列、单向轨取第一条带 dir 的轨。
+     * 返回 runs 下标；不是试错步或找不到时返回 -1。
+     */
+    coachBounceRun() {
+      const c = this.coach;
+      if (!c || !c.text.bounce || c.index > 0) return -1;
+      for (let i = 0; i < this.runs.length; i++) {
+        const r = this.runs[i];
+        if (c.text.key === "lockRow" && r.axis === "row" && r.locked) return i;
+        if (c.text.key === "lockCol" && r.axis === "col" && r.locked) return i;
+        if (c.text.key === "oneWay" && r.dir) return i;
+      }
+      return -1;
+    }
+    /** 引导期间这次拖动能不能起手：试错步只认目标锁轨；正常步只认目标轨；点消步一律不拖。 */
+    coachAllowsSlide(run) {
+      const c = this.coach;
+      if (!c) return true;
+      if (c.text.bounce && c.index === 0) return run === this.coachBounceRun();
+      const a = this.solution[0];
+      return !!a && a.kind === "slide" && a.run === run;
+    }
+    /** 手势被引导拒绝时给视图的一句短话。 */
+    coachDragHint() {
+      const c = this.coach;
+      if (!c) return "";
+      if (c.text.bounce && c.index === 0) return c.text.key === "oneWay" ? "\u53CD\u7740\u7BAD\u5934\u63A8\u4E00\u4E0B\uFF0C\u770B\u770B\u63A8\u4E0D\u63A8\u5F97\u52A8\u3002" : "\u62D6\u4EAE\u8D77\u6765\u7684\u90A3\u4E00\u884C\uFF0C\u770B\u770B\u63A8\u4E0D\u63A8\u5F97\u52A8\u3002";
+      const a = this.solution[0];
+      return a && a.kind === "match" ? "\u70B9\u4EAE\u8D77\u7684\u4E24\u5F20\u724C\uFF0C\u4E0D\u7528\u62D6\u3002" : "\u62D6\u4EAE\u8D77\u6765\u7684\u90A3\u4E00\u884C\u3002";
+    }
+    /** 把一句纠正贴到引导横幅上；无引导时退化成普通 notice。 */
+    coachNote(text2) {
+      if (!this.coach) {
+        this.notice(text2);
+        return;
+      }
+      this.coach.hint = text2;
+      this.revision++;
+    }
+    /** 测试与 headless 取证用：直接喂一个 Action，绕开手势。 */
+    feed(action) {
+      return this.coach ? this.coachAct(action) : this.apply(action);
+    }
+    coachTap(p) {
+      const c = this.coach;
+      if (this.modal !== "none") return false;
+      const want = this.solution[0];
+      if (c.text.bounce && c.index === 0 || !want || want.kind !== "match") {
+        this.coachNote(this.coachDragHint());
+        return false;
+      }
+      if (!equal(p, want.a) && !equal(p, want.b)) {
+        this.coachNote("\u70B9\u4EAE\u8D77\u7684\u4E24\u5F20\u724C\u3002");
+        return false;
+      }
+      if (this.selected && equal(this.selected, p)) {
+        this.selected = null;
+        this.revision++;
+        return false;
+      }
+      if (this.selected && (equal(this.selected, want.a) || equal(this.selected, want.b))) {
+        return this.coachAct({ kind: "match", a: this.selected, b: p });
+      }
+      this.selected = p;
+      this.revision++;
+      return false;
+    }
+    /**
+     * 唯一提交口：目标动作永远取 `solution[0]`。判据与提示一样——比较结果盘面，
+     * 反向推同一轨、点另一侧，只要盘面一样都算对。
+     */
+    coachAct(action) {
+      const c = this.coach;
+      if (!c || this.modal !== "none") return false;
+      if (c.text.bounce && c.index === 0) {
+        const run = this.coachBounceRun();
+        if (run < 0 || action.kind !== "slide" || action.run !== run) {
+          this.coachNote(action.kind === "match" ? "\u70B9\u4EAE\u8D77\u7684\u90A3\u4E24\u5F20\u724C\u3002" : "\u63A8\u4EAE\u8D77\u6765\u7684\u90A3\u4E00\u884C\u3002");
+          return false;
+        }
+        if (c.text.key === "oneWay") {
+          const r = this.runs[run];
+          if (!r || !r.dir || action.step === 0 || action.step * r.dir > 0) {
+            this.coachNote("\u53CD\u7740\u7BAD\u5934\u63A8\u4E00\u4E0B\u3002");
+            return false;
+          }
+        }
+        c.index++;
+        c.hint = "";
+        if (c.index >= c.total) this.finishCoach(false);
+        else this.revision++;
+        return true;
+      }
+      const want = this.solution[0];
+      if (!want) {
+        this.finishCoach(true);
+        return false;
+      }
+      let exp, got;
+      try {
+        exp = transition(this.grid, this.runs, want, this.dialect);
+        got = transition(this.grid, this.runs, action, this.dialect);
+      } catch {
+        this.finishCoach(true);
+        return false;
+      }
+      if (!got.changed || signature(got.grid) !== signature(exp.grid)) {
+        this.coachNote(this.coachWrongLine(action, want));
+        return false;
+      }
+      const ok = this.apply(action);
+      if (ok) {
+        c.index++;
+        c.hint = "";
+        if (c.index >= c.total || this.modal !== "none" || !this.solution.length) this.finishCoach(false);
+        else this.revision++;
+      }
+      return ok;
+    }
+    coachWrongLine(action, want) {
+      if (want.kind === "match") return "\u70B9\u4EAE\u8D77\u7684\u90A3\u4E24\u5F20\u724C\u3002";
+      if (action.kind === "slide" && want.kind === "slide" && action.run === want.run) return "\u6362\u4E2A\u65B9\u5411\u518D\u63A8\u4E00\u6B21\u3002";
+      return "\u6309\u4F4F\u4EAE\u8D77\u6765\u7684\u90A3\u4E00\u884C\u518D\u62D6\u3002";
+    }
+    /** 完成或跳过：把机制键与 coach 键一起写进 tipsSeen，之后不再弹。 */
+    finishCoach(skipped) {
+      const c = this.coach;
+      if (!c) return;
+      this.tipsSeen[c.text.key] = true;
+      this.tipsSeen[coachSeenKey(c.text.key)] = true;
+      this.coach = null;
+      if (this.modal === "none") {
+        this.message = skipped ? "\u8DF3\u8FC7\u5F15\u5BFC\uFF0C\u63A5\u7740\u63A8\u3002" : c.text.key === "basic" ? "\u4E5F\u53EF\u4EE5\u76F4\u63A5\u70B9\u4E24\u5F20\u540C\u724C\uFF1B\u63A5\u7740\u63A8\u3002" : "\u5F15\u5BFC\u5B8C\u6210\uFF0C\u63A5\u7740\u63A8\u3002";
+      }
+      this.save();
       this.revision++;
     }
     /** 当前弹窗是从哪一屏打开的：'home' 表示首页，'none' 表示牌桌。
@@ -1469,14 +1753,18 @@
      * 不需要重构存档，也不用给 maxLevel 塞第二层含义。
      *
      * `unlockAll`（体验版 / 开发版）必须绕过门槛，否则内部测试会被自己的门槛挡住。
+     * 选关页的整章灰化也走这一处判断——门槛只许有一个口径，视图再手算一遍就会漏掉 unlockAll。
      */
+    canEnterChapter(chapter) {
+      if (this.unlockAll) return true;
+      if (chapter <= 0) return true;
+      return this.chapterStars(chapter - 1) >= gateFor(chapter - 1);
+    }
     canEnter(index) {
       if (!Number.isInteger(index) || index < 0 || index >= LEVELS.length) return false;
       if (this.unlockAll) return true;
       if (index > this.maxLevel) return false;
-      const c = chapterOf(index);
-      if (c === 0) return true;
-      return this.chapterStars(c - 1) >= gateFor(c - 1);
+      return this.canEnterChapter(chapterOf(index));
     }
     /** 星级：只看步数（旧口径的「用道具掉星」已删，理由见 `ratingFor` 注释）。 */
     get rating() {
@@ -1491,10 +1779,12 @@
       if (this.history.length > 80) this.history.shift();
     }
     /** 只装配关卡的静态部分（定义、计数器、待弹的说明卡），**不发牌**。 */
-    setupLevel(chosen) {
+    setupLevel(chosen, chapterEntry = false) {
       this.levelIndex = chosen;
       this.def = levelAt(chosen);
       this.finished = false;
+      this.coach = null;
+      this.introKey = null;
       this.moves = 0;
       this.lastChain = 0;
       this.selected = null;
@@ -1518,10 +1808,32 @@
       this.timeLeft = this.def.timeLimit || 0;
       this.paused = false;
       const chapter = this.def.chapter ?? Math.floor(chosen / 16);
-      const tutKey = tutorialFor(chapter) ? tutorialKey(chapter) : null;
-      if (tutKey && !this.tipsSeen[tutKey]) this.tip = tutKey;
-      else if (chosen === 0 && !this.tipsSeen["basic"]) this.tip = "basic";
-      else this.tip = this.def.intro && !this.tipsSeen[this.def.intro] ? this.def.intro : null;
+      this.tip = chapterEntry || this.lastChapter !== chapter ? "ctip:" + chapter : null;
+      this.lastChapter = chapter;
+      this.introKey = null;
+    }
+    /**
+     * 起真盘引导：目标动作取认证解 `solution[0]`，所以只在 reset 装好 solution 之后调用。
+     * 证书步数不够（理论上不该发生）就退回文字卡——引导永远不是进关门槛。
+     */
+    maybeStartCoach() {
+      const key2 = this.introKey;
+      if (!key2 || this.tip) return;
+      const text2 = coachFor(key2);
+      if (!text2 || this.tipsSeen[coachSeenKey(key2)]) return;
+      try {
+        if (this.solution.length < text2.steps) {
+          this.tip = key2;
+          this.revision++;
+          return;
+        }
+        this.coach = { text: text2, index: 0, total: text2.steps + (text2.bounce ? 1 : 0), hint: "" };
+        this.revision++;
+      } catch {
+        this.coach = null;
+        this.tip = key2;
+        this.revision++;
+      }
     }
     /**
      * 发牌，**绝不向上抛**。
@@ -1544,12 +1856,12 @@
       this.seed = this.seed + 1 >>> 0;
       return { index: 0, deal: generate(0, this.seed) };
     }
-    reset(index = this.levelIndex, fresh = true) {
+    reset(index = this.levelIndex, fresh = true, chapterEntry = false) {
       const wanted = Number.isFinite(index) ? Math.max(0, Math.min(LEVELS.length - 1, Math.floor(index))) : 0;
       const pin = LEVELS[wanted]?.seed;
       this.seed = Number.isInteger(pin) ? pin >>> 0 : fresh ? this.seed + 2654435769 >>> 0 : this.seed;
       const { index: chosen, deal } = this.deal(wanted);
-      this.setupLevel(chosen);
+      this.setupLevel(chosen, chapterEntry);
       this.grid = deal.grid;
       this.runs = deal.runs;
       this.solution = deal.solution;
@@ -1558,6 +1870,7 @@
       this.par = deal.solution.length;
       this.goalTarget = goalPairs(this.def, this.grid);
       this.message = chosen === 0 ? "\u540C\u724C\u76F8\u90BB\uFF0C\u8F7B\u70B9\u6D88\u9664\uFF1B\u62D6\u52A8\u4E00\u884C\u6216\u4E00\u5217\uFF0C\u677E\u624B\u81EA\u52A8\u6D88\u3002" : chosen !== wanted ? "\u8FD9\u4E00\u5173\u6682\u65F6\u53D1\u4E0D\u51FA\u53EF\u89E3\u7684\u724C\uFF0C\u5148\u7ED9\u4F60\u6446\u4E86\u7B2C 1 \u5173\u3002" : "\u770B\u6E05\u8FD9\u76D8\u7684\u969C\u788D\uFF0C\u5148\u627E\u51FA\u7B2C\u4E00\u6B65\u3002";
+      this.maybeStartCoach();
       this.revision++;
     }
     setPaused(v) {
@@ -1572,7 +1885,7 @@
      * @returns 是否跨过了整秒（视图据此决定要不要重绘）
      */
     tick(dt) {
-      if (!this.def.timeLimit || this.modal !== "none" || this.tip || this.paused) return false;
+      if (!this.def.timeLimit || this.modal !== "none" || this.tip || this.coach || this.paused) return false;
       const before = this.timeLeft;
       this.timeLeft = Math.max(0, this.timeLeft - Math.min(Math.max(dt, 0), 0.25));
       if (this.timeLeft <= 0 && before > 0) {
@@ -1662,29 +1975,34 @@
       this.revision++;
       return true;
     }
+    /** @returns 是否真的提交了一步（选中第一张牌返回 false，视图据此不跑胜负判定）。 */
     tap(p) {
-      if (this.modal !== "none" || this.tip) return;
+      if (this.coach) return this.coachTap(p);
+      if (this.modal !== "none" || this.tip) return false;
       this.lastErased = [];
       if (!top(this.grid, p)) {
         this.selected = null;
         this.revision++;
-        return;
+        return false;
       }
       if (this.selected && partners(this.grid, this.selected, this.dialect).some((q) => equal(q, p))) {
-        this.apply({ kind: "match", a: this.selected, b: p });
-        return;
+        return this.apply({ kind: "match", a: this.selected, b: p });
       }
       const near = partners(this.grid, p, this.dialect);
       if (near.length === 1) {
-        this.apply({ kind: "match", a: p, b: near[0] });
-        return;
+        return this.apply({ kind: "match", a: p, b: near[0] });
       }
       this.selected = equal(this.selected, p) ? null : p;
       this.message = near.length > 1 ? "\u6709\u4E0D\u6B62\u4E00\u4E2A\u642D\u5B50\uFF0C\u70B9\u4F60\u60F3\u6D88\u7684\u90A3\u5F20\u3002" : "\u62D6\u52A8\u8FD9\u4E00\u884C\u6216\u8FD9\u4E00\u5217\uFF0C\u628A\u642D\u5B50\u63A8\u5230\u65C1\u8FB9\u3002";
       this.revision++;
+      return false;
     }
     /** Feedback for gestures that cannot become an action (locked rail, wood block, hole). */
     notice(text2) {
+      if (this.coach) {
+        this.coachNote(text2);
+        return;
+      }
       if (this.modal !== "none" || this.tip) return;
       this.selected = null;
       this.lastErased = [];
@@ -1782,10 +2100,11 @@
       return true;
     }
     slide(run, step) {
-      return this.apply({ kind: "slide", run, step });
+      const a = { kind: "slide", run, step };
+      return this.coach ? this.coachAct(a) : this.apply(a);
     }
     undo() {
-      if (this.tip) return false;
+      if (this.tip || this.coach) return false;
       if (this.modal !== "none" && this.modal !== "win") return false;
       const snap = this.history.pop();
       if (!snap) {
@@ -1880,7 +2199,7 @@
       return `\u7B2C ${done}/${this.hintTotal} \u6B65 \xB7 `;
     }
     requestHint() {
-      if (this.modal !== "none" || this.tip) return;
+      if (this.modal !== "none" || this.tip || this.coach) return;
       this.lastErased = [];
       if (this.hint.length) {
         this.message = this.describe(this.hint[0]);
@@ -1905,6 +2224,17 @@
       this.revision++;
     }
     command(id) {
+      if (this.coach) {
+        if (id === "coach-skip") {
+          this.finishCoach(true);
+          return;
+        }
+        const blocked = id === "hint" || id === "shuffle" || id === "undo";
+        if (blocked) {
+          this.coachNote("\u5148\u5B8C\u6210\u8FD9\u4E00\u6B65\u3002");
+          return;
+        }
+      }
       if (id === "tip-ok") {
         this.dismissTip();
         return;
@@ -1923,6 +2253,7 @@
             while (i > 0 && !this.canEnter(i)) i--;
             this.reset(i);
           }
+          this.tip = "ctip:" + (this.def.chapter ?? Math.floor(this.levelIndex / 16));
           this.modal = "none";
           this.save();
           this.revision++;
@@ -1999,7 +2330,7 @@
         if (open === "levels" && id.startsWith("level:")) {
           const i = Number(id.slice(6));
           if (Number.isInteger(i) && this.canEnter(i)) {
-            this.reset(i);
+            this.reset(i, true, true);
             this.save();
           }
           return;
@@ -2221,7 +2552,77 @@
     ctx.fillRect(0, 0, w, h);
   }
 
-  // demo/h5/src/tile.ts
+  // cocos/assets/scripts/view/theme.ts
+  var palette = {
+    /** 天空 / 庭院背景 */
+    sky1: "#9FD6E8",
+    sky2: "#CFE9E6",
+    sky3: "#DCEFD2",
+    garden: "#8FB65F",
+    gardenDeep: "#6A9548",
+    gardenDark: "#3E6A31",
+    leaf: "#7FB04C",
+    leafDark: "#4A7A31",
+    leafLight: "#A8CE72",
+    /** 纸面 / 卡片 */
+    cream: "#FBF3DE",
+    creamDeep: "#F3E6C6",
+    creamEdge: "#E4D2A6",
+    gold: "#D8A94E",
+    goldDeep: "#A87C2C",
+    goldLight: "#F3DC9B",
+    jade: "#2E7D4F",
+    jadeDeep: "#1C5B37",
+    jadeLight: "#4FA46A",
+    jadeBright: "#43A860",
+    /** 文字 */
+    ink: "#2B3A28",
+    inkSoft: "#5D6B52",
+    inkFaint: "#8A957E",
+    /** 木框 */
+    wood: "#8B5A2B",
+    woodDeep: "#5A3714",
+    woodLight: "#B58046",
+    woodInner: "#4E6B33",
+    /** 牌面 */
+    tile: "#FDF8E4",
+    tileEdge: "#E8DCBC",
+    red: "#C0392B",
+    navy: "#2B4A7A",
+    blue: "#2E7FB8",
+    white: "#FFFFFF",
+    clear: "#00000000"
+  };
+
+  // cocos/assets/scripts/view/art.ts
+  var SANS = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
+  var SERIF = '"STKaiti","KaiTi","Kaiti SC","Songti SC","Noto Serif CJK SC",serif';
+  function rr(ctx, x, y, w, h, r) {
+    const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+  function fillRR(ctx, x, y, w, h, r, color) {
+    rr(ctx, x, y, w, h, r);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  function strokeRR(ctx, x, y, w, h, r, color, lw) {
+    rr(ctx, x, y, w, h, r);
+    ctx.lineWidth = lw;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+  }
+  function linear(ctx, x0, y0, x1, y1, stops) {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    for (const [at, color] of stops) g.addColorStop(at, color);
+    return g;
+  }
   var DOTS = {
     1: [[0.5, 0.5, 0.3]],
     2: [[0.5, 0.28, 0.18], [0.5, 0.72, 0.18]],
@@ -2237,7 +2638,7 @@
   var HONORS = ["\u6771", "\u5357", "\u897F", "\u5317", "\u4E2D", "\u767C", "\u767D"];
   var FLOWERS = ["\u6625", "\u590F", "\u79CB", "\u51AC", "\u6885", "\u5170", "\u7AF9", "\u83CA"];
   var DECO = { x1: ["\u842C", "#C0392B"], x2: ["\u4E50", "#2E8B57"], x3: ["\u7B52", "#2E7FB8"] };
-  var SUIT_COLOR = { p: "#2E7FB8", s: "#2E8B57", m: "#C0392B", z: "#6B4FA0", f: "#C2678F", x: "#2E7FB8", b: "#8C2318" };
+  var BOMB_FACE2 = "b1";
   var PIP_RED = "#C0392B";
   var PIP_GREEN = "#2E8B57";
   var PIP_BLUE = "#2E7FB8";
@@ -2254,32 +2655,17 @@
   var STICKS = {
     2: [{ x: 0.32, y: 0.5, len: 0.6 }, { x: 0.68, y: 0.5, len: 0.6 }],
     3: [{ x: 0.5, y: 0.23, len: 0.28 }, { x: 0.29, y: 0.72, len: 0.3 }, { x: 0.71, y: 0.72, len: 0.3 }],
-    4: [{ x: 0.26, y: 0.26, len: 0.28 }, { x: 0.74, y: 0.26, len: 0.28 }, { x: 0.26, y: 0.74, len: 0.28 }, { x: 0.74, y: 0.74, len: 0.28 }],
+    4: [{ x: 0.27, y: 0.24, len: 0.32 }, { x: 0.73, y: 0.24, len: 0.32 }, { x: 0.27, y: 0.76, len: 0.32 }, { x: 0.73, y: 0.76, len: 0.32 }],
     5: [{ x: 0.24, y: 0.24, len: 0.26 }, { x: 0.76, y: 0.24, len: 0.26 }, { x: 0.5, y: 0.5, len: 0.26, red: true }, { x: 0.24, y: 0.76, len: 0.26 }, { x: 0.76, y: 0.76, len: 0.26 }],
-    6: [{ x: 0.24, y: 0.27, len: 0.26 }, { x: 0.5, y: 0.27, len: 0.26, red: true }, { x: 0.76, y: 0.27, len: 0.26 }, { x: 0.24, y: 0.73, len: 0.26 }, { x: 0.5, y: 0.73, len: 0.26, red: true }, { x: 0.76, y: 0.73, len: 0.26 }],
+    6: [{ x: 0.2, y: 0.24, len: 0.3 }, { x: 0.5, y: 0.24, len: 0.3 }, { x: 0.8, y: 0.24, len: 0.3 }, { x: 0.2, y: 0.76, len: 0.3 }, { x: 0.5, y: 0.76, len: 0.3 }, { x: 0.8, y: 0.76, len: 0.3 }],
     7: [{ x: 0.5, y: 0.14, len: 0.16, red: true }, { x: 0.25, y: 0.44, len: 0.18 }, { x: 0.5, y: 0.44, len: 0.18 }, { x: 0.75, y: 0.44, len: 0.18 }, { x: 0.25, y: 0.78, len: 0.18 }, { x: 0.5, y: 0.78, len: 0.18 }, { x: 0.75, y: 0.78, len: 0.18 }],
     8: [{ x: 0.28, y: 0.14, len: 0.14 }, { x: 0.72, y: 0.14, len: 0.14 }, { x: 0.28, y: 0.38, len: 0.14 }, { x: 0.72, y: 0.38, len: 0.14 }, { x: 0.28, y: 0.62, len: 0.14 }, { x: 0.72, y: 0.62, len: 0.14 }, { x: 0.28, y: 0.86, len: 0.14 }, { x: 0.72, y: 0.86, len: 0.14 }],
-    9: [{ x: 0.22, y: 0.18, len: 0.17 }, { x: 0.5, y: 0.18, len: 0.17 }, { x: 0.78, y: 0.18, len: 0.17 }, { x: 0.22, y: 0.5, len: 0.17 }, { x: 0.5, y: 0.5, len: 0.17, red: true }, { x: 0.78, y: 0.5, len: 0.17 }, { x: 0.22, y: 0.82, len: 0.17 }, { x: 0.5, y: 0.82, len: 0.17 }, { x: 0.78, y: 0.82, len: 0.17 }]
+    9: [{ x: 0.2, y: 0.17, len: 0.21 }, { x: 0.5, y: 0.17, len: 0.21, red: true }, { x: 0.8, y: 0.17, len: 0.21 }, { x: 0.2, y: 0.5, len: 0.21 }, { x: 0.5, y: 0.5, len: 0.21, red: true }, { x: 0.8, y: 0.5, len: 0.21 }, { x: 0.2, y: 0.83, len: 0.21 }, { x: 0.5, y: 0.83, len: 0.21, red: true }, { x: 0.8, y: 0.83, len: 0.21 }]
   };
   function parseFace(face) {
     const f = face.replace(/[~*]+$/, "");
     const lead = /[a-z]/i.test(f[0] || "");
     return { suit: lead ? f[0] : f[1] || "", n: Number(lead ? f.slice(1) : f[0]) };
-  }
-  function footColor(face) {
-    const { suit, n } = parseFace(face);
-    if (suit === "x") return ["#C0392B", "#2E8B57", "#2E7FB8"][n - 1] || T.jade;
-    return SUIT_COLOR[suit] || T.jade;
-  }
-  function rr(ctx, x, y, w, h, r) {
-    const rad = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + rad, y);
-    ctx.arcTo(x + w, y, x + w, y + h, rad);
-    ctx.arcTo(x + w, y + h, x, y + h, rad);
-    ctx.arcTo(x, y + h, x, y, rad);
-    ctx.arcTo(x, y, x + w, y, rad);
-    ctx.closePath();
   }
   function pip(ctx, x, y, r, color) {
     ctx.beginPath();
@@ -2288,7 +2674,7 @@
     ctx.fill();
     ctx.beginPath();
     ctx.arc(x, y, r * 0.62, 0, Math.PI * 2);
-    ctx.fillStyle = T.tile;
+    ctx.fillStyle = palette.tile;
     ctx.fill();
     ctx.beginPath();
     ctx.arc(x, y, r * 0.32, 0, Math.PI * 2);
@@ -2296,26 +2682,48 @@
     ctx.fill();
   }
   function stick(ctx, x, y, len, w, color) {
+    const top2 = y - len / 2, bottom = y + len / 2;
+    const dark = color === PIP_RED ? "#8D2B2A" : "#12553B";
+    const light = color === PIP_RED ? "#C6453A" : "#287C54";
+    ctx.save();
     ctx.beginPath();
-    ctx.moveTo(x, y - len / 2);
-    ctx.lineTo(x, y + len / 2);
-    ctx.lineWidth = w;
+    ctx.moveTo(x - w * 0.32, top2);
+    ctx.quadraticCurveTo(x - w * 0.58, top2 + len * 0.1, x - w * 0.34, y - len * 0.08);
+    ctx.lineTo(x - w * 0.46, y);
+    ctx.lineTo(x - w * 0.34, y + len * 0.08);
+    ctx.quadraticCurveTo(x - w * 0.56, bottom - len * 0.08, x - w * 0.28, bottom);
+    ctx.lineTo(x + w * 0.28, bottom);
+    ctx.quadraticCurveTo(x + w * 0.56, bottom - len * 0.08, x + w * 0.34, y + len * 0.08);
+    ctx.lineTo(x + w * 0.46, y);
+    ctx.lineTo(x + w * 0.34, y - len * 0.08);
+    ctx.quadraticCurveTo(x + w * 0.58, top2 + len * 0.1, x + w * 0.32, top2);
+    ctx.closePath();
+    ctx.fillStyle = linear(ctx, x - w / 2, y, x + w / 2, y, [[0, dark], [0.44, light], [1, dark]]);
+    ctx.fill();
+    ctx.strokeStyle = dark;
     ctx.lineCap = "round";
-    ctx.strokeStyle = color;
-    ctx.stroke();
-    const ticks = len > w * 4 ? [-len * 0.22, len * 0.22] : [0];
-    for (const t of ticks) {
+    ctx.lineWidth = Math.max(0.65, w * 0.17);
+    for (const t of [-0.38, 0, 0.38]) {
       ctx.beginPath();
-      ctx.moveTo(x - w * 0.32, y + t);
-      ctx.lineTo(x + w * 0.32, y + t);
-      ctx.lineWidth = Math.max(1, w * 0.22);
-      ctx.strokeStyle = T.tile;
+      ctx.moveTo(x - w * 0.46, y + len * t);
+      ctx.lineTo(x + w * 0.46, y + len * t);
       ctx.stroke();
     }
+    ctx.strokeStyle = "rgba(240,249,222,.55)";
+    ctx.lineWidth = Math.max(0.45, w * 0.09);
+    ctx.beginPath();
+    ctx.moveTo(x - w * 0.17, top2 + len * 0.18);
+    ctx.lineTo(x - w * 0.12, y - len * 0.13);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - w * 0.12, y + len * 0.13);
+    ctx.lineTo(x - w * 0.17, bottom - len * 0.18);
+    ctx.stroke();
+    ctx.restore();
   }
   function bird(ctx, x, y, w, h) {
     const cx = x + w * 0.5, cy = y + h * 0.55;
-    const circle = (ax, ay, r, col) => {
+    const dot = (ax, ay, r, col) => {
       ctx.beginPath();
       ctx.arc(ax, ay, r, 0, Math.PI * 2);
       ctx.fillStyle = col;
@@ -2331,55 +2739,16 @@
       ctx.strokeStyle = col;
       ctx.stroke();
     };
-    circle(cx - w * 0.04, cy + h * 0.06, w * 0.2, "#2E8B57");
-    circle(cx + w * 0.14, cy - h * 0.16, w * 0.12, "#2E8B57");
-    circle(cx + w * 0.17, cy - h * 0.18, w * 0.03, "#22301F");
-    line([[cx + w * 0.25, cy - h * 0.2], [cx + w * 0.38, cy - h * 0.14], [cx + w * 0.25, cy - h * 0.1]], "#C0392B", Math.max(1, w * 0.05));
-    line([[cx - w * 0.2, cy + h * 0.14], [cx - w * 0.38, cy + h * 0.34], [cx - w * 0.08, cy + h * 0.26]], "#C0392B", Math.max(1, w * 0.06));
-    line([[cx - w * 0.16, cy], [cx - w * 0.3, cy - h * 0.16], [cx - w * 0.04, cy - h * 0.1]], "#2E7FB8", Math.max(1, w * 0.05));
+    dot(cx - w * 0.04, cy + h * 0.06, w * 0.2, "#2E8B57");
+    dot(cx + w * 0.14, cy - h * 0.16, w * 0.12, "#2E8B57");
+    dot(cx + w * 0.17, cy - h * 0.18, w * 0.03, palette.ink);
+    line([[cx + w * 0.25, cy - h * 0.2], [cx + w * 0.38, cy - h * 0.14], [cx + w * 0.25, cy - h * 0.1]], palette.red, Math.max(1, w * 0.05));
+    line([[cx - w * 0.2, cy + h * 0.14], [cx - w * 0.38, cy + h * 0.34], [cx - w * 0.08, cy + h * 0.26]], palette.red, Math.max(1, w * 0.06));
+    line([[cx - w * 0.16, cy], [cx - w * 0.3, cy - h * 0.16], [cx - w * 0.04, cy - h * 0.1]], palette.blue, Math.max(1, w * 0.05));
   }
-  function drawFrost(ctx, x, y, w, h, layers = 1) {
-    const rim = (inset, lw, col, fill) => {
-      rr(ctx, x + w * inset, y + h * inset, w * (1 - inset * 2), h * (1 - inset * 2), Math.min(w, h) * 0.14);
-      if (fill) {
-        ctx.fillStyle = fill;
-        ctx.fill();
-      }
-      ctx.lineWidth = lw;
-      ctx.strokeStyle = col;
-      ctx.stroke();
-    };
-    if (layers >= 2) rim(0.015, Math.max(2, w * 0.05), "rgba(120,190,240,.95)", null);
-    rim(layers >= 2 ? 0.075 : 0.04, Math.max(1.5, w * 0.05), "rgba(150,205,245,.95)", "rgba(205,235,255,.42)");
-    const crystal = (cx, cy, s) => {
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.strokeStyle = "rgba(235,248,255,.95)";
-      ctx.lineWidth = Math.max(1, s * 0.22);
-      ctx.lineCap = "round";
-      for (let i = 0; i < 4; i++) {
-        const a = i * Math.PI / 4;
-        ctx.beginPath();
-        ctx.moveTo(-Math.cos(a) * s, -Math.sin(a) * s);
-        ctx.lineTo(Math.cos(a) * s, Math.sin(a) * s);
-        ctx.stroke();
-      }
-      ctx.restore();
-    };
-    crystal(x + w * 0.78, y + h * 0.22, w * 0.07);
-    crystal(x + w * 0.22, y + h * 0.76, w * 0.06);
-  }
-  function iceLayers2(face) {
-    let n = 0;
-    while (face.endsWith("~")) {
-      face = face.slice(0, -1);
-      n++;
-    }
-    return n;
-  }
-  function drawFaceArt(ctx, face, x, y, w, h) {
-    const { suit, n } = parseFace(face);
-    if (suit === "p" && DOTS[n]) {
+  function faceArt(ctx, face, x, y, w, h) {
+    const { suit: suit2, n } = parseFace(face);
+    if (suit2 === "p" && DOTS[n]) {
       if (n === 1) {
         const cx = x + w / 2, cy = y + h / 2, r = w * 0.37;
         const ring = (rr22, col) => {
@@ -2389,23 +2758,23 @@
           ctx.fill();
         };
         ring(r, "#2E8B57");
-        ring(r * 0.78, T.tile);
-        ring(r * 0.6, "#C0392B");
-        ring(r * 0.36, T.tile);
-        ring(r * 0.2, "#2E7FB8");
+        ring(r * 0.78, palette.tile);
+        ring(r * 0.6, palette.red);
+        ring(r * 0.36, palette.tile);
+        ring(r * 0.2, palette.blue);
         return;
       }
       const plan = PIP_PLAN[n] || PIP_PLAN[2];
       DOTS[n].forEach(([px, py, pr], i) => pip(ctx, x + px * w, y + py * h, pr * w, plan[i % plan.length]));
       return;
     }
-    if (suit === "s") {
+    if (suit2 === "s") {
       if (n === 1) {
         bird(ctx, x, y, w, h);
         return;
       }
       if (STICKS[n]) {
-        const sw = w * 0.13;
+        const sw = w * (n <= 4 ? 0.19 : n === 9 ? 0.135 : 0.145);
         for (const { x: px, y: py, len, red } of STICKS[n]) {
           const cx = x + px * w, cy = y + py * h, cl = len * h;
           const cwd = cl > h * 0.34 ? sw * 1.16 : sw;
@@ -2414,19 +2783,19 @@
         return;
       }
     }
-    if (suit === "m" && n >= 1 && n <= 9) {
+    if (suit2 === "m" && n >= 1 && n <= 9) {
       const a = Math.min(h * 0.34, w * 0.74), b = Math.min(h * 0.38, w * 0.78);
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.font = `700 ${a}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
-      ctx.fillStyle = "#2B4A7A";
+      ctx.font = `700 ${a}px ${SERIF}`;
+      ctx.fillStyle = palette.navy;
       ctx.fillText(NUMERALS[n - 1], x + w / 2, y + h * 0.06);
-      ctx.font = `700 ${b}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
-      ctx.fillStyle = "#C0392B";
+      ctx.font = `700 ${b}px ${SERIF}`;
+      ctx.fillStyle = palette.red;
       ctx.fillText("\u842C", x + w / 2, y + h * 0.48);
       return;
     }
-    if (suit === "z" && n >= 1 && n <= 7) {
+    if (suit2 === "z" && n >= 1 && n <= 7) {
       if (n === 7) {
         rr(ctx, x + w * 0.16, y + h * 0.18, w * 0.68, h * 0.64, w * 0.09);
         ctx.lineWidth = Math.max(2, w * 0.07);
@@ -2437,17 +2806,17 @@
       const size2 = Math.min(h * 0.5, w * 0.84);
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.font = `700 ${size2}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
-      ctx.fillStyle = n === 5 ? "#C0392B" : n === 6 ? "#2E8B57" : "#2B4A7A";
+      ctx.font = `700 ${size2}px ${SERIF}`;
+      ctx.fillStyle = n === 5 ? palette.red : n === 6 ? "#2E8B57" : palette.navy;
       ctx.fillText(HONORS[n - 1], x + w / 2, y + (h - size2) / 2);
       return;
     }
-    if (suit === "f" && n >= 1 && n <= 8) {
+    if (suit2 === "f" && n >= 1 && n <= 8) {
       const size2 = Math.min(h * 0.5, w * 0.8);
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.font = `700 ${size2}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
-      ctx.fillStyle = "#1C5B37";
+      ctx.font = `700 ${size2}px ${SERIF}`;
+      ctx.fillStyle = palette.jadeDeep;
       ctx.fillText(FLOWERS[n - 1], x + w / 2, y + h * 0.04);
       const fx = x + w / 2, fy = y + h * 0.84, fr = w * 0.09;
       for (let i = 0; i < 5; i++) {
@@ -2468,17 +2837,12 @@
       const size2 = Math.min(h * 0.56, w * 0.86);
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.font = `700 ${size2}px ${'"STKaiti","KaiTi","Songti SC",serif'}`;
+      ctx.font = `700 ${size2}px ${SERIF}`;
       ctx.fillStyle = col;
       ctx.fillText(ch, x + w / 2, y + (h - size2) / 2);
       return;
     }
-    const size = Math.min(h * 0.4, w * 0.6);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.font = `700 ${size}px sans-serif`;
-    ctx.fillStyle = "#8A957E";
-    if (suit === "b") {
+    if (suit2 === "b" && face === BOMB_FACE2) {
       const cx = x + w / 2, bw = w * 0.3, bh = h * 0.46, top2 = y + h * 0.5 - bh / 2 + h * 0.06;
       ctx.beginPath();
       ctx.moveTo(cx, top2);
@@ -2511,47 +2875,105 @@
       ctx.fill();
       return;
     }
+    const size = Math.min(h * 0.4, w * 0.6);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.font = `700 ${size}px ${SANS}`;
+    ctx.fillStyle = palette.inkFaint;
     ctx.fillText("?", x + w / 2, y + (h - size) / 2);
   }
-  function drawTile(ctx, cx, cy, o) {
+  function drawFrostFrame(ctx, x, y, w, h, layers) {
+    const rim = (inset, lw, col, fill) => {
+      rr(ctx, x + w * inset, y + h * inset, w * (1 - inset * 2), h * (1 - inset * 2), Math.min(w, h) * 0.14);
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = col;
+      ctx.stroke();
+    };
+    if (layers >= 2) rim(0.015, Math.max(2, w * 0.05), "rgba(120,190,240,.95)", null);
+    rim(layers >= 2 ? 0.075 : 0.04, Math.max(1.5, w * 0.05), "rgba(150,205,245,.95)", "rgba(205,235,255,.42)");
+    const crystal = (cx, cy, s) => {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.strokeStyle = "rgba(235,248,255,.95)";
+      ctx.lineWidth = Math.max(1, s * 0.22);
+      ctx.lineCap = "round";
+      for (let i = 0; i < 4; i++) {
+        const a = i * Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(-Math.cos(a) * s, -Math.sin(a) * s);
+        ctx.lineTo(Math.cos(a) * s, Math.sin(a) * s);
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+    crystal(x + w * 0.78, y + h * 0.22, w * 0.07);
+    crystal(x + w * 0.22, y + h * 0.76, w * 0.06);
+  }
+  function drawFrost(ctx, x, y, w, h, layers = 1) {
+    drawFrostFrame(ctx, x, y, w, h, layers);
+  }
+  function iceLayers2(face) {
+    let n = 0;
+    while (face.endsWith("~")) {
+      face = face.slice(0, -1);
+      n++;
+    }
+    return n;
+  }
+  function drawTile(ctx, face, x, y, o) {
     const { w, h } = o;
-    const lift = o.lift ?? Math.max(2, h * 0.07);
-    const x = cx - w / 2, y = cy - h / 2;
-    const r = Math.min(w, h) * 0.17;
-    const foot = footColor(o.face);
+    const lift = o.lift ?? Math.max(3, h * 0.085);
+    const r = Math.min(w, h) * 0.12;
+    const foot = "#347B60";
     ctx.save();
     ctx.globalAlpha = 0.18;
-    rr(ctx, x + w * 0.02, y + h * 0.05, w, h - lift, r);
-    ctx.fillStyle = "#1E3A22";
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    rr(ctx, x, y + lift, w, h - lift, r);
-    ctx.fillStyle = foot;
-    ctx.fill();
+    fillRR(ctx, x + w * 0.02, y + h * 0.05, w, h - lift, r, "#1E3A22");
+    ctx.restore();
+    fillRR(
+      ctx,
+      x,
+      y + lift,
+      w,
+      h - lift,
+      r,
+      linear(ctx, x, y, x, y + h, [[0, "#70A18A"], [0.7, foot], [1, "#235740"]])
+    );
+    fillRR(ctx, x, y + lift * 0.35, w, h - lift * 0.95, r, "#D4D5C4");
     rr(ctx, x, y, w, h - lift, r);
-    const g = ctx.createLinearGradient(x, y, x, y + h - lift);
-    g.addColorStop(0, "#FFFFFF");
-    g.addColorStop(0.55, T.tile);
-    g.addColorStop(1, "#F0E7CC");
-    ctx.fillStyle = g;
+    ctx.fillStyle = linear(
+      ctx,
+      x,
+      y,
+      x,
+      y + h - lift,
+      [[0, "#FFFFFF"], [0.52, "#FFFFF6"], [1, "#ECECDC"]]
+    );
     ctx.fill();
-    ctx.lineWidth = Math.max(1, w * 0.022);
-    ctx.strokeStyle = T.tileEdge;
+    ctx.lineWidth = Math.max(0.7, w * 0.016);
+    ctx.strokeStyle = "#C6CBB9";
     ctx.stroke();
-    rr(ctx, x + w * 0.08, y + h * 0.07, w * 0.84, (h - lift) * 0.16, r * 0.6);
-    ctx.fillStyle = "rgba(255,255,255,.75)";
-    ctx.fill();
+    strokeRR(ctx, x + w * 0.027, y + h * 0.018, w * 0.946, h - lift - h * 0.04, r * 0.82, "#FFFFFF", Math.max(0.7, w * 0.019));
+    fillRR(ctx, x + w * 0.08, y + h * 0.07, w * 0.84, (h - lift) * 0.16, r * 0.6, "rgba(255,255,255,.75)");
+    faceArt(ctx, face, x + w * 0.09, y + h * 0.07, w * 0.82, (h - lift) * 0.84);
+    const ice = iceLayers2(face);
+    if (ice > 0) drawFrost(ctx, x + w * 0.06, y + h * 0.06, w * 0.88, (h - lift) * 0.88, ice);
+  }
+
+  // demo/h5/src/tile.ts
+  function drawTile2(ctx, cx, cy, o) {
+    const { w, h } = o, x = cx - w / 2, y = cy - h / 2;
+    ctx.save();
+    drawTile(ctx, o.face, x, y, o);
     if (o.glow) {
-      rr(ctx, x - w * 0.04, y - h * 0.04, w * 1.08, h * 1.02, r * 1.15);
+      rr(ctx, x - w * 0.04, y - h * 0.04, w * 1.08, h * 1.02, Math.min(w, h) * 0.15);
       ctx.lineWidth = Math.max(2, w * 0.06);
       ctx.strokeStyle = "#FFD84D";
       ctx.stroke();
     }
-    ctx.save();
-    drawFaceArt(ctx, o.face, x + w * 0.09, y + h * 0.07, w * 0.82, (h - lift) * 0.84);
-    ctx.restore();
-    const ice = iceLayers2(o.face);
-    if (ice > 0) drawFrost(ctx, x + w * 0.06, y + h * 0.06, w * 0.88, (h - lift) * 0.88, ice);
     ctx.restore();
   }
 
@@ -2814,12 +3236,12 @@
     ctx.arcTo(x, y, x + w, y, rad);
     ctx.closePath();
   }
-  function fillRR(ctx, b, r, fill) {
+  function fillRR2(ctx, b, r, fill) {
     rr2(ctx, b.x, b.y, b.w, b.h, r);
     ctx.fillStyle = fill;
     ctx.fill();
   }
-  function strokeRR(ctx, b, r, col, lw) {
+  function strokeRR2(ctx, b, r, col, lw) {
     rr2(ctx, b.x, b.y, b.w, b.h, r);
     ctx.lineWidth = lw;
     ctx.strokeStyle = col;
@@ -2846,14 +3268,14 @@
     const r = o.r ?? Math.min(b.w, b.h) * 0.09;
     ctx.save();
     ctx.globalAlpha = 0.22;
-    fillRR(ctx, { x: b.x, y: b.y + b.h * 0.012, w: b.w, h: b.h }, r, "#3B2A12");
+    fillRR2(ctx, { x: b.x, y: b.y + b.h * 0.012, w: b.w, h: b.h }, r, "#3B2A12");
     ctx.restore();
     const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
     g.addColorStop(0, o.fill ?? "#FFFBF0");
     g.addColorStop(1, o.fill ? o.fill : T.creamDeep);
-    fillRR(ctx, b, r, g);
-    strokeRR(ctx, b, r, o.stroke ?? T.gold, o.lw ?? Math.max(2, b.w * 6e-3));
-    if (o.inner !== false) strokeRR(ctx, { x: b.x + b.w * 0.022, y: b.y + b.h * 0.016, w: b.w * 0.956, h: b.h * 0.968 }, r * 0.9, "rgba(216,169,78,.5)", 1.5);
+    fillRR2(ctx, b, r, g);
+    strokeRR2(ctx, b, r, o.stroke ?? T.gold, o.lw ?? Math.max(2, b.w * 6e-3));
+    if (o.inner !== false) strokeRR2(ctx, { x: b.x + b.w * 0.022, y: b.y + b.h * 0.016, w: b.w * 0.956, h: b.h * 0.968 }, r * 0.9, "rgba(216,169,78,.5)", 1.5);
   }
   var KIND = {
     jade: { top: "#5FBE72", bottom: "#2E7D4F", edge: "#1C5B37", ink: "#FFFFFF" },
@@ -2867,18 +3289,18 @@
     const r = o.r ?? b.h * 0.34;
     const dy = o.pressed ? b.h * 0.06 : 0;
     const body = { x: b.x, y: b.y + b.h * 0.05, w: b.w, h: b.h * 0.95 };
-    fillRR(ctx, body, r, k.edge);
+    fillRR2(ctx, body, r, k.edge);
     const face = { x: b.x, y: b.y + dy, w: b.w, h: b.h * 0.9 };
     const g = ctx.createLinearGradient(face.x, face.y, face.x, face.y + face.h);
     g.addColorStop(0, k.top);
     g.addColorStop(1, k.bottom);
-    fillRR(ctx, face, r, g);
+    fillRR2(ctx, face, r, g);
     ctx.save();
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = "#FFFFFF";
-    fillRR(ctx, { x: face.x + face.w * 0.06, y: face.y + face.h * 0.09, w: face.w * 0.88, h: face.h * 0.2 }, r * 0.6, "#FFFFFF");
+    fillRR2(ctx, { x: face.x + face.w * 0.06, y: face.y + face.h * 0.09, w: face.w * 0.88, h: face.h * 0.2 }, r * 0.6, "#FFFFFF");
     ctx.restore();
-    strokeRR(ctx, face, r, k.edge, Math.max(1.5, b.h * 0.022));
+    strokeRR2(ctx, face, r, k.edge, Math.max(1.5, b.h * 0.022));
     ctx.save();
     ctx.globalAlpha = 0.8;
     ctx.fillStyle = o.kind === "jade" ? T.goldLight : T.gold;
@@ -2909,8 +3331,8 @@
     const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
     g.addColorStop(0, o.fill ?? "#3E7A48");
     g.addColorStop(1, o.fill ? o.fill : "#22552F");
-    fillRR(ctx, b, r, g);
-    strokeRR(ctx, { x: b.x + 1, y: b.y + 1, w: b.w - 2, h: b.h - 2 }, r, o.edge ?? T.gold, Math.max(1.5, b.h * 0.05));
+    fillRR2(ctx, b, r, g);
+    strokeRR2(ctx, { x: b.x + 1, y: b.y + 1, w: b.w - 2, h: b.h - 2 }, r, o.edge ?? T.gold, Math.max(1.5, b.h * 0.05));
     text(ctx, label, b.x + b.w / 2, b.y + b.h / 2, o.size ?? b.h * 0.46, o.ink ?? "#FBF3DE", "center", true, o.serif);
   }
   function stars(ctx, cx, cy, r, got, total = 3, gap = 0) {
@@ -2951,7 +3373,7 @@
       g.addColorStop(0, "#D9D2C0");
       g.addColorStop(1, "#C3BAA4");
     }
-    fillRR(ctx, b, r, g);
+    fillRR2(ctx, b, r, g);
     ctx.beginPath();
     ctx.arc(on ? b.x + w - r : b.x + r, y, r * 0.82, 0, Math.PI * 2);
     ctx.fillStyle = "#FFFFFF";
@@ -2986,7 +3408,7 @@
 
   // demo/h5/src/app.ts
   var DW = 750;
-  var APP_VERSION = "0.3.1";
+  var APP_VERSION = "0.4.0";
   var TIP_CONTENT = {
     basic: { title: "\u600E\u4E48\u73A9", lines: ["\u6309\u4F4F\u4EFB\u610F\u4E00\u884C\u6216\u4E00\u5217\u62D6\u52A8\uFF0C\u6574\u6BB5\u724C\u4F1A\u5FAA\u73AF\u6ED1\u52A8\uFF1B", "\u677E\u624B\u65F6\uFF0C\u78B0\u5728\u4E00\u8D77\u7684\u540C\u724C\u81EA\u52A8\u6D88\u9664\u3002", "\u4E5F\u53EF\u4EE5\u76F4\u63A5\u70B9\u4E24\u5F20\u76F8\u90BB\u7684\u540C\u724C\uFF0C\u7ACB\u523B\u6D88\u9664\u3002", "\u628A\u724C\u5168\u90E8\u6D88\u5B8C\u5C31\u901A\u5173\uFF0C\u9047\u5230\u56F0\u96BE\u7528\u4E0B\u9762\u7684\u9053\u5177\u3002"] },
     stack: { title: "\u53E0\u8D77\u6765\u7684\u724C", lines: ["\u4E00\u683C\u4E0A\u53E0\u7740\u4E24\u5F20\u724C\u65F6\uFF0C\u8981\u6D88\u4E24\u6B21\u624D\u80FD\u6E05\u7A7A\u8FD9\u4E00\u683C\u3002", "\u724C\u9762\u53F3\u4E0A\u89D2\u7684\u6570\u5B57\u5C31\u662F\u53E0\u4E86\u51E0\u5C42\u3002"] },
@@ -3449,8 +3871,8 @@
       const ty = H * 0.352, subY = H * 0.432;
       text(ctx, "\u5FEB\u4E50\u63A8\u9EBB", W / 2 - 47, ty, 96, T.jadeDeep, "center", true, true);
       const seal = { x: W / 2 + 204 - 35, y: ty - 78, w: 70, h: 156 };
-      fillRR(ctx, seal, 16, "#C0392B");
-      strokeRR(ctx, seal, 16, "#8C2318", 3);
+      fillRR2(ctx, seal, 16, "#C0392B");
+      strokeRR2(ctx, seal, 16, "#8C2318", 3);
       ["\u5BF9", "\u5BF9", "\u6D88"].forEach((ch, i) => text(ctx, ch, seal.x + seal.w / 2, ty - 50 + i * 50, 36, "#FFF3DE", "center", true, true));
       text(ctx, "\u63A8\u4E00\u63A8 \xB7 \u78B0\u4E2A\u5BF9", W / 2, subY, 34, T.ink, "center", true, true);
       this.table(ctx, H * 0.655);
@@ -3458,17 +3880,17 @@
       ctx.save();
       ctx.translate(W / 2 - 130, baseY);
       ctx.rotate(-0.16);
-      drawTile(ctx, 0, 0, { face: "x1", w: tw * 0.82, h: th * 0.82 });
+      drawTile2(ctx, 0, 0, { face: "x1", w: tw * 0.82, h: th * 0.82 });
       ctx.restore();
       ctx.save();
       ctx.translate(W / 2 - 4, baseY - 30);
       ctx.rotate(-0.04);
-      drawTile(ctx, 0, 0, { face: "x2", w: tw, h: th });
+      drawTile2(ctx, 0, 0, { face: "x2", w: tw, h: th });
       ctx.restore();
       ctx.save();
       ctx.translate(W / 2 + 122, baseY + 4);
       ctx.rotate(0.13);
-      drawTile(ctx, 0, 0, { face: "x3", w: tw, h: th });
+      drawTile2(ctx, 0, 0, { face: "x3", w: tw, h: th });
       ctx.restore();
       const bw = W - 168, bx = (W - bw) / 2;
       const start = { x: bx, y: H * 0.735, w: bw, h: 104 };
@@ -3573,8 +3995,8 @@
         const box = { x: bx, y: by, w: cw, h: chh };
         const unlocked = !gateBlocked && this.session.canEnter(idx);
         if (!unlocked) {
-          fillRR(ctx, box, 18, "rgba(222,216,198,.55)");
-          strokeRR(ctx, box, 18, "rgba(190,180,158,.5)", 2);
+          fillRR2(ctx, box, 18, "rgba(222,216,198,.55)");
+          strokeRR2(ctx, box, 18, "rgba(190,180,158,.5)", 2);
           text(ctx, String(idx + 1), bx + cw / 2, by + chh * 0.42, 36, "#B3A98F", "center", true);
           continue;
         }
@@ -3582,9 +4004,9 @@
         const g = ctx.createLinearGradient(bx, by, bx, by + chh);
         g.addColorStop(0, "#6FC46F");
         g.addColorStop(1, "#2E7D4F");
-        fillRR(ctx, { x: bx, y: by + 4, w: cw, h: chh - 4 }, 18, "#1C5B37");
-        fillRR(ctx, box, 18, g);
-        strokeRR(ctx, box, 18, isCur ? "#FFD84D" : "rgba(255,255,255,.35)", isCur ? 4 : 2);
+        fillRR2(ctx, { x: bx, y: by + 4, w: cw, h: chh - 4 }, 18, "#1C5B37");
+        fillRR2(ctx, box, 18, g);
+        strokeRR2(ctx, box, 18, isCur ? "#FFD84D" : "rgba(255,255,255,.35)", isCur ? 4 : 2);
         text(ctx, String(idx + 1), bx + cw / 2, by + chh * 0.32, 36, "#FFFFFF", "center", true);
         stars(ctx, bx + cw / 2, by + chh * 0.72, 12, st);
         const bm = this.session.bestMoves[String(idx)] || 0;
@@ -3632,7 +4054,7 @@
       ctx.beginPath();
       ctx.arc(cx, cy - r * 0.35, r * 0.45, Math.PI, 0);
       ctx.stroke();
-      fillRR(ctx, { x: cx - r * 0.75, y: cy - r * 0.3, w: r * 1.5, h: r * 1.15 }, r * 0.25, col);
+      fillRR2(ctx, { x: cx - r * 0.75, y: cy - r * 0.3, w: r * 1.5, h: r * 1.15 }, r * 0.25, col);
     }
     /** 连锁解锁的数字徽标（消够这个数就解锁）。 */
     badge(ctx, cx, cy, r, num) {
@@ -3681,21 +4103,21 @@
       const moveText = S.moveLimit ? `\u6B65\u6570 ${S.moves}/${S.moveLimit}` : `${S.moves} \u6B65 \xB7 \u4E09\u661F \u2264 ${S.starLines.three} \u6B65`;
       text(ctx, moveText, W - 40, 134, 25, S.moveLimit && S.movesLeft <= 3 ? "#B4442F" : T.ink, "right", true);
       const pbar = { x: 40, y: 158, w: W - 80, h: 16 };
-      fillRR(ctx, pbar, 8, "rgba(60,90,50,.3)");
+      fillRR2(ctx, pbar, 8, "rgba(60,90,50,.3)");
       const done = S.total ? (S.total - left) / S.total : 0;
       if (done > 0) {
         const g = ctx.createLinearGradient(pbar.x, pbar.y, pbar.x + pbar.w, pbar.y);
         g.addColorStop(0, "#8FD98F");
         g.addColorStop(1, "#4FA46A");
-        fillRR(ctx, { x: pbar.x, y: pbar.y, w: Math.max(12, pbar.w * done), h: pbar.h }, 8, g);
+        fillRR2(ctx, { x: pbar.x, y: pbar.y, w: Math.max(12, pbar.w * done), h: pbar.h }, 8, g);
       }
       const msg = { x: 34, y: 190, w: W - 68, h: 62 };
       const mg = ctx.createLinearGradient(msg.x, msg.y, msg.x, msg.y + msg.h);
       mg.addColorStop(0, "#FFF9E6");
       mg.addColorStop(1, "#F6EBCB");
-      fillRR(ctx, msg, 31, mg);
-      strokeRR(ctx, msg, 31, T.creamEdge, 2);
-      fillRR(ctx, { x: msg.x + 22, y: msg.y + 16, w: 6, h: msg.h - 32 }, 3, T.jade);
+      fillRR2(ctx, msg, 31, mg);
+      strokeRR2(ctx, msg, 31, T.creamEdge, 2);
+      fillRR2(ctx, { x: msg.x + 22, y: msg.y + 16, w: 6, h: msg.h - 32 }, 3, T.jade);
       const line = this.drag ? (() => {
         const r = S.runs[this.drag.run];
         return `\u6B63\u5728\u5411${this.drag.axis === "row" ? this.drag.offset > 0 ? "\u53F3" : "\u5DE6" : this.drag.offset > 0 ? "\u4E0B" : "\u4E0A"}\u63A8 ${Math.max(1, Math.abs(Math.round(this.drag.offset)))} \u683C \xB7 \u677E\u624B\u6D88\u9664\u78B0\u8D77\u7684\u5BF9\u5B50`;
@@ -3722,8 +4144,8 @@
           const cell = S.grid[r][c];
           const slot = { x: x0 + cellW * 0.07, y: y0 + cellH * 0.07, w: cellW * 0.86, h: cellH * 0.86 };
           if (cell === "#" || cell === null) {
-            fillRR(ctx, slot, 12, "rgba(96,64,28,.42)");
-            strokeRR(ctx, slot, 12, "rgba(60,38,14,.55)", 2.5);
+            fillRR2(ctx, slot, 12, "rgba(96,64,28,.42)");
+            strokeRR2(ctx, slot, 12, "rgba(60,38,14,.55)", 2.5);
             ctx.save();
             ctx.lineCap = "round";
             ctx.lineWidth = Math.max(2, slot.w * 0.06);
@@ -3741,8 +4163,8 @@
       const def = levelAt(S.levelIndex);
       const tileable = (row) => !!row && row.split("").some((v) => v === "1" || v === "2" || v === "3");
       const railBar = (x, y, w, h) => {
-        fillRR(ctx, { x, y, w, h }, 5, "rgba(96,64,28,.30)");
-        strokeRR(ctx, { x: x + 1, y: y + 1, w: w - 2, h: h - 2 }, 5, "rgba(60,38,14,.35)", 2);
+        fillRR2(ctx, { x, y, w, h }, 5, "rgba(96,64,28,.30)");
+        strokeRR2(ctx, { x: x + 1, y: y + 1, w: w - 2, h: h - 2 }, 5, "rgba(60,38,14,.35)", 2);
       };
       for (const r of def.lockR) {
         if (r < 0 || r >= rows || !tileable(def.map[r])) continue;
@@ -3811,7 +4233,7 @@
             const tw = cellW * 0.84, th = cellH * 0.84;
             const isTop = k === visible - 1;
             const cx = x0 + cellW / 2, cy = y0 + cellH * 0.5 - depth * liftY;
-            drawTile(ctx, cx, cy, { face: cell[k], w: tw, h: th, lift: th * 0.08 });
+            drawTile2(ctx, cx, cy, { face: cell[k], w: tw, h: th, lift: th * 0.08 });
             if (isTop && cell.length > 1) this.countBadge(ctx, cx + tw * 0.42, cy - th * 0.38, cell.length);
           }
         }
@@ -3915,7 +4337,7 @@
       g.addColorStop(0, "#C08B52");
       g.addColorStop(0.16, "#A9723F");
       g.addColorStop(1, "#7B4C22");
-      fillRR(ctx, b, 0, g);
+      fillRR2(ctx, b, 0, g);
       ctx.save();
       ctx.globalAlpha = 0.16;
       ctx.strokeStyle = "#5A3714";
@@ -3930,23 +4352,23 @@
       ctx.restore();
       ctx.save();
       ctx.globalAlpha = 0.35;
-      fillRR(ctx, { x: -20, y, w: W + 40, h: 14 }, 0, "#F0C892");
+      fillRR2(ctx, { x: -20, y, w: W + 40, h: 14 }, 0, "#F0C892");
       ctx.restore();
     }
     woodFrame(ctx, b) {
       ctx.save();
       ctx.globalAlpha = 0.3;
-      fillRR(ctx, { x: b.x + 4, y: b.y + 8, w: b.w, h: b.h }, 26, "#20361F");
+      fillRR2(ctx, { x: b.x + 4, y: b.y + 8, w: b.w, h: b.h }, 26, "#20361F");
       ctx.restore();
       const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
       g.addColorStop(0, T.woodLight);
       g.addColorStop(0.5, T.wood);
       g.addColorStop(1, T.woodDeep);
-      fillRR(ctx, b, 26, g);
-      strokeRR(ctx, b, 26, "#4A2C10", 5);
+      fillRR2(ctx, b, 26, g);
+      strokeRR2(ctx, b, 26, "#4A2C10", 5);
       const inner = { x: b.x + 12, y: b.y + 12, w: b.w - 24, h: b.h - 24 };
-      fillRR(ctx, inner, 18, "#4E6B33");
-      strokeRR(ctx, inner, 18, "rgba(30,50,20,.5)", 3);
+      fillRR2(ctx, inner, 18, "#4E6B33");
+      strokeRR2(ctx, inner, 18, "rgba(30,50,20,.5)", 3);
     }
     countBadge(ctx, cx, cy, n) {
       const r = 15;
@@ -3961,12 +4383,12 @@
     }
     toolButton(ctx, b, ic, label, sub, pressed) {
       const dy = pressed ? 3 : 0;
-      fillRR(ctx, { x: b.x, y: b.y + 6, w: b.w, h: b.h }, 20, "#1B3A22");
+      fillRR2(ctx, { x: b.x, y: b.y + 6, w: b.w, h: b.h }, 20, "#1B3A22");
       const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
       g.addColorStop(0, "#3E7A48");
       g.addColorStop(1, "#245530");
-      fillRR(ctx, { x: b.x, y: b.y + dy, w: b.w, h: b.h - 6 }, 20, g);
-      strokeRR(ctx, { x: b.x, y: b.y + dy, w: b.w, h: b.h - 6 }, 20, "rgba(216,169,78,.55)", 2);
+      fillRR2(ctx, { x: b.x, y: b.y + dy, w: b.w, h: b.h - 6 }, 20, g);
+      strokeRR2(ctx, { x: b.x, y: b.y + dy, w: b.w, h: b.h - 6 }, 20, "rgba(216,169,78,.55)", 2);
       icon(ctx, ic, b.x + b.w / 2, b.y + 36 + dy, 34, "#F3EAD2", 3.2);
       text(ctx, label, b.x + b.w / 2, b.y + 74 + dy, 26, "#FFFFFF", "center", true);
       text(ctx, sub, b.x + b.w / 2, b.y + 98 + dy, 18, "rgba(243,234,210,.75)", "center");
@@ -4003,7 +4425,7 @@
       rows.forEach((r, i) => {
         const y = py + 94 + i * rh;
         const box = { x: b.x + 24, y, w: b.w - 48, h: rh - 8 };
-        if (i % 2 === 0) fillRR(ctx, box, 16, "rgba(255,255,255,.5)");
+        if (i % 2 === 0) fillRR2(ctx, box, 16, "rgba(255,255,255,.5)");
         icon(ctx, r.icon, box.x + 42, y + rh / 2 - 4, 34, T.jade, 3);
         text(ctx, r.label, box.x + 82, y + rh / 2 - 4, 27, T.ink, "left");
         if (r.toggle) {
@@ -4046,8 +4468,8 @@
       text(ctx, `/ ${total * 3}`, b.x + 44 + nw, b.y + oNum + 10, 24, T.inkFaint, "left", true);
       star(ctx, b.x + b.w - 62, b.y + oNum - 16, 20, true);
       const bar = { x: b.x + 40, y: b.y + oBar - 10, w: b.w - 80, h: 20 };
-      fillRR(ctx, bar, 10, "rgba(60,90,50,.22)");
-      fillRR(ctx, { x: bar.x, y: bar.y, w: Math.max(10, bar.w * Math.min(1, got / (total * 3))), h: bar.h }, 10, "#4FA46A");
+      fillRR2(ctx, bar, 10, "rgba(60,90,50,.22)");
+      fillRR2(ctx, { x: bar.x, y: bar.y, w: Math.max(10, bar.w * Math.min(1, got / (total * 3))), h: bar.h }, 10, "#4FA46A");
       text(ctx, "\u661F\u56FE", b.x + 40, b.y + oMap, 27, T.ink, "left", true);
       const gy = b.y + oGrid;
       for (let i = 0; i < total; i++) {
@@ -4056,8 +4478,8 @@
         const st = starsMap[String(i)] || 0;
         const unlocked = i <= this.session.maxLevel;
         const fill = !unlocked ? "rgba(222,216,198,.6)" : st === 0 ? "rgba(255,255,255,.66)" : st === 1 ? "#BFE3B6" : st === 2 ? "#7EC77F" : "#2E7D4F";
-        fillRR(ctx, cell, 9, fill);
-        strokeRR(ctx, cell, 9, unlocked ? "rgba(196,176,136,.65)" : "rgba(190,180,158,.45)", 1.2);
+        fillRR2(ctx, cell, 9, fill);
+        strokeRR2(ctx, cell, 9, unlocked ? "rgba(196,176,136,.65)" : "rgba(190,180,158,.45)", 1.2);
         text(
           ctx,
           String(i + 1),
@@ -4075,8 +4497,8 @@
       const lw = 100, lgap = 4;
       let lx = W / 2 - (legend.length * lw + (legend.length - 1) * lgap) / 2;
       for (const [label, col] of legend) {
-        fillRR(ctx, { x: lx, y: ly - 9, w: 18, h: 18 }, 5, col);
-        strokeRR(ctx, { x: lx, y: ly - 9, w: 18, h: 18 }, 5, "rgba(150,140,116,.5)", 1);
+        fillRR2(ctx, { x: lx, y: ly - 9, w: 18, h: 18 }, 5, col);
+        strokeRR2(ctx, { x: lx, y: ly - 9, w: 18, h: 18 }, 5, "rgba(150,140,116,.5)", 1);
         text(ctx, label, lx + 26, ly, 19, T.inkSoft, "left");
         lx += lw + lgap;
       }
@@ -4100,8 +4522,8 @@
       const bg = ctx.createLinearGradient(ban.x, ban.y, ban.x, ban.y + ban.h);
       bg.addColorStop(0, "#B4763C");
       bg.addColorStop(1, "#7C4A1E");
-      fillRR(ctx, ban, 26, bg);
-      strokeRR(ctx, ban, 26, "#5A3714", 5);
+      fillRR2(ctx, ban, 26, bg);
+      strokeRR2(ctx, ban, 26, "#5A3714", 5);
       text(ctx, "\u606D\u559C\u901A\u5173", W / 2, ban.y + ban.h / 2, 50, "#F7DFA0", "center", true, true);
       text(ctx, `\u7B2C ${S.levelIndex + 1} \u5173`, W / 2, py + oLevel, 34, T.ink, "center", true, true);
       stars(ctx, W / 2, py + oStars, 44, S.rating);
@@ -4143,12 +4565,12 @@
       const bg = ctx.createLinearGradient(ban.x, ban.y, ban.x, ban.y + ban.h);
       bg.addColorStop(0, "#A83B32");
       bg.addColorStop(1, "#6E211B");
-      fillRR(ctx, ban, 24, bg);
-      strokeRR(ctx, ban, 24, "#5A1913", 5);
+      fillRR2(ctx, ban, 24, bg);
+      strokeRR2(ctx, ban, 24, "#5A1913", 5);
       text(ctx, "\u5F88\u9057\u61BE", W / 2, ban.y + ban.h / 2, 48, "#F7DFA0", "center", true, true);
       const reasonText = S.failReason === "time" ? "\u65F6\u95F4\u5230" : S.failReason === "dead" ? "\u724C\u8D70\u6B7B\u4E86" : "\u6B65\u6570\u7528\u5C3D";
       text(ctx, reasonText, W / 2, py + oSub, 28, T.inkSoft, "center", true, true);
-      drawTile(ctx, W / 2, py + oTile, { face: "5z", w: 116, h: 144 });
+      drawTile2(ctx, W / 2, py + oTile, { face: "5z", w: 116, h: 144 });
       text(ctx, `\u7B2C ${S.levelIndex + 1} \u5173`, W / 2, py + oLevel, 30, T.ink, "center", true);
       text(ctx, `\u5269\u4F59 ${S.remaining} / ${S.liveTotal} \u5F20`, W / 2, py + oLeft, 25, T.inkSoft, "center");
       text(ctx, `${S.moves} \u6B65 \xB7 \u4E09\u661F \u2264 ${S.starLines.three} \u6B65`, W / 2, py + oMoves, 25, T.inkSoft, "center");

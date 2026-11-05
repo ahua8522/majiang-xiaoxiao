@@ -7,7 +7,7 @@
  * 为什么要烘焙：Graphics 每个图元都要现算贝塞尔并独占一块 MeshBuffer（一张 9 筒 = 27 个圆 ≈ 6804 顶点）。
  * 把「牌身 + 牌面」一次性画进纹理后，牌桌上一张牌就是一个四边形（4 顶点），整桌共用一张图集 = 1 个 draw call。
  */
-import {palette, radius, stroke, suitColor, type} from './theme';
+import {palette, radius, stroke, type} from './theme';
 
 /** 只需要用到的那部分 Canvas2D 接口，方便在 node 里造假对象。 */
 export interface Ctx2D {
@@ -133,19 +133,19 @@ const PIP_PLAN: Record<number, string[]> = {
  * 条子的竹节布局（比例坐标，每根竹节独立给 位置/长度/颜色）。关键约定：
  *  - 造型走规整路线：直排竹节 + **大间距**，靠 行列数 + 红节位置 区分（不搞斜倾/异形——上一版的
  *    V 形二条和「双搭」六条被毙了）；
- *  - 剪影：二条=两根通天长竹（全家族最长）、三条=上一下二三角、六条=2×3 中列红、
+ *  - 剪影：二条=两根通天长竹（全家族最长）、三条=上一下二三角、四条=2×2、六条=2×3 全绿、
  *    九条=3×3 密排中列红（行数 2 vs 3 + 密度区分）；
- *  - 红节点缀：5 条中心红、6 条中列红、7 条顶红、9 条中列红。
+ *  - 红节点缀：5 条中心红、7 条顶红、9 条整列红；六条与九条同时靠行数和红列区分。
  */
 const STICKS: Record<number, {x: number; y: number; len: number; red?: boolean}[]> = {
   2: [{x: .32, y: .5, len: .6}, {x: .68, y: .5, len: .6}],
   3: [{x: .5, y: .23, len: .28}, {x: .29, y: .72, len: .3}, {x: .71, y: .72, len: .3}],
-  4: [{x: .26, y: .26, len: .28}, {x: .74, y: .26, len: .28}, {x: .26, y: .74, len: .28}, {x: .74, y: .74, len: .28}],
+  4: [{x: .27, y: .24, len: .32}, {x: .73, y: .24, len: .32}, {x: .27, y: .76, len: .32}, {x: .73, y: .76, len: .32}],
   5: [{x: .24, y: .24, len: .26}, {x: .76, y: .24, len: .26}, {x: .5, y: .5, len: .26, red: true}, {x: .24, y: .76, len: .26}, {x: .76, y: .76, len: .26}],
-  6: [{x: .24, y: .27, len: .26}, {x: .5, y: .27, len: .26, red: true}, {x: .76, y: .27, len: .26}, {x: .24, y: .73, len: .26}, {x: .5, y: .73, len: .26, red: true}, {x: .76, y: .73, len: .26}],
+  6: [{x: .20, y: .24, len: .30}, {x: .5, y: .24, len: .30}, {x: .80, y: .24, len: .30}, {x: .20, y: .76, len: .30}, {x: .5, y: .76, len: .30}, {x: .80, y: .76, len: .30}],
   7: [{x: .5, y: .14, len: .16, red: true}, {x: .25, y: .44, len: .18}, {x: .5, y: .44, len: .18}, {x: .75, y: .44, len: .18}, {x: .25, y: .78, len: .18}, {x: .5, y: .78, len: .18}, {x: .75, y: .78, len: .18}],
   8: [{x: .28, y: .14, len: .14}, {x: .72, y: .14, len: .14}, {x: .28, y: .38, len: .14}, {x: .72, y: .38, len: .14}, {x: .28, y: .62, len: .14}, {x: .72, y: .62, len: .14}, {x: .28, y: .86, len: .14}, {x: .72, y: .86, len: .14}],
-  9: [{x: .22, y: .18, len: .17}, {x: .5, y: .18, len: .17}, {x: .78, y: .18, len: .17}, {x: .22, y: .5, len: .17}, {x: .5, y: .5, len: .17, red: true}, {x: .78, y: .5, len: .17}, {x: .22, y: .82, len: .17}, {x: .5, y: .82, len: .17}, {x: .78, y: .82, len: .17}]
+  9: [{x: .20, y: .17, len: .21}, {x: .5, y: .17, len: .21, red: true}, {x: .80, y: .17, len: .21}, {x: .20, y: .5, len: .21}, {x: .5, y: .5, len: .21, red: true}, {x: .80, y: .5, len: .21}, {x: .20, y: .83, len: .21}, {x: .5, y: .83, len: .21, red: true}, {x: .80, y: .83, len: .21}]
 };
 
 /** 解析 `5p` / `p5` / `3z` 这类牌面代号（冰面的 `~` 后缀先剥掉，否则 `z1~` 的序号会变成 NaN）。 */
@@ -162,14 +162,33 @@ function pip(ctx: Ctx2D, x: number, y: number, r: number, color: string): void {
   ctx.beginPath(); ctx.arc(x, y, r * .32, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
 }
 function stick(ctx: Ctx2D, x: number, y: number, len: number, w: number, color: string): void {
-  ctx.beginPath(); ctx.moveTo(x, y - len / 2); ctx.lineTo(x, y + len / 2);
-  ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.strokeStyle = color; ctx.stroke();
-  // 竹节横杠：长节画两道（1/3、2/3 处），短节画一道——让竹节读得出「节」
-  const ticks = len > w * 4 ? [-len * .22, len * .22] : [0];
-  for (const t of ticks) {
-    ctx.beginPath(); ctx.moveTo(x - w * .32, y + t); ctx.lineTo(x + w * .32, y + t);
-    ctx.lineWidth = Math.max(1, w * .22); ctx.strokeStyle = palette.tile; ctx.stroke();
+  const top = y - len / 2, bottom = y + len / 2;
+  const dark = color === PIP_RED ? '#8D2B2A' : '#12553B';
+  const light = color === PIP_RED ? '#C6453A' : '#287C54';
+  ctx.save();
+  // Continuous bamboo silhouette: shoulders and joints, not disconnected capsules.
+  ctx.beginPath();
+  ctx.moveTo(x - w * .32, top);
+  ctx.quadraticCurveTo(x - w * .58, top + len * .10, x - w * .34, y - len * .08);
+  ctx.lineTo(x - w * .46, y);
+  ctx.lineTo(x - w * .34, y + len * .08);
+  ctx.quadraticCurveTo(x - w * .56, bottom - len * .08, x - w * .28, bottom);
+  ctx.lineTo(x + w * .28, bottom);
+  ctx.quadraticCurveTo(x + w * .56, bottom - len * .08, x + w * .34, y + len * .08);
+  ctx.lineTo(x + w * .46, y);
+  ctx.lineTo(x + w * .34, y - len * .08);
+  ctx.quadraticCurveTo(x + w * .58, top + len * .10, x + w * .32, top);
+  ctx.closePath();
+  ctx.fillStyle = linear(ctx, x - w / 2, y, x + w / 2, y, [[0, dark], [.44, light], [1, dark]]);
+  ctx.fill();
+  ctx.strokeStyle = dark; ctx.lineCap = 'round'; ctx.lineWidth = Math.max(.65, w * .17);
+  for (const t of [-.38, 0, .38]) {
+    ctx.beginPath(); ctx.moveTo(x - w * .46, y + len * t); ctx.lineTo(x + w * .46, y + len * t); ctx.stroke();
   }
+  ctx.strokeStyle = 'rgba(240,249,222,.55)'; ctx.lineWidth = Math.max(.45, w * .09);
+  ctx.beginPath(); ctx.moveTo(x - w * .17, top + len * .18); ctx.lineTo(x - w * .12, y - len * .13); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x - w * .12, y + len * .13); ctx.lineTo(x - w * .17, bottom - len * .18); ctx.stroke();
+  ctx.restore();
 }
 function bird(ctx: Ctx2D, x: number, y: number, w: number, h: number): void {
   const cx = x + w * .5, cy = y + h * .55;
@@ -206,7 +225,7 @@ export function faceArt(ctx: Ctx2D, face: string, x: number, y: number, w: numbe
   if (suit === 's') {
     if (n === 1) { bird(ctx, x, y, w, h); return; }
     if (STICKS[n]) {
-      const sw = w * .13;
+      const sw = w * (n <= 4 ? .19 : n === 9 ? .135 : .145);
       for (const {x: px, y: py, len, red} of STICKS[n]) {
         const cx = x + px * w, cy = y + py * h, cl = len * h;
         // 长竹节的竹身略粗：主次分明，剪影更立
@@ -340,28 +359,32 @@ export function iceLayers(face: string): number {
 }
 
 /**
- * 画一整张牌（花色脚 + 象牙牌身 + 牌面花纹），以左上角 (x, y) 为原点。
+ * 画一整张牌（统一青绿背板 + 乳白牌身 + 牌面花纹），以左上角 (x, y) 为原点。
  * 画布按需比 w/h 高一点点以容纳向下投影。
  */
 export function drawTile(ctx: Ctx2D, face: string, x: number, y: number, o: TileArtOpts): void {
   const {w, h} = o;
-  const lift = o.lift ?? Math.max(2, h * .07);
-  const r = Math.min(w, h) * .17;
-  const foot = suitColor(face);
+  const lift = o.lift ?? Math.max(3, h * .085);
+  const r = Math.min(w, h) * .12;
+  // A physical set uses one back color; face glyphs identify the suit.
+  const foot = '#347B60';
 
   // 向下投影
   ctx.save();
   ctx.globalAlpha = .18;
   fillRR(ctx, x + w * .02, y + h * .05, w, h - lift, r, '#1E3A22');
   ctx.restore();
-  // 花色脚
-  fillRR(ctx, x, y + lift, w, h - lift, r, foot);
+  // 同一副麻将使用统一背色
+  fillRR(ctx, x, y + lift, w, h - lift, r,
+    linear(ctx, x, y, x, y + h, [[0, '#70A18A'], [.7, foot], [1, '#235740']]));
+  fillRR(ctx, x, y + lift * .35, w, h - lift * .95, r, '#D4D5C4');
   // 象牙牌身
   rr(ctx, x, y, w, h - lift, r);
   ctx.fillStyle = linear(ctx, x, y, x, y + h - lift,
-    [[0, '#FFFFFF'], [.55, palette.tile], [1, '#F0E7CC']]);
+    [[0, '#FFFFFF'], [.52, '#FFFFF6'], [1, '#ECECDC']]);
   ctx.fill();
-  ctx.lineWidth = Math.max(1, w * .022); ctx.strokeStyle = palette.tileEdge; ctx.stroke();
+  ctx.lineWidth = Math.max(.7, w * .016); ctx.strokeStyle = '#C6CBB9'; ctx.stroke();
+  strokeRR(ctx, x + w * .027, y + h * .018, w * .946, h - lift - h * .04, r * .82, '#FFFFFF', Math.max(.7, w * .019));
   // 顶部高光
   fillRR(ctx, x + w * .08, y + h * .07, w * .84, (h - lift) * .16, r * .6, 'rgba(255,255,255,.75)');
   // 牌面花纹

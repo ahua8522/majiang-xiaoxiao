@@ -19,6 +19,10 @@ with sync_playwright() as p:
         page.screenshot(path=str(SHOTS / name), full_page=True)
     page.goto(URL, wait_until='networkidle')
     page.get_by_role('button', name='开桌消一局').wait_for()
+    # The initial document is now loaded. No game action should require HTTP.
+    requests_after_load = []
+    page.on('request', lambda r: requests_after_load.append(r.url) if r.url.startswith(('http:', 'https:')) else None)
+    page.context.set_offline(True)
     shot('home.png')
     page.get_by_role('button', name='机关工坊').first.click()
     page.get_by_role('button', name='新设计 花圃初开').click()
@@ -59,7 +63,11 @@ with sync_playwright() as p:
     page.get_by_role('button', name='月下青瓷').click()
     assert page.locator('.theme-choice.active').inner_text() == '月下青瓷'
     shot('album.png')
+    assert not requests_after_load, requests_after_load
+    # Reload the served document online, then continue without a network.
+    page.context.set_offline(False)
     page.reload(wait_until='networkidle')
+    page.context.set_offline(True)
     assert page.evaluate('designStudy.earned.garden') >= 1
     assert page.evaluate("getComputedStyle(document.querySelector('#phone')).getPropertyValue('--table').trim()") == '#365e70'
     # Navigation, settings, pause, resume, and undo use visible controls.
@@ -67,7 +75,7 @@ with sync_playwright() as p:
     shot('map.png')
     page.locator('.bottom-nav').get_by_role('button', name='机关').click()
     shot('workshop.png')
-    page.get_by_role('button', name='熟悉的玩法 冰糖茶庭').click()
+    page.get_by_role('button', name='熟悉的玩法 冰晶花园').click()
     page.get_by_role('button', name='暂停', exact=True).click()
     page.get_by_role('button', name='继续这一桌').click()
     assert page.locator('#overlay').inner_html() == ''
@@ -98,5 +106,34 @@ with sync_playwright() as p:
             page.evaluate("designStudy.navigate('home')")
             shot('overview.png')
     assert not errors, errors
-    print(json.dumps({'status':'passed','certified_pointer_actions': actions,'responsive_viewports':4,'screens':5,'browser_errors':errors},ensure_ascii=False))
+    # A cold local-file start, a win, and persisted rewards also work fully offline.
+    offline_context = browser.new_context(offline=True, viewport={'width':390,'height':844})
+    offline_page = offline_context.new_page()
+    offline_requests = []
+    offline_page.on('request', lambda r: offline_requests.append(r.url) if r.url.startswith(('http:', 'https:')) else None)
+    offline_page.on('pageerror', lambda e: errors.append(str(e)))
+    offline_page.goto((ROOT / 'index.html').as_uri())
+    offline_page.get_by_role('button', name='开桌消一局').click()
+    while not offline_page.evaluate('designStudy.game.won'):
+        a = offline_page.evaluate('designStudy.game.solution[0]')
+        assert a, 'offline certificate missing'
+        offline_page.evaluate('(a) => designStudy.game.apply(a)', a)
+    # Enter the result screen to commit the actual win reward through normal UI.
+    offline_page.get_by_role('button', name='暂停', exact=True).click()
+    offline_page.get_by_role('button', name='回到首页').click()
+    offline_page.get_by_role('button', name='我的收藏').click()
+    # Rendering a completed board commits rewards, including when returning to it.
+    offline_page.evaluate("designStudy.navigate('board')")
+    offline_page.get_by_role('heading', name='这一桌，收得漂亮！').wait_for()
+    offline_page.get_by_role('button', name='看看我的花笺').click()
+    offline_page.get_by_role('button', name='杏桃夕照').click()
+    earned_offline = offline_page.evaluate('designStudy.earned.classic')
+    assert earned_offline >= 1
+    offline_page.reload()
+    assert offline_page.evaluate('designStudy.earned.classic') == earned_offline
+    assert offline_page.evaluate("getComputedStyle(document.querySelector('#phone')).getPropertyValue('--table').trim()") == '#916b65'
+    assert not offline_requests, offline_requests
+    assert not errors, errors
+    offline_context.close()
+    print(json.dumps({'status':'passed','certified_pointer_actions': actions,'responsive_viewports':4,'screens':5,'offline_cold_start_and_persistence':True,'browser_errors':errors},ensure_ascii=False))
     browser.close()

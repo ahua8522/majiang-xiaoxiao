@@ -48,7 +48,7 @@ def main(url):
               return {level: s.levelIndex, moves: s.moves, modal: s.modal, screen: window.mj.screen,
                       left: s.grid.flat().filter(c => Array.isArray(c)).reduce((n, c) => n + c.length, 0),
                       hints: s.hintsLeft, shuffles: s.shufflesLeft, rows: s.grid.length, cols: s.grid[0].length,
-                      stars: s.stars, max: s.maxLevel}; }""")
+                      stars: s.stars, max: s.maxLevel, grid: s.grid}; }""")
 
         def hit(id_):
             return page.evaluate("""(id) => { const a = window.mj; const h = a.hits.find(h => h.id === id);
@@ -135,7 +135,10 @@ def main(url):
         b6 = state()
         tap('undo')
         a6 = state()
-        ok(a6['moves'] < b6['moves'], f"撤销 rolls a move back ({b6['moves']} -> {a6['moves']})")
+        ok(a6['moves'] == b6['moves'], f"撤销 keeps spent moves ({b6['moves']} -> {a6['moves']})")
+        if run:
+            ok(a6['grid'] == b4['grid'], '撤销 restores the board before the drag, including all cascades')
+        ok(a6['hints'] == b6['hints'], '撤销 does not refund a spent hint')
         b7 = state()
         tap('shuffle')
         a7 = state()

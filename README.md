@@ -1,6 +1,6 @@
 # 快乐推麻对对消 · 微信小游戏（Cocos Creator 3.8）
 
-> 2026-11-05 改版设计：保留麻将消除，去掉清一色等规则限制，加入可见的机关与庭院收集。
+> 2026-11-05 改版设计：保留备案名称与麻将，转向清新日光花园；取消清一色等限制、增加直观机关。实体牌面已更新到源码，完整界面和玩法重编仍在设计稿验证。
 > [完整方案](docs/redesign-2026-11/DESIGN.md) · [可交互设计稿](docs/redesign-2026-11/index.html)。
 > 运行 `npm run redesign:serve` 后打开 `http://127.0.0.1:8788/`。这是独立设计稿，尚未替换下面介绍的正式 Cocos 版本。
 
@@ -164,3 +164,9 @@ node cocos/tools/devtools-verify.cjs --clean --reopen --wait 110   # 清缓存�
 
 **验证面**：日常迭代用 `npm test`（规则 / 存档 / 源码扫描 / 严格类型检查）+ `npm run demo`（浏览器里玩 H5 demo，同一套 core 与设计稿）；微信侧 `npm run build:wechat` + 开发者工具打开 `cocos/build/wechatgame` + `npm run verify` 截图取证；验收用真机调试或体验版 `npm run upload:ci -- <version>`。
 
+
+## 2026-11 改版方向更新
+
+保留“快乐推麻对对消”备案名称与麻将元素，视觉调整为清新日光花园。实体麻将与条子图案已改入 Cocos/H5 共用绘制源；完整新界面与机关目前仍在[可交互设计稿](docs/redesign-2026-11/index.html)验证，尚未替换正式 224 关。
+
+本阶段使用本地存档，无服务器或云开发依赖。参见[更新后的方案](docs/redesign-2026-11/DESIGN.md)与[四条/六条/九条对比](docs/redesign-2026-11/tile-study.html)。后续所有微信小游戏/小程序体验版上传统一使用 **Wechat Minigame Release** skill。
